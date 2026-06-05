@@ -32,6 +32,10 @@ import onboardingRoutes from './modules/onboarding/onboarding.routes';
 
 const app = express();
 
+// ── Trust Railway / reverse-proxy forwarded headers ───────────────────────────
+// Required to prevent ERR_ERL_UNEXPECTED_X_FORWARDED_FOR from express-rate-limit
+app.set('trust proxy', 1);
+
 // ── Security headers ──────────────────────────────────────────────────────────
 app.use(helmet());
 
