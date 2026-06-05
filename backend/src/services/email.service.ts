@@ -50,11 +50,23 @@ class EmailService {
     this.transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
       port: 587,
-      secure: false, // STARTTLS — port 587 is far less likely to be blocked than 465
+      secure: false, // STARTTLS on port 587 (465 is often blocked by Railway)
       auth: {
         user: emailUser,
         pass: emailPass,
       },
+      connectionTimeout: 10000, // 10s — Railway containers can be slow to reach external SMTP
+      greetingTimeout: 10000,
+      socketTimeout: 15000,
+    });
+
+    // Log SMTP config at startup (mask password) so Railway logs confirm env vars are loaded
+    logger.info('SMTP config loaded', {
+      host: 'smtp.gmail.com',
+      port: 587,
+      user: emailUser,
+      passLength: emailPass.length,
+      from: this.fromAddress,
     });
   }
 
