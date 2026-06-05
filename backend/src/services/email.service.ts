@@ -1,4 +1,4 @@
-import { Resend } from 'resend';
+import nodemailer from 'nodemailer';
 import { logger } from '../utils/logger';
 import {
   welcomeTemplate,
@@ -16,35 +16,65 @@ import { Store } from '../modules/stores/store.model';
 const PLATFORM_NAME = 'Ecommerce Store';
 
 // ── EmailService ──────────────────────────────────────────────────────────────
+// Uses Brevo (Sendinblue) SMTP — supports sending to any email address on the
+// free tier (300 emails/day). No domain verification required.
 
 class EmailService {
-  private resend!: Resend;
+  private transporter!: nodemailer.Transporter;
   private enabled: boolean = false;
   private fromAddress: string = '';
   private frontendUrl: string = '';
 
   constructor() {
-    const apiKey = process.env.RESEND_API_KEY;
+    const apiKey = process.env.BREVO_API_KEY;
+    const fromEmail = process.env.EMAIL_FROM_ADDRESS ?? 'osamahamroush9@gmail.com';
     const fromName = process.env.EMAIL_FROM_NAME ?? 'Ecommerce Store';
     this.frontendUrl = process.env.FRONTEND_URL ?? 'http://localhost:5173';
 
     if (!apiKey) {
-      logger.warn('RESEND_API_KEY not set — email sending is disabled');
+      logger.warn('BREVO_API_KEY not set — email sending is disabled');
       this.enabled = false;
       return;
     }
 
-    // In Resend free tier the from address must be onboarding@resend.dev
-    // unless you have a verified custom domain.
-    const fromEmail = process.env.EMAIL_FROM_ADDRESS ?? 'onboarding@resend.dev';
-    this.fromAddress = `${fromName} <${fromEmail}>`;
+    this.fromAddress = `"${fromName}" <${fromEmail}>`;
     this.enabled = true;
-    this.resend = new Resend(apiKey);
 
-    logger.info('Resend email service initialised', {
+    // Brevo SMTP credentials:
+    // user  = your Brevo account email (any verified sender)
+    // pass  = the SMTP key (xsmtpsib-...)
+    this.transporter = nodemailer.createTransport({
+      host: 'smtp-relay.brevo.com',
+      port: 587,
+      secure: false, // STARTTLS
+      auth: {
+        user: fromEmail,
+        pass: apiKey,
+      },
+      connectionTimeout: 10000,
+      greetingTimeout: 10000,
+      socketTimeout: 15000,
+    });
+
+    logger.info('Brevo SMTP email service initialised', {
+      host: 'smtp-relay.brevo.com',
+      port: 587,
       from: this.fromAddress,
       frontendUrl: this.frontendUrl,
     });
+  }
+
+  async verifyConnection(): Promise<void> {
+    if (!this.enabled) {
+      logger.warn('Email service disabled — skipping SMTP verification');
+      return;
+    }
+    try {
+      await this.transporter.verify();
+      logger.info('✅ Brevo SMTP connection verified — email service ready');
+    } catch (err) {
+      logger.error('❌ Brevo SMTP verification failed', { error: err });
+    }
   }
 
   // ── Core send ─────────────────────────────────────────────────────────────
@@ -62,31 +92,17 @@ class EmailService {
       });
       return;
     }
-
     try {
-      const { error } = await this.resend.emails.send({
+      await this.transporter.sendMail({
         from: this.fromAddress,
         to: options.to,
         subject: options.subject,
         html: options.html,
         text: options.text,
       });
-
-      if (error) {
-        logger.error('Resend API returned error', {
-          to: options.to,
-          subject: options.subject,
-          error,
-        });
-        throw new Error(error.message);
-      }
-
-      logger.info('Email sent via Resend', {
-        to: options.to,
-        subject: options.subject,
-      });
+      logger.info('Email sent via Brevo', { to: options.to, subject: options.subject });
     } catch (err) {
-      logger.error('Failed to send email via Resend', {
+      logger.error('Failed to send email via Brevo', {
         to: options.to,
         subject: options.subject,
         error: err,
@@ -174,15 +190,6 @@ class EmailService {
     } catch (err) {
       logger.error('Failed to send payment receipt email', { to, orderId: payment.orderId, error: err });
     }
-  }
-
-  // verifyConnection kept for compatibility — Resend doesn't need SMTP verify
-  async verifyConnection(): Promise<void> {
-    if (!this.enabled) {
-      logger.warn('Email service disabled — skipping verification');
-      return;
-    }
-    logger.info('✅ Resend email service ready');
   }
 }
 
