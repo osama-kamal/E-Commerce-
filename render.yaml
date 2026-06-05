@@ -1,0 +1,82 @@
+# Render Blueprint — deploys the Express backend as a Web Service
+# Docs: https://render.com/docs/blueprint-spec
+#
+# How to use:
+#   1. Go to https://dashboard.render.com/select-repo
+#   2. Select your GitHub repo (osama-kamal/E-Commerce-)
+#   3. Render detects this file and pre-fills everything below
+#   4. Set the environment variables marked (sync: false) in the Render dashboard
+#      under Environment → Secret Files / Environment Variables
+
+services:
+  - type: web
+    name: ecommerce-backend
+    runtime: node
+    region: oregon          # change to "frankfurt" for EU clients
+    plan: free              # upgrade to "starter" ($7/mo) for always-on, no cold starts
+    rootDir: backend
+    buildCommand: npm install && npm run build
+    startCommand: node dist/server.js
+    healthCheckPath: /api/v1/health
+
+    envVars:
+      # ── Runtime ────────────────────────────────────────────────────────────
+      - key: NODE_ENV
+        value: production
+
+      - key: PORT
+        value: 10000         # Render assigns 10000 internally; keep this as-is
+
+      # ── Database ────────────────────────────────────────────────────────────
+      # Paste your MongoDB Atlas connection string here (or use Render's secret env)
+      - key: MONGODB_URI
+        sync: false          # ← set this in the Render dashboard, NOT in this file
+
+      # ── JWT ─────────────────────────────────────────────────────────────────
+      - key: JWT_ACCESS_SECRET
+        generateValue: true  # Render generates a secure random value automatically
+
+      - key: JWT_REFRESH_SECRET
+        generateValue: true
+
+      - key: JWT_ACCESS_EXPIRY
+        value: 15m
+
+      # ── CORS ─────────────────────────────────────────────────────────────────
+      # Replace with your actual Vercel frontend URL after first deploy
+      - key: CORS_ORIGINS
+        value: https://your-app.vercel.app,https://your-custom-domain.com
+
+      # ── Stripe ───────────────────────────────────────────────────────────────
+      - key: STRIPE_SECRET_KEY
+        sync: false
+
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+
+      # ── OpenAI ───────────────────────────────────────────────────────────────
+      - key: OPENAI_API_KEY
+        sync: false
+
+      # ── Cloudinary ───────────────────────────────────────────────────────────
+      - key: CLOUDINARY_CLOUD_NAME
+        sync: false
+
+      - key: CLOUDINARY_API_KEY
+        sync: false
+
+      - key: CLOUDINARY_API_SECRET
+        sync: false
+
+      # ── Email ────────────────────────────────────────────────────────────────
+      - key: EMAIL_USER
+        sync: false
+
+      - key: EMAIL_PASS
+        sync: false
+
+      - key: EMAIL_FROM_NAME
+        value: Ecommerce Store
+
+      - key: FRONTEND_URL
+        value: https://your-app.vercel.app
