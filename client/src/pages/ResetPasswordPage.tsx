@@ -1,34 +1,16 @@
 import { useState } from 'react';
 import { useNavigate, useSearchParams, Link } from 'react-router-dom';
-import { useForm } from 'react-hook-form';
-import { zodResolver } from '@hookform/resolvers/zod';
-import { z } from 'zod';
 import toast from 'react-hot-toast';
 import api from '../api/axios';
-
-const schema = z
-  .object({
-    password: z.string().min(8, 'Password must be at least 8 characters'),
-    confirmPassword: z.string(),
-  })
-  .refine((d) => d.password === d.confirmPassword, {
-    message: 'Passwords do not match',
-    path: ['confirmPassword'],
-  });
-
-type FormData = z.infer<typeof schema>;
 
 export default function ResetPasswordPage() {
   const [searchParams] = useSearchParams();
   const token = searchParams.get('token');
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
-
-  const {
-    register,
-    handleSubmit,
-    formState: { errors },
-  } = useForm<FormData>({ resolver: zodResolver(schema) });
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [errors, setErrors] = useState<{ password?: string; confirmPassword?: string }>({});
 
   if (!token) {
     return (
@@ -50,12 +32,25 @@ export default function ResetPasswordPage() {
     );
   }
 
-  const onSubmit = async (data: FormData) => {
+  const validate = (): boolean => {
+    const newErrors: { password?: string; confirmPassword?: string } = {};
+    if (!password || password.length < 8) {
+      newErrors.password = 'Password must be at least 8 characters';
+    }
+    if (password !== confirmPassword) {
+      newErrors.confirmPassword = 'Passwords do not match';
+    }
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!validate()) return;
+
     setLoading(true);
     try {
-      await api.post(`/auth/reset-password/${token}`, {
-        password: data.password,
-      });
+      await api.post(`/auth/reset-password/${token}`, { password });
       toast.success('Password reset successfully! You can now log in.');
       navigate('/login');
     } catch (err: unknown) {
@@ -78,19 +73,20 @@ export default function ResetPasswordPage() {
           <p className="text-gray-500 text-sm mt-1">Enter your new password below</p>
         </div>
 
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+        <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
               New Password
             </label>
             <input
               type="password"
-              {...register('password')}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
               placeholder="Min 8 characters"
               className="w-full border border-gray-300 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
             />
             {errors.password && (
-              <p className="text-red-500 text-xs mt-1">{errors.password.message}</p>
+              <p className="text-red-500 text-xs mt-1">{errors.password}</p>
             )}
           </div>
 
@@ -100,12 +96,13 @@ export default function ResetPasswordPage() {
             </label>
             <input
               type="password"
-              {...register('confirmPassword')}
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
               placeholder="Repeat your new password"
               className="w-full border border-gray-300 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
             />
             {errors.confirmPassword && (
-              <p className="text-red-500 text-xs mt-1">{errors.confirmPassword.message}</p>
+              <p className="text-red-500 text-xs mt-1">{errors.confirmPassword}</p>
             )}
           </div>
 
