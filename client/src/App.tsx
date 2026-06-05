@@ -22,7 +22,8 @@ const Chatbot = lazy(() => import('./components/Chatbot'));
 const HomePage          = lazy(() => import('./pages/HomePage'));
 const LoginPage         = lazy(() => import('./pages/LoginPage'));
 const RegisterPage      = lazy(() => import('./pages/RegisterPage'));
-const ForgotPasswordPage = lazy(() => import('./pages/ForgotPasswordPage'));
+const ForgotPasswordPage  = lazy(() => import('./pages/ForgotPasswordPage'));
+const ResetPasswordPage   = lazy(() => import('./pages/ResetPasswordPage'));
 const ProductDetailPage = lazy(() => import('./pages/ProductDetailPage'));
 const CartPage          = lazy(() => import('./pages/CartPage'));
 const CheckoutPage      = lazy(() => import('./pages/CheckoutPage'));
@@ -117,6 +118,7 @@ export default function App() {
           <Route path="/register"   element={<Suspense fallback={<PageLoader />}><RegisterPage /></Suspense>} />
           <Route path="/start"      element={<Suspense fallback={<PageLoader />}><StartStorePage /></Suspense>} />
           <Route path="/forgot-password" element={<Suspense fallback={<PageLoader />}><ForgotPasswordPage /></Suspense>} />
+          <Route path="/reset-password"  element={<Suspense fallback={<PageLoader />}><ResetPasswordPage /></Suspense>} />
           <Route path="/products/:id" element={<Layout><ProductDetailPage /></Layout>} />
           <Route path="/compare"    element={<Layout><ComparePage /></Layout>} />
 
