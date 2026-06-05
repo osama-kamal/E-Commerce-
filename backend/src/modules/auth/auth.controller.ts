@@ -12,20 +12,24 @@ const REFRESH_COOKIE_NAME = 'refreshToken';
 const REFRESH_COOKIE_MAX_AGE = 7 * 24 * 60 * 60 * 1000; // 7 days in ms
 
 function setRefreshCookie(res: Response, token: string): void {
+  const isProd = NODE_ENV === 'production';
   res.cookie(REFRESH_COOKIE_NAME, token, {
-    httpOnly: true,                            // not accessible via document.cookie
-    secure: NODE_ENV === 'production',         // HTTPS only in prod
-    sameSite: NODE_ENV === 'production' ? 'strict' : 'lax', // CSRF protection
+    httpOnly: true,          // not accessible via document.cookie
+    secure: isProd,          // HTTPS only in prod
+    // 'none' required for cross-site requests (Vercel frontend → Railway backend).
+    // 'lax' is safe enough for local dev (same-site).
+    sameSite: isProd ? 'none' : 'lax',
     maxAge: REFRESH_COOKIE_MAX_AGE,
-    path: '/api/v1/auth',                      // limit scope to auth endpoints only
+    path: '/api/v1/auth',    // limit scope to auth endpoints only
   });
 }
 
 function clearRefreshCookie(res: Response): void {
+  const isProd = NODE_ENV === 'production';
   res.clearCookie(REFRESH_COOKIE_NAME, {
     httpOnly: true,
-    secure: NODE_ENV === 'production',
-    sameSite: NODE_ENV === 'production' ? 'strict' : 'lax',
+    secure: isProd,
+    sameSite: isProd ? 'none' : 'lax',
     path: '/api/v1/auth',
   });
 }
