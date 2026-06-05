@@ -238,10 +238,8 @@ export async function resetPassword(rawToken: string, newPassword: string): Prom
   await User.updateOne(
     { _id: user._id },
     {
-      passwordHash,
-      passwordResetToken: undefined,
-      passwordResetExpires: undefined,
-      refreshTokens: [],
+      $set: { passwordHash, refreshTokens: [] },
+      $unset: { passwordResetToken: '', passwordResetExpires: '' },
     }
   );
 }
