@@ -107,6 +107,7 @@ export const config = parsed.data;
 
 // ── MONGO_URI alias resolution ─────────────────────────────────────────────────
 // If MONGO_URI is set (legacy .env naming), use it as the effective connection string.
+// This MUST run before the named exports below so MONGODB_URI is correct when read.
 if (config.MONGO_URI) {
   (config as any).MONGODB_URI = config.MONGO_URI;
 }

@@ -8,81 +8,95 @@ import { IncomingMessage, ServerResponse } from 'http';
 import * as http from 'http';
 
 async function bootstrap(): Promise<void> {
+  // ── 1. Bind the HTTP server FIRST ─────────────────────────────────────────
+  // Railway's health check fires within seconds of deployment.
+  // If we wait for MongoDB before binding the port, the health check times out
+  // → "Service unavailable". Start listening immediately; DB connects in step 2.
+  const server: http.Server<typeof IncomingMessage, typeof ServerResponse> = app.listen(
+    config.PORT,
+    () => {
+      logger.info(`🚀 Server bound on port ${config.PORT} [${config.NODE_ENV}] — connecting to DB...`);
+    }
+  );
+
+  // Handle port-already-in-use (can happen on Railway if a previous container
+  // hasn't fully stopped yet)
+  server.on('error', (err: NodeJS.ErrnoException) => {
+    if (err.code === 'EADDRINUSE') {
+      logger.error(`❌ Port ${config.PORT} is already in use.`);
+      process.exit(1);
+    } else {
+      logger.error('HTTP server error', { error: err });
+      process.exit(1);
+    }
+  });
+
+  // ── 2. Connect to MongoDB (after port is bound) ───────────────────────────
   try {
     await connectDatabase();
+  } catch (dbError) {
+    // DB connection exhausted all retries — log clearly and exit so Railway
+    // restarts the container. The HTTP server was already serving; this ensures
+    // a clean restart rather than a half-alive process.
+    logger.error('❌ Database connection failed — shutting down server', { error: dbError });
+    server.close(() => process.exit(1));
+    return;
+  }
 
-    try {
-      await connectRedis();
-    } catch (redisError) {
-      logger.warn('Redis unavailable — refresh tokens disabled', { error: redisError });
+  // ── 3. Connect to Redis (optional — degrades gracefully if unavailable) ───
+  try {
+    await connectRedis();
+  } catch (redisError) {
+    logger.warn('Redis unavailable — refresh tokens disabled', { error: redisError });
+  }
+
+  // ── 4. Verify email SMTP (non-blocking) ───────────────────────────────────
+  emailService.verifyConnection();
+
+  logger.info('✅ All services connected — server is fully ready');
+
+  // ── Graceful shutdown ──────────────────────────────────────────────────────
+  const shutdown = async (signal: string): Promise<void> => {
+    logger.info(`${signal} received — shutting down gracefully…`);
+
+    if (typeof (server as unknown as { closeAllConnections?: () => void }).closeAllConnections === 'function') {
+      (server as unknown as { closeAllConnections: () => void }).closeAllConnections();
     }
 
-    const server: http.Server<typeof IncomingMessage, typeof ServerResponse> = app.listen(config.PORT, () => {
-      logger.info(`🚀 Server running on port ${config.PORT} [${config.NODE_ENV}]`);
-    });
-
-    // Verify email SMTP connection (non-blocking)
-    emailService.verifyConnection();
-
-    // Handle port-already-in-use gracefully
-    server.on('error', (err: NodeJS.ErrnoException) => {
-      if (err.code === 'EADDRINUSE') {
-        logger.error(`❌ Port ${config.PORT} is already in use. Kill the existing process and restart.`);
-        process.exit(1);
-      } else {
-        throw err;
+    server.close(async () => {
+      try {
+        const { disconnectDatabase } = await import('./config/database');
+        const { disconnectRedis } = await import('./config/redis');
+        await disconnectDatabase();
+        await disconnectRedis();
+        logger.info('Server shut down cleanly');
+      } catch (e) {
+        logger.error('Error during shutdown', { error: e });
+      } finally {
+        process.exit(0);
       }
     });
 
-    const shutdown = async (signal: string): Promise<void> => {
-      logger.info(`${signal} received — shutting down gracefully…`);
+    setTimeout(() => {
+      logger.error('Graceful shutdown timed out — forcing exit');
+      process.exit(1);
+    }, 10_000).unref();
+  };
 
-      // closeAllConnections() forces keep-alive sockets closed (Node 18+)
-      if (typeof (server as unknown as { closeAllConnections?: () => void }).closeAllConnections === 'function') {
-        (server as unknown as { closeAllConnections: () => void }).closeAllConnections();
-      }
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
+  process.on('SIGINT',  () => shutdown('SIGINT'));
 
-      server.close(async () => {
-        try {
-          const { disconnectDatabase } = await import('./config/database');
-          const { disconnectRedis } = await import('./config/redis');
-          await disconnectDatabase();
-          await disconnectRedis();
-          logger.info('Server shut down cleanly');
-        } catch (e) {
-          logger.error('Error during shutdown', { error: e });
-        } finally {
-          process.exit(0);
-        }
-      });
+  process.on('unhandledRejection', (reason) => {
+    logger.error('Unhandled promise rejection', { reason });
+  });
 
-      // Force-exit after 10 s if graceful shutdown hangs
-      setTimeout(() => {
-        logger.error('Graceful shutdown timed out — forcing exit');
-        process.exit(1);
-      }, 10_000).unref();
-    };
-
-    process.on('SIGTERM', () => shutdown('SIGTERM'));
-    process.on('SIGINT',  () => shutdown('SIGINT'));
-
-    // Prevent unhandled rejections from crashing the process silently
-    // (they would leave the port open without releasing it)
-    process.on('unhandledRejection', (reason) => {
-      logger.error('Unhandled promise rejection', { reason });
-      // Do NOT exit — let the request fail normally via the error handler
-    });
-
-    process.on('uncaughtException', (err) => {
-      logger.error('Uncaught exception', { error: err });
-      // Exit cleanly so the port is released and ts-node-dev can restart
-      shutdown('uncaughtException').catch(() => process.exit(1));
-    });
-
-  } catch (error) {
-    logger.error('Failed to start server', { error });
-    process.exit(1);
-  }
+  process.on('uncaughtException', (err) => {
+    logger.error('Uncaught exception', { error: err });
+    shutdown('uncaughtException').catch(() => process.exit(1));
+  });
 }
 
-bootstrap();
+bootstrap().catch((err) => {
+  console.error('Fatal bootstrap error:', err);
+  process.exit(1);
+});
