@@ -33,9 +33,16 @@ function clearRefreshCookie(res: Response): void {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function getStoreId(req: Request): string {
-  const storeId = req.store?._id?.toString();
-  if (!storeId) throw createError('Store context is required', 400, 'BAD_REQUEST');
-  return storeId;
+  // Primary: resolved by resolveStore middleware
+  const fromStore = req.store?._id?.toString();
+  if (fromStore) return fromStore;
+
+  // Fallback: read directly from X-Store-ID header (for routes registered
+  // outside the tenantRouter, e.g. /api/v1/auth before resolveStore runs)
+  const fromHeader = req.headers['x-store-id'] as string | undefined;
+  if (fromHeader && /^[a-f\d]{24}$/i.test(fromHeader)) return fromHeader;
+
+  throw createError('Store context is required', 400, 'BAD_REQUEST');
 }
 
 // ── Handlers ──────────────────────────────────────────────────────────────────
