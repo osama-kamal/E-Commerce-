@@ -6,7 +6,7 @@
   "rewrites": [
     {
       "source": "/api/(.*)",
-      "destination": "https://ecommerce-backend.onrender.com/api/$1"
+      "destination": "https://ecommerce-backend-production-5474.up.railway.app"
     },
     {
       "source": "/(.*)",
