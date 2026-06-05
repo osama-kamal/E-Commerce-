@@ -1,0 +1,159 @@
+# Implementation Plan
+
+- [x] 1. Write bug condition exploration test
+  - **Property 1: Bug Condition** - Hardcoded "Ecommerce Store" Branding in All Email Types
+  - **CRITICAL**: This test MUST FAIL on unfixed code — failure confirms the bug exists
+  - **DO NOT attempt to fix the test or the code when it fails**
+  - **NOTE**: This test encodes the expected behavior — it will validate the fix when it passes after implementation
+  - **GOAL**: Surface counterexamples that demonstrate that all five send methods ignore storeId and render "Ecommerce Store" instead of the real store name
+  - **Scoped PBT Approach**: Scope the property to five concrete deterministic cases (one per email type) with a mocked Store returning name `"Acme Shop"` — a name that differs from the hardcoded fallback
+  - Create test file at `backend/tests/properties/email-branding.property.test.ts`
+  - Mock `Store.findById` to return `{ name: 'Acme Shop', settings: { logoUrl: 'https://acme.com/logo.png', contactEmail: 'hello@acme.com', contactPhone: '+1-555-0100' } }`
+  - Mock `nodemailer.createTransport` so no real SMTP connection is made; capture the `sendMail` call arguments
+  - For each of the five email types, call the send method with a representative payload and assert the captured HTML contains `"Acme Shop"` and does NOT contain `"Ecommerce Store"` in the header `<h1>` and footer
+  - Test cases:
+    - `sendWelcomeEmail(storeId, 'user@test.com')` → assert HTML contains `"Acme Shop"` (will FAIL: HTML contains `"Ecommerce Store"`)
+    - `sendPasswordResetEmail(storeId, 'user@test.com', 'token123')` → assert HTML contains `"Acme Shop"` (will FAIL)
+    - `sendOrderConfirmationEmail(storeId, 'user@test.com', orderData)` → assert HTML contains `"Acme Shop"` (will FAIL)
+    - `sendOrderStatusEmail(storeId, 'user@test.com', statusData)` → assert HTML contains `"Acme Shop"` (will FAIL)
+    - `sendPaymentReceiptEmail(storeId, 'user@test.com', paymentData)` → assert HTML contains `"Acme Shop"` (will FAIL)
+  - Run test on UNFIXED code: `npx jest --testPathPattern="email-branding.property" --run` (or `--no-coverage`)
+  - **EXPECTED OUTCOME**: All five assertions FAIL — HTML contains `"Ecommerce Store"` instead of `"Acme Shop"` (this is correct — it proves the bug exists)
+  - Document counterexamples found, e.g. `"sendWelcomeEmail renders <h1>Ecommerce Store</h1> instead of <h1>Acme Shop</h1>"`
+  - Mark task complete when test is written, run, and all five failures are documented
+  - _Requirements: 1.1, 1.2, 1.3, 1.4, 1.5, 1.6_
+
+- [x] 2. Write preservation property tests (BEFORE implementing fix)
+  - **Property 2: Preservation** - Non-Branding Email Content Unchanged Across All Template Types
+  - **IMPORTANT**: Follow observation-first methodology — run on UNFIXED code first to record baseline output
+  - Create test file at `backend/tests/properties/email-preservation.property.test.ts`
+  - Use `fast-check` to generate random inputs for each template function directly (no EmailService, no DB mock needed for template-level preservation)
+  - **Observation step** (run on unfixed code before writing assertions):
+    - Observe `orderConfirmationTemplate({ orderId: 'ORD-001', items: [...], totalAmount: 99.99, shippingAddress: {...}, createdAt: new Date(), frontendUrl: 'http://localhost:5173' })` — record that HTML contains `orderId`, item names, `totalAmount`, and address fields
+    - Observe `paymentReceiptTemplate({ orderId: 'ORD-001', amount: 9999, currency: 'usd', paymentIntentId: 'pi_abc', paidAt: new Date(), frontendUrl: '...' })` — record that HTML contains `orderId`, `amount`, `paymentIntentId`
+    - Observe `passwordResetTemplate({ resetUrl: 'https://example.com/reset?token=abc', frontendUrl: '...' })` — record that HTML contains the full `resetUrl`
+    - Observe `orderStatusTemplate({ orderId: 'ORD-001', status: 'shipped', updatedAt: new Date(), frontendUrl: '...' })` — record that HTML contains `orderId`, `SHIPPED`, estimated delivery notice
+    - Observe `orderStatusTemplate({ ..., status: 'cancelled' })` — record that HTML contains support contact message
+  - **Property-based tests** (capturing observed behavior):
+    - For any `OrderEmailData` (random orderId string, 1–5 random items, random totalAmount ≥ 0, random shippingAddress fields), `orderConfirmationTemplate` output HTML contains `orderId`, each item name, and the formatted totalAmount — use `fc.record` with `fc.string`, `fc.float`, `fc.array`
+    - For any `PaymentEmailData` (random orderId, random amount integer ≥ 0, random currency string, random paymentIntentId, random paidAt Date), `paymentReceiptTemplate` output HTML contains `orderId`, `paymentIntentId`
+    - For any `resetUrl` string (non-empty), `passwordResetTemplate` output HTML contains the exact `resetUrl`
+    - For each status in `['processing', 'shipped', 'delivered', 'cancelled']`, `orderStatusTemplate` output HTML contains the status label and status-specific extra content
+    - For any `StoreBranding` with `storeName: 'Ecommerce Store'` (fallback case), template output is identical to the original unfixed output — branding fallback preserves existing behavior
+  - Verify ALL tests PASS on UNFIXED code before proceeding
+  - Run: `npx jest --testPathPattern="email-preservation.property" --run`
+  - **EXPECTED OUTCOME**: All preservation tests PASS on unfixed code (confirms baseline behavior to preserve)
+  - Mark task complete when tests are written, run, and passing on unfixed code
+  - _Requirements: 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 3.7, 3.8, 3.9, 3.10_
+
+- [x] 3. Fix: propagate storeId through EmailService and all template functions
+
+  - [x] 3.1 Add `StoreBranding` interface and update `baseHtml` in `email.templates.ts`
+    - Export new interface: `export interface StoreBranding { storeName: string; logoUrl?: string; contactEmail?: string; contactPhone?: string; }`
+    - Update `baseHtml(title: string, body: string, branding: StoreBranding): string` — add third parameter
+    - Replace `${PLATFORM_NAME}` in `<h1>` header with `${branding.storeName}`
+    - Replace `${PLATFORM_NAME}` in footer copyright with `${branding.storeName}`
+    - Conditionally render logo `<img>` tag in header when `branding.logoUrl` is set: `${branding.logoUrl ? \`<img src="${branding.logoUrl}" alt="${branding.storeName} logo" style="max-height:48px;margin-bottom:8px;" />\` : ''}`
+    - Conditionally render contact details in footer when `branding.contactEmail` or `branding.contactPhone` are set
+    - Retain `const PLATFORM_NAME = 'Ecommerce Store'` as the fallback constant
+    - _Bug_Condition: isBugCondition(X) where baseHtml uses PLATFORM_NAME constant instead of store.name_
+    - _Expected_Behavior: baseHtml renders branding.storeName in <h1> header and footer for all inputs_
+    - _Preservation: PLATFORM_NAME constant retained as fallback; all non-branding HTML structure unchanged_
+    - _Requirements: 2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 2.7_
+
+  - [x] 3.2 Update all five template functions in `email.templates.ts`
+    - Add `branding: StoreBranding` parameter to `welcomeTemplate`, `passwordResetTemplate`, `orderConfirmationTemplate`, `orderStatusTemplate`, and `paymentReceiptTemplate`
+    - Pass `branding` as third argument to every `baseHtml(...)` call inside each template
+    - Replace all remaining `PLATFORM_NAME` references in `text` bodies with `branding.storeName`
+    - Update `welcomeTemplate` text: `Welcome to ${branding.storeName}!` and footer `© ... ${branding.storeName}`
+    - Update `passwordResetTemplate` text footer: `© ... ${branding.storeName}`
+    - Update `orderConfirmationTemplate` text footer: `© ... ${branding.storeName}`
+    - Update `orderStatusTemplate` text footer: `© ... ${branding.storeName}`
+    - Update `paymentReceiptTemplate` text footer: `© ... ${branding.storeName}`
+    - _Bug_Condition: isBugCondition(X) where template functions use PLATFORM_NAME instead of store.name_
+    - _Expected_Behavior: all five templates render branding.storeName in HTML and text output_
+    - _Preservation: all non-branding content fields (orderId, items, totalAmount, resetUrl, paymentIntentId, status labels, extra content) unchanged_
+    - _Requirements: 2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 3.4, 3.5, 3.6, 3.7, 3.8, 3.9, 3.10_
+
+  - [x] 3.3 Add `fetchStoreBranding` helper and update send methods in `email.service.ts`
+    - Import `Store` model: `import { Store } from '../modules/stores/store.model';`
+    - Import `StoreBranding` from `./email.templates`
+    - Add private `async fetchStoreBranding(storeId: string): Promise<StoreBranding>` method:
+      - Call `Store.findById(storeId).lean()` inside a try/catch
+      - If store is null or query throws, return `{ storeName: PLATFORM_NAME }` (graceful fallback)
+      - Otherwise return `{ storeName: store.name, logoUrl: store.settings?.logoUrl || undefined, contactEmail: store.settings?.contactEmail || undefined, contactPhone: store.settings?.contactPhone || undefined }`
+    - Add `storeId: string` as the first parameter to all five send methods: `sendWelcomeEmail`, `sendPasswordResetEmail`, `sendOrderConfirmationEmail`, `sendOrderStatusEmail`, `sendPaymentReceiptEmail`
+    - In each send method, call `const branding = await this.fetchStoreBranding(storeId);` before calling the template function
+    - Pass `branding` to each template function call
+    - Update `sendWelcomeEmail` subject: `Welcome to ${branding.storeName}!`
+    - _Bug_Condition: isBugCondition(X) where send methods do not accept storeId and never call Store.findById_
+    - _Expected_Behavior: fetchStoreBranding(storeId) returns StoreBranding with store.name; fallback returns { storeName: 'Ecommerce Store' } when store not found or query throws_
+    - _Preservation: fire-and-forget error isolation (try/catch in each send method) unchanged; graceful disable on missing env vars unchanged; from address unchanged_
+    - _Requirements: 2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 2.7, 3.1, 3.2_
+
+  - [x] 3.4 Pass `storeId` to email calls in `auth.service.ts`
+    - In `register()`: change `emailService.sendWelcomeEmail(user.email)` to `emailService.sendWelcomeEmail(storeId, user.email)`
+    - In `forgotPassword()`: change `emailService.sendPasswordResetEmail(user.email, rawToken)` to `emailService.sendPasswordResetEmail(storeId, user.email, rawToken)`
+    - `storeId` is already available as a parameter in both functions — no additional lookup required
+    - _Requirements: 2.1, 2.2_
+
+  - [x] 3.5 Pass `storeId` to email calls in `order.service.ts`
+    - In `placeOrder()` transactional path: change `emailService.sendOrderConfirmationEmail(customer.email, {...})` to `emailService.sendOrderConfirmationEmail(storeId, customer.email, {...})`
+    - In `placeOrder()` non-transactional fallback path: apply the same change to the second `sendOrderConfirmationEmail` call
+    - In `updateOrderStatus()`: change `emailService.sendOrderStatusEmail(customer.email, {...})` to `emailService.sendOrderStatusEmail(storeId, customer.email, {...})`
+    - `storeId` is already available as a parameter in both functions — no additional lookup required
+    - _Requirements: 2.3, 2.4_
+
+  - [x] 3.6 Resolve `storeId` from order and pass to email call in `payment.service.ts`
+    - In `handlePaymentSucceeded()`: the `order` document is already fetched via `Order.findById(orderId)`
+    - Extract storeId: `const storeId = order.storeId.toString();`
+    - Change `emailService.sendPaymentReceiptEmail(customer.email, {...})` to `emailService.sendPaymentReceiptEmail(storeId, customer.email, {...})`
+    - _Requirements: 2.5_
+
+  - [x] 3.7 Verify bug condition exploration test now passes
+    - **Property 1: Expected Behavior** - Store-Branded Email Content
+    - **IMPORTANT**: Re-run the SAME test from task 1 — do NOT write a new test
+    - The test from task 1 encodes the expected behavior (HTML contains store name, not "Ecommerce Store")
+    - Run: `npx jest --testPathPattern="email-branding.property" --run`
+    - **EXPECTED OUTCOME**: All five assertions PASS (confirms bug is fixed — each email type renders the real store name)
+    - If any assertion still fails, revisit the corresponding template function or send method from tasks 3.1–3.6
+    - _Requirements: 2.1, 2.2, 2.3, 2.4, 2.5, 2.6_
+
+  - [x] 3.8 Verify preservation tests still pass
+    - **Property 2: Preservation** - Non-Branding Email Content Unchanged
+    - **IMPORTANT**: Re-run the SAME tests from task 2 — do NOT write new tests
+    - Run: `npx jest --testPathPattern="email-preservation.property" --run`
+    - **EXPECTED OUTCOME**: All preservation tests PASS (confirms no regressions — order IDs, items, reset URLs, payment data, status labels, and footer notices are all intact)
+    - Confirm all tests still pass after fix
+
+  - [x] 3.9 Write unit tests for `fetchStoreBranding` and `baseHtml`
+    - Create test file at `backend/tests/properties/email-branding-unit.test.ts`
+    - `fetchStoreBranding` unit tests:
+      - Returns correct `StoreBranding` when `Store.findById` resolves with a store document (name, logoUrl, contactEmail, contactPhone)
+      - Returns `{ storeName: 'Ecommerce Store' }` when `Store.findById` returns `null`
+      - Returns `{ storeName: 'Ecommerce Store' }` when `Store.findById` throws an error
+      - Returns `{ storeName: 'Ecommerce Store' }` when `storeId` is an invalid ObjectId string
+      - Omits `logoUrl` from result when `store.settings.logoUrl` is falsy
+      - Omits `contactEmail` from result when `store.settings.contactEmail` is falsy
+      - Omits `contactPhone` from result when `store.settings.contactPhone` is falsy
+    - `baseHtml` unit tests:
+      - Renders `<h1>` containing `branding.storeName` when `storeName` is provided
+      - Renders `<img>` tag with `src` equal to `branding.logoUrl` when `logoUrl` is set
+      - Does NOT render `<img>` tag when `branding.logoUrl` is absent
+      - Renders contact email in footer when `branding.contactEmail` is set
+      - Renders contact phone in footer when `branding.contactPhone` is set
+      - Renders footer copyright containing `branding.storeName`
+    - Property-based test: for any `StoreBranding` with arbitrary `storeName` (non-empty string), `baseHtml` always contains `storeName` in both the `<h1>` header and the footer — use `fc.string({ minLength: 1 })`
+    - Run: `npx jest --testPathPattern="email-branding-unit" --run`
+    - **EXPECTED OUTCOME**: All unit tests PASS
+    - _Requirements: 2.6, 2.7, 3.1, 3.2_
+
+- [x] 4. Checkpoint — Ensure all tests pass
+  - Run the full email-related test suite: `npx jest --testPathPattern="email" --run`
+  - Confirm all three test files pass:
+    - `email-branding.property.test.ts` — Property 1 (bug condition / fix checking): PASS
+    - `email-preservation.property.test.ts` — Property 2 (preservation): PASS
+    - `email-branding-unit.test.ts` — unit tests for `fetchStoreBranding` and `baseHtml`: PASS
+  - Confirm TypeScript compiles without errors: `npx tsc --noEmit` in `backend/`
+  - Confirm no regressions in the broader test suite: `npx jest --run`
+  - Ask the user if any questions arise before closing the spec

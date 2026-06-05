@@ -1,0 +1,112 @@
+import { useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
+import { motion } from 'framer-motion';
+import { wishlistApi } from '../api/wishlist';
+import { cartApi } from '../api/cart';
+import { setCart } from '../store/cartSlice';
+import { removeFromWishlist } from '../store/wishlistSlice';
+import { useAppDispatch, useAppSelector } from '../hooks/useAppDispatch';
+import toast from 'react-hot-toast';
+import StarRating from '../components/StarRating';
+
+export default function WishlistPage() {
+  const dispatch = useAppDispatch();
+  const navigate = useNavigate();
+  const items = useAppSelector(s => s.wishlist.items);
+  const [movingId, setMovingId] = useState('');
+  const [removingId, setRemovingId] = useState('');
+
+  const handleRemove = async (productId: string) => {
+    setRemovingId(productId);
+    try {
+      await wishlistApi.remove(productId);
+      dispatch(removeFromWishlist(productId));
+      toast('Removed from wishlist', { icon: '💔' });
+    } finally {
+      setRemovingId('');
+    }
+  };
+
+  const handleMoveToCart = async (productId: string) => {
+    setMovingId(productId);
+    try {
+      await wishlistApi.moveToCart(productId);
+      dispatch(removeFromWishlist(productId));
+      const cartRes = await cartApi.get();
+      dispatch(setCart(cartRes.data.data));
+      toast.success('Moved to cart!');
+    } finally {
+      setMovingId('');
+    }
+  };
+
+  if (items.length === 0) return (
+    <div className="max-w-3xl mx-auto px-4 py-24 text-center">
+      <p className="text-6xl mb-4">♡</p>
+      <h2 className="text-xl font-semibold text-gray-700 dark:text-gray-300 mb-2">Your wishlist is empty</h2>
+      <p className="text-sm text-gray-400 mb-6">Save items you love and come back to them later.</p>
+      <button onClick={() => navigate('/')} className="btn-primary px-8">Browse Products</button>
+    </div>
+  );
+
+  return (
+    <div className="max-w-6xl mx-auto px-4 sm:px-6 py-8">
+      <div className="flex items-center justify-between mb-6">
+        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
+          Wishlist <span className="text-base font-normal text-gray-400">({items.length} item{items.length !== 1 ? 's' : ''})</span>
+        </h1>
+      </div>
+
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
+        {items.map((p, i) => (
+          <motion.div
+            key={p._id}
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.9 }}
+            transition={{ duration: 0.3, delay: i * 0.04 }}
+            className="card overflow-hidden"
+          >
+            <Link to={`/products/${p._id}`} className="block">
+              <div className="aspect-square bg-gray-100 dark:bg-gray-800 overflow-hidden">
+                {p.images[0] ? (
+                  <img src={p.images[0]} alt={p.name} className="w-full h-full object-cover hover:scale-105 transition-transform duration-300" />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center text-3xl text-gray-400">📦</div>
+                )}
+              </div>
+            </Link>
+
+            <div className="p-3">
+              <Link to={`/products/${p._id}`} className="font-medium text-gray-900 dark:text-white hover:text-primary-600 block truncate text-sm">
+                {p.name}
+              </Link>
+              <div className="flex items-center gap-1 mt-0.5">
+                <StarRating rating={p.averageRating} size="sm" />
+              </div>
+              <p className="text-base font-bold text-gray-900 dark:text-white mt-1">${p.price.toFixed(2)}</p>
+
+              <div className="flex gap-1.5 mt-3">
+                <button
+                  onClick={() => handleMoveToCart(p._id)}
+                  disabled={movingId === p._id || p.stock === 0}
+                  className="btn-primary flex-1 text-xs py-1.5"
+                >
+                  {movingId === p._id ? '…' : p.stock === 0 ? 'Out of Stock' : 'Move to Cart'}
+                </button>
+                <button
+                  onClick={() => handleRemove(p._id)}
+                  disabled={removingId === p._id}
+                  className="btn-secondary px-2.5 text-sm"
+                  aria-label="Remove"
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        ))}
+      </div>
+    </div>
+  );
+}
