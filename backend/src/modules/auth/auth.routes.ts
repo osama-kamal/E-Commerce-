@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { validate } from '../../middleware/validate';
 import { authenticateJWT } from '../../middleware/authenticate';
-import { authLimiter } from '../../app';
+import { authLimiter } from '../../middleware/rateLimiter';
 import {
   registerSchema,
   loginSchema,

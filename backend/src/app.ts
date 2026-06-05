@@ -9,6 +9,8 @@ import { CORS_ORIGINS } from './config/index';
 import { notFound } from './middleware/notFound';
 import { errorHandler } from './middleware/errorHandler';
 import { resolveStore } from './middleware/resolveStore';
+// authLimiter lives in its own file to avoid circular imports with auth.routes.ts
+export { authLimiter } from './middleware/rateLimiter';
 
 import authRoutes from './modules/auth/auth.routes';
 import categoryRoutes from './modules/categories/category.routes';
@@ -60,20 +62,9 @@ const limiter = rateLimit({
 });
 app.use(limiter);
 
-// ── Strict auth rate limiter — applied per-route in auth.routes.ts ────────────
-// Exported so auth routes can apply it without importing app.ts
-export const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15-minute window
-  max: 10,                   // 10 attempts per window per IP
-  standardHeaders: true,
-  legacyHeaders: false,
-  skipSuccessfulRequests: true, // only count failures toward the limit
-  message: {
-    success: false,
-    code: 'RATE_LIMITED',
-    message: 'Too many attempts, please try again in 15 minutes.',
-  },
-});
+// ── Strict auth rate limiter ───────────────────────────────────────────────────
+// Defined in middleware/rateLimiter.ts and re-exported above.
+// Applied per-route in auth.routes.ts to avoid circular import issues.
 
 // ── NoSQL injection sanitization ──────────────────────────────────────────────
 app.use(mongoSanitize());
