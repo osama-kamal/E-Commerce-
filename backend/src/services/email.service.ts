@@ -1,4 +1,4 @@
-import nodemailer from 'nodemailer';
+import axios from 'axios';
 import { logger } from '../utils/logger';
 import {
   welcomeTemplate,
@@ -14,21 +14,23 @@ import {
 import { Store } from '../modules/stores/store.model';
 
 const PLATFORM_NAME = 'Ecommerce Store';
+const BREVO_API_URL = 'https://api.brevo.com/v3/smtp/email';
 
 // ── EmailService ──────────────────────────────────────────────────────────────
-// Uses Brevo (Sendinblue) SMTP — supports sending to any email address on the
-// free tier (300 emails/day). No domain verification required.
+// Uses Brevo HTTP API (not SMTP) — bypasses Railway's SMTP port blocking.
+// Supports sending to any email address on the free tier (300 emails/day).
 
 class EmailService {
-  private transporter!: nodemailer.Transporter;
   private enabled: boolean = false;
-  private fromAddress: string = '';
+  private apiKey: string = '';
+  private fromEmail: string = '';
+  private fromName: string = '';
   private frontendUrl: string = '';
 
   constructor() {
     const apiKey = process.env.BREVO_API_KEY;
-    const fromEmail = process.env.EMAIL_FROM_ADDRESS ?? 'osamahamroush9@gmail.com';
-    const fromName = process.env.EMAIL_FROM_NAME ?? 'Ecommerce Store';
+    this.fromEmail = process.env.EMAIL_FROM_ADDRESS ?? 'osamahamroush9@gmail.com';
+    this.fromName = process.env.EMAIL_FROM_NAME ?? 'Ecommerce Store';
     this.frontendUrl = process.env.FRONTEND_URL ?? 'http://localhost:5173';
 
     if (!apiKey) {
@@ -37,44 +39,22 @@ class EmailService {
       return;
     }
 
-    this.fromAddress = `"${fromName}" <${fromEmail}>`;
+    this.apiKey = apiKey;
     this.enabled = true;
 
-    // Brevo SMTP credentials:
-    // user  = your Brevo account email (any verified sender)
-    // pass  = the SMTP key (xsmtpsib-...)
-    this.transporter = nodemailer.createTransport({
-      host: 'smtp-relay.brevo.com',
-      port: 587,
-      secure: false, // STARTTLS
-      auth: {
-        user: fromEmail,
-        pass: apiKey,
-      },
-      connectionTimeout: 10000,
-      greetingTimeout: 10000,
-      socketTimeout: 15000,
-    });
-
-    logger.info('Brevo SMTP email service initialised', {
-      host: 'smtp-relay.brevo.com',
-      port: 587,
-      from: this.fromAddress,
+    logger.info('Brevo HTTP API email service initialised', {
+      from: `${this.fromName} <${this.fromEmail}>`,
       frontendUrl: this.frontendUrl,
     });
   }
 
+  // No-op kept for interface compatibility
   async verifyConnection(): Promise<void> {
     if (!this.enabled) {
-      logger.warn('Email service disabled — skipping SMTP verification');
+      logger.warn('Email service disabled — skipping verification');
       return;
     }
-    try {
-      await this.transporter.verify();
-      logger.info('✅ Brevo SMTP connection verified — email service ready');
-    } catch (err) {
-      logger.error('❌ Brevo SMTP verification failed', { error: err });
-    }
+    logger.info('✅ Brevo HTTP API email service ready');
   }
 
   // ── Core send ─────────────────────────────────────────────────────────────
@@ -92,20 +72,39 @@ class EmailService {
       });
       return;
     }
+
     try {
-      await this.transporter.sendMail({
-        from: this.fromAddress,
+      await axios.post(
+        BREVO_API_URL,
+        {
+          sender: { name: this.fromName, email: this.fromEmail },
+          to: [{ email: options.to }],
+          subject: options.subject,
+          htmlContent: options.html,
+          textContent: options.text,
+        },
+        {
+          headers: {
+            'api-key': this.apiKey,
+            'Content-Type': 'application/json',
+            Accept: 'application/json',
+          },
+          timeout: 15000,
+        }
+      );
+
+      logger.info('Email sent via Brevo API', {
         to: options.to,
         subject: options.subject,
-        html: options.html,
-        text: options.text,
       });
-      logger.info('Email sent via Brevo', { to: options.to, subject: options.subject });
-    } catch (err) {
-      logger.error('Failed to send email via Brevo', {
+    } catch (err: unknown) {
+      const axiosError = err as { response?: { data?: unknown; status?: number }; message?: string };
+      logger.error('Failed to send email via Brevo API', {
         to: options.to,
         subject: options.subject,
-        error: err,
+        status: axiosError?.response?.status,
+        data: axiosError?.response?.data,
+        message: axiosError?.message,
       });
       throw err;
     }
