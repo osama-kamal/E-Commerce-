@@ -56,7 +56,15 @@ api.interceptors.response.use(
     const status = error.response?.status;
     const message: string = error.response?.data?.message ?? 'Something went wrong';
 
-    if (status === 401 && !original._retry) {
+    // Auth endpoints (login, register, reset-password) legitimately return 401
+    // for bad credentials — don't attempt a silent token refresh for those.
+    const isAuthEndpoint = original.url &&
+      (original.url.includes('/auth/login') ||
+       original.url.includes('/auth/register') ||
+       original.url.includes('/auth/reset-password') ||
+       original.url.includes('/auth/forgot-password'));
+
+    if (status === 401 && !original._retry && !isAuthEndpoint) {
       if (isRefreshing) {
         // Another refresh is already in flight — queue this request
         return new Promise((resolve, reject) => {
@@ -94,8 +102,10 @@ api.interceptors.response.use(
       }
     }
 
-    // Show toast for non-401 errors (401 is handled silently via refresh)
-    if (status !== 401) {
+    // Show toast for all errors except 401s that are being retried via refresh.
+    // Auth endpoint 401s (wrong password, etc.) should always show the error message.
+    const willRetry = status === 401 && !original._retry && !isAuthEndpoint;
+    if (!willRetry) {
       toast.error(message);
     }
 
