@@ -1,4 +1,4 @@
-import nodemailer from 'nodemailer';
+import { Resend } from 'resend';
 import { logger } from '../utils/logger';
 import {
   welcomeTemplate,
@@ -15,91 +15,82 @@ import { Store } from '../modules/stores/store.model';
 
 const PLATFORM_NAME = 'Ecommerce Store';
 
-// ── Types ─────────────────────────────────────────────────────────────────────
-
-interface SendEmailOptions {
-  to: string;
-  subject: string;
-  html: string;
-  text: string;
-}
-
 // ── EmailService ──────────────────────────────────────────────────────────────
 
 class EmailService {
-  private transporter!: nodemailer.Transporter;
+  private resend!: Resend;
   private enabled: boolean = false;
   private fromAddress: string = '';
   private frontendUrl: string = '';
 
   constructor() {
-    const emailUser = process.env.EMAIL_USER;
-    const emailPass = process.env.EMAIL_PASS;
+    const apiKey = process.env.RESEND_API_KEY;
     const fromName = process.env.EMAIL_FROM_NAME ?? 'Ecommerce Store';
     this.frontendUrl = process.env.FRONTEND_URL ?? 'http://localhost:5173';
 
-    if (!emailUser || !emailPass) {
-      logger.warn('EMAIL_USER or EMAIL_PASS not set — email sending is disabled');
+    if (!apiKey) {
+      logger.warn('RESEND_API_KEY not set — email sending is disabled');
       this.enabled = false;
       return;
     }
 
-    this.fromAddress = `"${fromName}" <${emailUser}>`;
+    // In Resend free tier the from address must be onboarding@resend.dev
+    // unless you have a verified custom domain.
+    const fromEmail = process.env.EMAIL_FROM_ADDRESS ?? 'onboarding@resend.dev';
+    this.fromAddress = `${fromName} <${fromEmail}>`;
     this.enabled = true;
+    this.resend = new Resend(apiKey);
 
-    this.transporter = nodemailer.createTransport({
-      host: 'smtp.gmail.com',
-      port: 587,
-      secure: false, // STARTTLS on port 587 (465 is often blocked by Railway)
-      auth: {
-        user: emailUser,
-        pass: emailPass,
-      },
-      connectionTimeout: 10000, // 10s — Railway containers can be slow to reach external SMTP
-      greetingTimeout: 10000,
-      socketTimeout: 15000,
-    });
-
-    // Log SMTP config at startup (mask password) so Railway logs confirm env vars are loaded
-    logger.info('SMTP config loaded', {
-      host: 'smtp.gmail.com',
-      port: 587,
-      user: emailUser,
-      passLength: emailPass.length,
+    logger.info('Resend email service initialised', {
       from: this.fromAddress,
+      frontendUrl: this.frontendUrl,
     });
   }
 
-  async verifyConnection(): Promise<void> {
-    if (!this.enabled) {
-      logger.warn('Email service disabled — skipping SMTP verification');
-      return;
-    }
-    try {
-      await this.transporter.verify();
-      logger.info('✅ SMTP connection verified — email service ready');
-    } catch (err) {
-      logger.error('❌ SMTP connection verification failed', { error: err });
-      // Do not throw — app continues without email
-    }
-  }
+  // ── Core send ─────────────────────────────────────────────────────────────
 
-  async sendEmail(options: SendEmailOptions): Promise<void> {
+  async sendEmail(options: {
+    to: string;
+    subject: string;
+    html: string;
+    text: string;
+  }): Promise<void> {
     if (!this.enabled) {
-      logger.warn('Email service disabled — skipping send', { to: options.to, subject: options.subject });
+      logger.warn('Email service disabled — skipping send', {
+        to: options.to,
+        subject: options.subject,
+      });
       return;
     }
+
     try {
-      await this.transporter.sendMail({
+      const { error } = await this.resend.emails.send({
         from: this.fromAddress,
         to: options.to,
         subject: options.subject,
         html: options.html,
         text: options.text,
       });
-      logger.info('Email sent', { to: options.to, subject: options.subject });
+
+      if (error) {
+        logger.error('Resend API returned error', {
+          to: options.to,
+          subject: options.subject,
+          error,
+        });
+        throw new Error(error.message);
+      }
+
+      logger.info('Email sent via Resend', {
+        to: options.to,
+        subject: options.subject,
+      });
     } catch (err) {
-      logger.error('Failed to send email', { to: options.to, subject: options.subject, error: err });
+      logger.error('Failed to send email via Resend', {
+        to: options.to,
+        subject: options.subject,
+        error: err,
+      });
       throw err;
     }
   }
@@ -109,7 +100,6 @@ class EmailService {
   private async fetchStoreBranding(storeId: string | null | undefined): Promise<StoreBranding> {
     const DEFAULT_BRANDING: StoreBranding = { storeName: PLATFORM_NAME };
 
-    // Guard: skip DB lookup entirely if storeId is missing or blank
     if (!storeId || storeId.trim() === '') {
       logger.warn('fetchStoreBranding: storeId is missing — using default branding');
       return DEFAULT_BRANDING;
@@ -117,12 +107,10 @@ class EmailService {
 
     try {
       const store = await Store.findById(storeId).lean();
-
       if (!store) {
         logger.warn('fetchStoreBranding: store not found — using default branding', { storeId });
         return DEFAULT_BRANDING;
       }
-
       return {
         storeName: store.name,
         logoUrl: store.settings?.logoUrl || undefined,
@@ -186,6 +174,15 @@ class EmailService {
     } catch (err) {
       logger.error('Failed to send payment receipt email', { to, orderId: payment.orderId, error: err });
     }
+  }
+
+  // verifyConnection kept for compatibility — Resend doesn't need SMTP verify
+  async verifyConnection(): Promise<void> {
+    if (!this.enabled) {
+      logger.warn('Email service disabled — skipping verification');
+      return;
+    }
+    logger.info('✅ Resend email service ready');
   }
 }
 
