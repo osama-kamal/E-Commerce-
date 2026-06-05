@@ -70,7 +70,7 @@ const storeSchema = new Schema<IStore>(
   { timestamps: true }
 );
 
-storeSchema.index({ slug: 1 });
-storeSchema.index({ customDomain: 1 }, { sparse: true });
+// Note: slug and customDomain indexes are already defined at the field level
+// (unique: true / sparse: true) — no need for separate schema.index() calls.
 
 export const Store = mongoose.model<IStore>('Store', storeSchema);

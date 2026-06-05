@@ -10,13 +10,14 @@ export function getRedisClient(): Redis {
     redisClient = new Redis(REDIS_URL, {
       lazyConnect: true,
       enableOfflineQueue: false,   // fail fast instead of queuing when disconnected
+      connectTimeout: 3000,        // give up connecting after 3 seconds
       retryStrategy(times) {
-        if (times > 5) {
-          // Stop retrying after 5 attempts — mark Redis as unavailable
+        if (times > 2) {
+          // Stop retrying after 2 attempts — mark Redis as unavailable
           redisAvailable = false;
           return null; // stop retrying
         }
-        return Math.min(times * 500, 3000);
+        return Math.min(times * 500, 1000);
       },
       maxRetriesPerRequest: null,  // don't throw MaxRetriesPerRequestError — let commands fail silently
     });
