@@ -97,7 +97,7 @@ function StoreSwitcher() {
       localStorage.setItem('accessToken', newToken);
       localStorage.setItem('currentStoreId', store._id);
       localStorage.setItem('currentStore', JSON.stringify(store)); // ← critical: sync the full store object
-      dispatch(setTokens({ accessToken: newToken, refreshToken: localStorage.getItem('refreshToken') ?? '' }));
+      dispatch(setTokens({ accessToken: newToken }));
     } catch {
       // Fallback: update both keys even if token swap fails
       localStorage.setItem('currentStoreId', store._id);

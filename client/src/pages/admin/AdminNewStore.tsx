@@ -68,7 +68,7 @@ export default function AdminNewStore() {
       //    otherwise the cross-tenant guard will reject with 403.
       localStorage.setItem('accessToken', accessToken);
       localStorage.setItem('currentStoreId', newStore._id);
-      dispatch(setTokens({ accessToken, refreshToken: localStorage.getItem('refreshToken') ?? '' }));
+      dispatch(setTokens({ accessToken }));
 
       // 2. Clear stale cart & coupon from the previous store
       dispatch(clearCart());
