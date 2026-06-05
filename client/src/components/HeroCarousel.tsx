@@ -1,9 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
-import { useState, useEffect, useCallback } from 'react';
-import { useSearchParams } from 'react-router-dom';
-
 const slides = [
   { id:1, title:'🛍️ Shop Now', subtitle:'Discover Our Amazing Collection', image:'https://images.unsplash.com/photo-1441986300917-64674bd600d8?w=1200&q=80&auto=format&fit=crop', cta:'Shop Now' },
   { id:2, title:'🔥 Hot Deals', subtitle:'Up to 50% Off on Selected Items', image:'https://images.unsplash.com/photo-1607082348824-0a96f2a4b9da?w=1200&q=60&auto=format&fit=crop', cta:'See Deals' },
