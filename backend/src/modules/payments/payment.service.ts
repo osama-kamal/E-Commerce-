@@ -82,7 +82,7 @@ export async function handleWebhook(
     event = stripe.webhooks.constructEvent(
       rawBody,
       signature,
-      config.STRIPE_WEBHOOK_SECRET
+      config.STRIPE_WEBHOOK_SECRET!
     );
   } catch (err) {
     throw createError('Invalid webhook signature', 400, 'BAD_REQUEST');

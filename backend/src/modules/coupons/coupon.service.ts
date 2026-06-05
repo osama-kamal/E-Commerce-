@@ -47,14 +47,15 @@ export const couponService = {
         storeId: new Types.ObjectId(storeId),
         code: normalizedCode,
         isActive: true,
+        // Single $or combining both expiry and maxUses conditions — fixes duplicate key error
         $or: [
+          // Not expired (or no expiry set)
           { expiresAt: { $gt: now } },
           { expiresAt: { $exists: false } },
           { expiresAt: null },
-        ],
-        $or: [
-          { maxUses: 0 },            // unlimited
-          { $expr: { $lt: ['$usedCount', '$maxUses'] } }, // still has uses left
+          // Unlimited uses (maxUses = 0) or still has uses left
+          { maxUses: 0 },
+          { $expr: { $lt: ['$usedCount', '$maxUses'] } },
         ],
       },
       { $inc: { usedCount: 1 } },

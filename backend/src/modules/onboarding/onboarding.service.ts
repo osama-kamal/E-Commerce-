@@ -136,7 +136,7 @@ export async function onboardStore(input: OnboardingInput): Promise<OnboardingRe
   );
 
   // ── Fire-and-forget welcome email ─────────────────────────────────────────
-  emailService.sendWelcomeEmail(user.email);
+  emailService.sendWelcomeEmail(storeId, user.email);
 
   return {
     store: {

@@ -242,19 +242,20 @@ async function seed() {
   const allProducts = await Product.find({}).limit(6).lean();
 
   if (customer && allProducts.length >= 2) {
+    const customerId = customer._id as mongoose.Types.ObjectId;
     await Order.insertMany([
       {
-        customerId: customer._id,
+        customerId,
         items: [
           { productId: allProducts[0]._id, quantity: 1, price: allProducts[0].price, name: allProducts[0].name },
           { productId: allProducts[1]._id, quantity: 2, price: allProducts[1].price, name: allProducts[1].name },
         ],
-        totalAmount: allProducts[0].price + allProducts[1].price * 2,
+        totalAmount: (allProducts[0].price as number) + (allProducts[1].price as number) * 2,
         status: 'delivered',
         shippingAddress: { line1: '123 Main St', city: 'Cairo', state: 'Cairo', postalCode: '11511', country: 'Egypt' },
       },
       {
-        customerId: customer._id,
+        customerId,
         items: [{ productId: allProducts[2]._id, quantity: 1, price: allProducts[2].price, name: allProducts[2].name }],
         totalAmount: allProducts[2].price,
         status: 'processing',
