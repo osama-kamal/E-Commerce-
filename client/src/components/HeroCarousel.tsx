@@ -2,9 +2,11 @@ import { useState, useEffect, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
 const slides = [
-  { id:1, title:'🛍️ Shop Now', subtitle:'Discover Our Amazing Collection', image:'https://images.unsplash.com/photo-1441986300917-64674bd600d8?w=1200&q=80&auto=format&fit=crop', cta:'Shop Now' },
-  { id:2, title:'🔥 Hot Deals', subtitle:'Up to 50% Off on Selected Items', image:'https://images.unsplash.com/photo-1607082348824-0a96f2a4b9da?w=1200&q=60&auto=format&fit=crop', cta:'See Deals' },
-  { id:3, title:'💻 Tech Essentials', subtitle:'Latest Gadgets and Electronics', image:'https://images.unsplash.com/photo-1498049794561-7780e7231661?w=1200&q=60&auto=format&fit=crop', cta:'Shop Tech' },
+  { id:1, title:'🛍️ Shop Now', subtitle:'Discover Our Amazing Collection', image:'https://images.unsplash.com/photo-1441986300917-64674bd600d8?w=1200&q=80', cta:'Shop Now' },
+  { id:2, title:'🔥 Hot Deals', subtitle:'Up to 50% Off on Selected Items', image:'https://images.unsplash.com/photo-1607082348824-0a96f2a4b9da?w=1200&q=80', cta:'See Deals' },
+  { id:3, title:'👗 Fashion Week', subtitle:'Trending Styles for Every Occasion', image:'https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=1200&q=80', cta:'Explore' },
+  { id:4, title:'💻 Tech Essentials', subtitle:'Latest Gadgets and Electronics', image:'https://images.unsplash.com/photo-1498049794561-7780e7231661?w=1200&q=80', cta:'Shop Tech' },
+  { id:5, title:'🎁 Special Offers', subtitle:'Exclusive Deals Just for You', image:'https://images.unsplash.com/photo-1607082349566-187342175e2f?w=1200&q=80', cta:'Claim Now' },
 ];
 
 export default function HeroCarousel() {
@@ -32,29 +34,7 @@ export default function HeroCarousel() {
       <div style={{ display:'flex', height:'100%', width:trackW, transform:trackX, transition:'transform 0.6s ease-in-out' }}>
         {slides.map(sl => (
           <div key={sl.id} style={{ position:'relative', height:'100%', width:slideW, flexShrink:0 }}>
-            {sl.id === 1 ? (
-              // First slide: use CSS background for instant render (no JS needed)
-              <div
-                style={{
-                  position:'absolute', inset:0,
-                  backgroundImage:`url('${sl.image}')`,
-                  backgroundSize:'cover',
-                  backgroundPosition:'center',
-                }}
-                role="img"
-                aria-label={sl.title}
-              />
-            ) : (
-              <img
-                src={sl.image}
-                alt=""
-                loading="lazy"
-                decoding="async"
-                width={1200}
-                height={450}
-                style={{ position:'absolute', inset:0, width:'100%', height:'100%', objectFit:'cover' }}
-              />
-            )}
+            <img src={sl.image} alt="" style={{ position:'absolute', inset:0, width:'100%', height:'100%', objectFit:'cover' }} />
             <div style={{ position:'absolute', inset:0, background:'linear-gradient(to right,rgba(0,0,0,0.7),rgba(0,0,0,0.3),transparent)' }} />
             <div style={{ position:'relative', height:'100%', display:'flex', alignItems:'center', padding:'0 3rem' }}>
               <div style={{ maxWidth:'500px' }}>
