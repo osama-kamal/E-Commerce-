@@ -10,9 +10,12 @@ export async function createPaymentIntent(
 ): Promise<void> {
   try {
     const { orderId } = req.body as { orderId: string };
-    const customerId = req.user!.userId.toString();
+    if (!req.user) {
+      return next(createError('Authentication required', 401, 'UNAUTHORIZED'));
+    }
+    const customerId = req.user.userId.toString();
     // Pass storeId to enforce cross-store order ownership (item #10)
-    const storeId = req.user!.storeId.toString();
+    const storeId = req.user.storeId!.toString();
     const result = await paymentService.createPaymentIntent(orderId, customerId, storeId);
     sendSuccess(res, result);
   } catch (err) {
