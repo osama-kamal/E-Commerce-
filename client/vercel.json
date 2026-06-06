@@ -4,7 +4,7 @@
   "outputDirectory": "dist",
   "installCommand": "npm install",
   "env": {
-    "VITE_STORE_ID": "6a22c93ea87de3201e41a135"
+    "VITE_STORE_ID": "6a03b5108bdcd392044d1c37"
   },
   "rewrites": [
     {
