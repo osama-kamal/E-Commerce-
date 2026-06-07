@@ -78,6 +78,9 @@ const envSchema = z.object({
   OPENAI_API_KEY: z.string().optional(),
 
   // ── Email (OPTIONAL — email features silently disabled without these) ────────
+  EMAIL_HOST: z.string().optional(),                          // SMTP host (default: smtp.gmail.com)
+  EMAIL_PORT: z.string().default('587').transform((v) => parseInt(v, 10)),
+  EMAIL_SECURE: z.string().default('false').transform((v) => v === 'true'),
   EMAIL_USER: z.string().optional(),
   EMAIL_PASS: z.string().optional(),
   EMAIL_FROM_NAME: z.string().default('Ecommerce Store'),
@@ -151,6 +154,9 @@ export const {
   STRIPE_SECRET_KEY,
   STRIPE_WEBHOOK_SECRET,
   OPENAI_API_KEY,
+  EMAIL_HOST,
+  EMAIL_PORT,
+  EMAIL_SECURE,
   EMAIL_USER,
   EMAIL_PASS,
   EMAIL_FROM_NAME,

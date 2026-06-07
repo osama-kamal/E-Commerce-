@@ -236,6 +236,7 @@ export default function AdminLayout() {
   const navigate = useNavigate();
   const [lowStockCount, setLowStockCount] = useState(0);
   const [loadingTimedOut, setLoadingTimedOut] = useState(false);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   const currentStore = useAppSelector(s => s.currentStore.current);
   const storeLoading = useAppSelector(s => s.currentStore.loading);
@@ -312,7 +313,7 @@ export default function AdminLayout() {
 
     return (
       <div className="flex h-screen overflow-hidden">
-        <aside className="w-60 bg-gray-900 text-white shrink-0 flex flex-col h-screen sticky top-0">
+        <aside className="hidden md:flex w-60 bg-gray-900 text-white shrink-0 flex-col h-screen sticky top-0">
           <div className="p-3 border-b border-gray-700/60 shrink-0">
             <div className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl bg-gray-800 animate-pulse">
               <div className="w-8 h-8 rounded-lg bg-gray-700 shrink-0" />
@@ -328,10 +329,17 @@ export default function AdminLayout() {
             ))}
           </div>
         </aside>
-        <main className="flex-1 bg-gray-50 dark:bg-gray-950 flex items-center justify-center">
-          <div className="text-center space-y-3">
-            <div className="w-10 h-10 border-4 border-primary-600 border-t-transparent rounded-full animate-spin mx-auto" />
-            <p className="text-sm text-gray-500 dark:text-gray-400">Loading store…</p>
+        <main className="flex-1 bg-gray-50 dark:bg-gray-950 flex flex-col">
+          {/* Mobile top bar skeleton */}
+          <div className="md:hidden flex items-center gap-3 px-4 py-3 bg-gray-900 border-b border-gray-700/60">
+            <div className="w-8 h-8 bg-gray-700 rounded-lg animate-pulse" />
+            <div className="h-4 bg-gray-700 rounded w-32 animate-pulse" />
+          </div>
+          <div className="flex-1 flex items-center justify-center">
+            <div className="text-center space-y-3">
+              <div className="w-10 h-10 border-4 border-primary-600 border-t-transparent rounded-full animate-spin mx-auto" />
+              <p className="text-sm text-gray-500 dark:text-gray-400">Loading store…</p>
+            </div>
           </div>
         </main>
       </div>
@@ -340,11 +348,42 @@ export default function AdminLayout() {
 
   return (
     <div className="flex h-screen overflow-hidden">
-      {/* Sidebar — fixed height, never scrolls with content */}
-      <aside className="w-60 bg-gray-900 text-white shrink-0 flex flex-col h-screen sticky top-0">
 
+      {/* ── Mobile backdrop ───────────────────────────────────────────────── */}
+      {isSidebarOpen && (
+        <div
+          className="fixed inset-0 z-40 bg-black/60 md:hidden"
+          onClick={() => setIsSidebarOpen(false)}
+          aria-hidden="true"
+        />
+      )}
+
+      {/* ── Sidebar ───────────────────────────────────────────────────────── */}
+      {/* Desktop: static, always visible. Mobile: fixed drawer, toggled. */}
+      <aside
+        className={`
+          fixed inset-y-0 left-0 z-50 w-64 bg-gray-900 text-white flex flex-col h-screen
+          transform transition-transform duration-300 ease-in-out
+          ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'}
+          md:relative md:translate-x-0 md:w-60 md:shrink-0
+        `}
+      >
         {/* Store switcher — always visible at top */}
         <div className="p-3 border-b border-gray-700/60 shrink-0">
+          {/* Mobile close button */}
+          <div className="flex items-center justify-between mb-2 md:hidden">
+            <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Menu</span>
+            <button
+              onClick={() => setIsSidebarOpen(false)}
+              className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-800 hover:text-white transition-colors"
+              aria-label="Close sidebar"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+
           <StoreSwitcher />
           {lowStockCount > 0 && (
             <p className="text-xs text-orange-400 mt-2 flex items-center gap-1 px-1">
@@ -360,6 +399,7 @@ export default function AdminLayout() {
               key={l.to}
               to={l.to}
               end={l.end}
+              onClick={() => setIsSidebarOpen(false)}
               className={({ isActive }) =>
                 `flex items-center justify-between px-3 py-2 rounded-lg text-sm transition-colors ${
                   isActive ? 'bg-primary-600 text-white' : 'text-gray-300 hover:bg-gray-800'
@@ -401,8 +441,25 @@ export default function AdminLayout() {
         </div>
       </aside>
 
-      {/* Main content — scrolls independently, remounts on store switch */}
-      <main className="flex-1 bg-gray-50 dark:bg-gray-950 overflow-y-auto flex flex-col">
+      {/* ── Main content ──────────────────────────────────────────────────── */}
+      <main className="flex-1 bg-gray-50 dark:bg-gray-950 overflow-y-auto flex flex-col min-w-0">
+
+        {/* Mobile top bar — hamburger + store name */}
+        <div className="md:hidden flex items-center gap-3 px-4 py-3 bg-gray-900 border-b border-gray-700/60 shrink-0">
+          <button
+            onClick={() => setIsSidebarOpen(true)}
+            className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-800 hover:text-white transition-colors"
+            aria-label="Open sidebar"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
+            </svg>
+          </button>
+          <span className="text-sm font-semibold text-white truncate">
+            {currentStore?.name ?? 'Admin'}
+          </span>
+        </div>
+
         <TrialBanner />
         {isExpired && !isPricingPage ? (
           <TrialExpiredWall />
