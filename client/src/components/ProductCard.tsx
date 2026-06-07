@@ -123,6 +123,10 @@ export default function ProductCard({ product, index = 0 }: Props) {
             <img
               src={image}
               alt={product.name}
+              loading="lazy"
+              decoding="async"
+              width="400"
+              height="400"
               onLoad={() => setImgLoaded(true)}
               className={`w-full h-full object-cover transition-opacity duration-500 ${imgLoaded ? 'opacity-100' : 'opacity-0'}`}
             />

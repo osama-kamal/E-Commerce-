@@ -444,12 +444,17 @@ export default function HomePage() {
                       <a
                         key={product._id}
                         href={`/products/${product._id}`}
+                        rel="noreferrer"
                         className="flex gap-3 p-2 rounded-lg hover:bg-white/50 dark:hover:bg-gray-800/50 transition-all group"
                       >
                         <img
                           src={product.images[0]}
-                          alt={product.name}
-                          className="w-16 h-16 object-cover rounded-lg"
+                          alt={`${product.name} product image`}
+                          loading="lazy"
+                          decoding="async"
+                          width="64"
+                          height="64"
+                          className="w-16 h-16 object-cover rounded-lg shrink-0"
                         />
                         <div className="flex-1 min-w-0">
                           <h4 className="text-sm font-medium text-gray-900 dark:text-white truncate group-hover:text-primary-600">
@@ -489,12 +494,17 @@ export default function HomePage() {
                       <a
                         key={product._id}
                         href={`/products/${product._id}`}
+                        rel="noreferrer"
                         className="flex gap-3 p-2 rounded-lg hover:bg-white/50 dark:hover:bg-gray-800/50 transition-all group"
                       >
                         <img
                           src={product.images[0]}
-                          alt={product.name}
-                          className="w-16 h-16 object-cover rounded-lg"
+                          alt={`${product.name} product image`}
+                          loading="lazy"
+                          decoding="async"
+                          width="64"
+                          height="64"
+                          className="w-16 h-16 object-cover rounded-lg shrink-0"
                         />
                         <div className="flex-1 min-w-0">
                           <h4 className="text-sm font-medium text-gray-900 dark:text-white truncate group-hover:text-primary-600">
