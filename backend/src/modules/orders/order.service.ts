@@ -1,29 +1,24 @@
 import mongoose, { Types } from 'mongoose';
-import { Order, IOrder, OrderStatus, STATUS_TRANSITIONS, PaymentMethod } from './order.model';
-import { Cart } from '../cart/cart.model';
-import { Product } from '../products/product.model';
+import { OrderStatus, STATUS_TRANSITIONS, PaymentMethod } from './order.model';
 import { User } from '../auth/user.model';
 import { createError } from '../../middleware/errorHandler';
 import { IShippingAddress } from './order.model';
 import { emailService } from '../../services/email.service';
+import * as orderRepo from './order.repository';
+import * as productRepo from '../products/product.repository';
+import * as cartRepo from '../cart/cart.repository';
 
 export async function bulkUpdateOrderStatus(storeId: string, ids: string[], status: OrderStatus): Promise<number> {
-  const validIds = ids.filter(id => Types.ObjectId.isValid(id));
+  const validIds = ids.filter(id => Types.ObjectId.isValid(id)).map(id => new Types.ObjectId(id));
   if (validIds.length === 0) throw createError('No valid order IDs provided', 400, 'BAD_REQUEST');
-  const result = await Order.updateMany(
-    { _id: { $in: validIds }, storeId: new Types.ObjectId(storeId) },
-    { status }
-  );
+  const result = await orderRepo.bulkUpdateOrderStatuses(validIds, new Types.ObjectId(storeId), status);
   return result.modifiedCount;
 }
 
 export async function bulkDeleteOrders(storeId: string, ids: string[]): Promise<number> {
-  const validIds = ids.filter(id => Types.ObjectId.isValid(id));
+  const validIds = ids.filter(id => Types.ObjectId.isValid(id)).map(id => new Types.ObjectId(id));
   if (validIds.length === 0) throw createError('No valid order IDs provided', 400, 'BAD_REQUEST');
-  const result = await Order.deleteMany({
-    _id: { $in: validIds },
-    storeId: new Types.ObjectId(storeId),
-  });
+  const result = await orderRepo.deleteOrdersByIds(validIds, new Types.ObjectId(storeId));
   return result.deletedCount;
 }
 
@@ -57,39 +52,22 @@ export async function placeOrder(
   couponCode?: string,
   idempotencyKey?: string
 ): Promise<OrderDoc> {
-  const storeObjId = new Types.ObjectId(storeId);
+  const storeObjId    = new Types.ObjectId(storeId);
   const customerObjId = new Types.ObjectId(customerId);
 
-  // ── Duplicate-order guard (item #9) ────────────────────────────────────────
-  // If the client provides an idempotency key (generated at checkout page load),
-  // return the existing order immediately on any retry — no second charge or
-  // stock decrement will occur.
+  // ── Idempotency guard ──────────────────────────────────────────────────────
   if (idempotencyKey) {
-    const existing = await Order.findOne({
-      storeId: storeObjId,
-      customerId: customerObjId,
-      idempotencyKey,
-    }).lean();
-    if (existing) {
-      return existing as unknown as OrderDoc;
-    }
+    const existing = await orderRepo.findOrderByIdempotencyKey(storeObjId, customerObjId, idempotencyKey);
+    if (existing) return existing as unknown as OrderDoc;
   }
 
-  // Fallback guard: block a second pending order with the same cart fingerprint
-  // within a 5-minute window (catches retries that don't send an idempotency key).
-  // We match on customerId + storeId + status only — a new checkout attempt with
-  // a different cart or total is allowed to proceed.
+  // ── Fallback duplicate guard (5-minute window) ────────────────────────────
   const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
+  const cartForCheck = await cartRepo.findCart(storeObjId, customerObjId);
 
-  // Pre-calculate what the total would be, so we can fingerprint on it
-  const cartForCheck = await Cart.findOne({ storeId: storeObjId, customerId: customerObjId }).lean();
   if (cartForCheck && cartForCheck.items.length > 0) {
     const productIdsForCheck = cartForCheck.items.map(i => i.productId);
-    const productsForCheck = await Product.find({
-      _id: { $in: productIdsForCheck },
-      storeId: storeObjId,
-      isDeleted: false,
-    }).select('price discount').lean();
+    const productsForCheck = await productRepo.findProductsByIds(productIdsForCheck, storeObjId);
 
     const productPriceMap = new Map(productsForCheck.map(p => [p._id.toString(), p]));
     let checkTotal = 0;
@@ -102,15 +80,9 @@ export async function placeOrder(
     }
     checkTotal = Math.max(0, Math.round((checkTotal - discountAmount) * 100) / 100);
 
-    const recentDuplicate = await Order.findOne({
-      storeId: storeObjId,
-      customerId: customerObjId,
-      status: 'pending',
-      totalAmount: checkTotal,
-      createdAt: { $gte: fiveMinutesAgo },
-    })
-      .select('_id')
-      .lean();
+    const recentDuplicate = await orderRepo.findRecentPendingOrder(
+      storeObjId, customerObjId, checkTotal, fiveMinutesAgo
+    );
 
     if (recentDuplicate) {
       throw createError(
@@ -121,7 +93,9 @@ export async function placeOrder(
     }
   }
 
+  // ── Cart validation and order item building ───────────────────────────────
   const validateAndBuild = async (session?: mongoose.ClientSession) => {
+    const { Cart } = await import('../cart/cart.model');
     const cartQuery = Cart.findOne({ storeId: storeObjId, customerId: customerObjId });
     if (session) cartQuery.session(session);
     const cart = await cartQuery.lean();
@@ -130,6 +104,7 @@ export async function placeOrder(
       throw createError('Cart is empty', 400, 'BAD_REQUEST');
     }
 
+    const { Product } = await import('../products/product.model');
     const productIds = cart.items.map((i) => i.productId);
     const productQuery = Product.find({
       _id: { $in: productIds },
@@ -160,7 +135,6 @@ export async function placeOrder(
     let totalAmount = 0;
     const orderItems = cart.items.map((item) => {
       const product = productMap.get(item.productId.toString())!;
-      // Use the discounted price — this is what the customer sees and what Stripe charges
       const effectivePrice =
         product.discount > 0
           ? Math.round(product.price * (1 - product.discount / 100) * 100) / 100
@@ -169,7 +143,7 @@ export async function placeOrder(
       return {
         productId: item.productId,
         name: product.name,
-        price: effectivePrice,   // snapshot the price actually charged at order time
+        price: effectivePrice,
         quantity: item.quantity,
         selectedSize: item.selectedSize ?? undefined,
       };
@@ -187,8 +161,8 @@ export async function placeOrder(
       const { cart, orderItems, totalAmount } = await validateAndBuild(session);
       const finalAmount = Math.max(0, Math.round((totalAmount - discountAmount) * 100) / 100);
 
-      const [order] = await Order.create(
-        [{
+      const order = await orderRepo.createOrder(
+        {
           storeId: storeObjId,
           customerId: customerObjId,
           items: orderItems,
@@ -199,14 +173,14 @@ export async function placeOrder(
           paymentMethod,
           status: 'pending',
           ...(idempotencyKey && { idempotencyKey }),
-        }],
-        { session }
+        } as any,
+        session
       );
 
       for (const item of cart.items) {
-        await Product.updateOne({ _id: item.productId, storeId: storeObjId }, { $inc: { stock: -item.quantity } }, { session });
+        await productRepo.decrementStock(item.productId, storeObjId, item.quantity, session);
       }
-      await Cart.updateOne({ storeId: storeObjId, customerId: customerObjId }, { $set: { items: [] } }, { session });
+      await orderRepo.clearCartAfterOrder(storeObjId, customerObjId, session);
 
       createdOrder = order.toObject() as unknown as OrderDoc;
     });
@@ -233,17 +207,15 @@ export async function placeOrder(
       errMsg.includes('not supported') ||
       errMsg.includes('MongoServerError');
 
-    if (!isTransactionUnsupported) {
-      throw txErr;
-    }
+    if (!isTransactionUnsupported) throw txErr;
 
-    // Fallback: non-transactional path for Atlas M0 / standalone
+    // ── Non-transactional fallback (Atlas M0 / standalone MongoDB) ───────────
     console.warn('[placeOrder] Transactions not supported — using non-transactional fallback');
 
     const { cart, orderItems, totalAmount } = await validateAndBuild();
     const finalAmount = Math.max(0, Math.round((totalAmount - discountAmount) * 100) / 100);
 
-    const order = await Order.create({
+    const order = await orderRepo.createOrder({
       storeId: storeObjId,
       customerId: customerObjId,
       items: orderItems,
@@ -254,12 +226,12 @@ export async function placeOrder(
       paymentMethod,
       status: 'pending',
       ...(idempotencyKey && { idempotencyKey }),
-    });
+    } as any);
 
     for (const item of cart.items) {
-      await Product.updateOne({ _id: item.productId, storeId: storeObjId }, { $inc: { stock: -item.quantity } });
+      await productRepo.decrementStock(item.productId, storeObjId, item.quantity);
     }
-    await Cart.updateOne({ storeId: storeObjId, customerId: customerObjId }, { $set: { items: [] } });
+    await orderRepo.clearCartAfterOrder(storeObjId, customerObjId);
 
     const fallbackOrder = order.toObject() as unknown as OrderDoc;
 
@@ -288,40 +260,22 @@ export async function getMyOrders(
   limit: number
 ): Promise<PaginatedOrders> {
   const skip = (page - 1) * limit;
-  const query = {
-    storeId: new Types.ObjectId(storeId),
-    customerId: new Types.ObjectId(customerId),
-  };
-
-  const [data, total] = await Promise.all([
-    Order.find(query)
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(limit)
-      .select('_id storeId customerId items totalAmount discountAmount status createdAt updatedAt shippingAddress')
-      .lean(),
-    Order.countDocuments(query),
-  ]);
-
-  return {
-    data: data as unknown as OrderDoc[],
-    total,
-    page,
-    totalPages: Math.ceil(total / limit),
-  };
+  const { data, total } = await orderRepo.findCustomerOrders(
+    new Types.ObjectId(storeId),
+    new Types.ObjectId(customerId),
+    skip,
+    limit
+  );
+  return { data: data as unknown as OrderDoc[], total, page, totalPages: Math.ceil(total / limit) };
 }
 
 export async function getMyOrderById(storeId: string, customerId: string, orderId: string): Promise<OrderDoc> {
   if (!Types.ObjectId.isValid(orderId)) {
     throw createError('Invalid order ID', 400, 'BAD_REQUEST');
   }
-
-  const order = await Order.findOne({
-    _id: orderId,
-    storeId: new Types.ObjectId(storeId),
-    customerId: new Types.ObjectId(customerId),
-  }).lean();
-
+  const order = await orderRepo.findOrderByIdForCustomer(
+    orderId, new Types.ObjectId(storeId), new Types.ObjectId(customerId)
+  );
   if (!order) throw createError('Order not found', 404, 'NOT_FOUND');
   return order as unknown as OrderDoc;
 }
@@ -331,11 +285,9 @@ export async function cancelMyOrder(storeId: string, customerId: string, orderId
     throw createError('Invalid order ID', 400, 'BAD_REQUEST');
   }
 
-  const order = await Order.findOne({
-    _id: orderId,
-    storeId: new Types.ObjectId(storeId),
-    customerId: new Types.ObjectId(customerId),
-  });
+  const order = await orderRepo.findOrderDocumentByIdForCustomer(
+    orderId, new Types.ObjectId(storeId), new Types.ObjectId(customerId)
+  );
 
   if (!order) throw createError('Order not found', 404, 'NOT_FOUND');
 
@@ -350,30 +302,17 @@ export async function cancelMyOrder(storeId: string, customerId: string, orderId
 
 export async function getAllOrders(storeId: string, page: number, limit: number, status?: OrderStatus): Promise<PaginatedOrders> {
   const skip = (page - 1) * limit;
-  const query: any = { storeId: new Types.ObjectId(storeId) };
-  if (status) query.status = status;
-
-  const [data, total] = await Promise.all([
-    Order.find(query).sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
-    Order.countDocuments(query),
-  ]);
-
-  return {
-    data: data as unknown as OrderDoc[],
-    total,
-    page,
-    totalPages: Math.ceil(total / limit),
-  };
+  const { data, total } = await orderRepo.findStoreOrders(
+    new Types.ObjectId(storeId), skip, limit, status
+  );
+  return { data: data as unknown as OrderDoc[], total, page, totalPages: Math.ceil(total / limit) };
 }
 
 export async function getOrderByIdAdmin(storeId: string, orderId: string): Promise<OrderDoc> {
   if (!Types.ObjectId.isValid(orderId)) {
     throw createError('Invalid order ID', 400, 'BAD_REQUEST');
   }
-  const order = await Order.findOne({
-    _id: orderId,
-    storeId: new Types.ObjectId(storeId),
-  }).lean();
+  const order = await orderRepo.findOrderById(orderId, new Types.ObjectId(storeId));
   if (!order) throw createError('Order not found', 404, 'NOT_FOUND');
   return order as unknown as OrderDoc;
 }
@@ -387,10 +326,7 @@ export async function updateOrderStatus(
     throw createError('Invalid order ID', 400, 'BAD_REQUEST');
   }
 
-  const order = await Order.findOne({
-    _id: orderId,
-    storeId: new Types.ObjectId(storeId),
-  });
+  const order = await orderRepo.findOrderDocumentById(orderId, new Types.ObjectId(storeId));
   if (!order) throw createError('Order not found', 404, 'NOT_FOUND');
 
   const allowed = STATUS_TRANSITIONS[order.status];

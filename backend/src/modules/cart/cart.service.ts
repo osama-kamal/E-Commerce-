@@ -1,7 +1,7 @@
 import { Types } from 'mongoose';
-import { Cart } from './cart.model';
-import { Product } from '../products/product.model';
 import { createError } from '../../middleware/errorHandler';
+import * as cartRepo from './cart.repository';
+import * as productRepo from '../products/product.repository';
 
 export interface CartItemView {
   productId: Types.ObjectId;
@@ -21,15 +21,15 @@ export interface CartView {
 }
 
 async function buildCartView(storeId: string, customerId: string): Promise<CartView> {
-  const cart = await Cart.findOne({
-    storeId: new Types.ObjectId(storeId),
-    customerId: new Types.ObjectId(customerId),
-  }).lean();
+  const storeObjId  = new Types.ObjectId(storeId);
+  const customerObjId = new Types.ObjectId(customerId);
+
+  const cart = await cartRepo.findCart(storeObjId, customerObjId);
 
   if (!cart || cart.items.length === 0) {
     return {
-      storeId: new Types.ObjectId(storeId),
-      customerId: new Types.ObjectId(customerId),
+      storeId: storeObjId,
+      customerId: customerObjId,
       items: [],
       subtotal: 0,
       updatedAt: cart?.updatedAt ?? new Date(),
@@ -37,14 +37,7 @@ async function buildCartView(storeId: string, customerId: string): Promise<CartV
   }
 
   const productIds = cart.items.map((i) => i.productId);
-  const products = await Product.find({
-    _id: { $in: productIds },
-    isDeleted: false,
-    // Note: no storeId filter here — products in the cart already belong to this store.
-    // Filtering by storeId would silently drop items if the store context changes.
-  })
-    .select('name price discount')  // discount must be selected to compute effective price
-    .lean();
+  const products = await productRepo.findProductsByIds(productIds, storeObjId);
 
   const priceMap = new Map(products.map((p) => [p._id.toString(), p]));
 
@@ -55,7 +48,6 @@ async function buildCartView(storeId: string, customerId: string): Promise<CartV
     const product = priceMap.get(item.productId.toString());
     if (!product) continue;
 
-    // Apply discount percentage to get the price the customer actually pays
     const effectivePrice =
       product.discount > 0
         ? Math.round(product.price * (1 - product.discount / 100) * 100) / 100
@@ -97,18 +89,15 @@ export async function addItem(
     throw createError('Invalid product ID', 400, 'BAD_REQUEST');
   }
 
-  const product = await Product.findOne({
-    _id: productId,
-    storeId: new Types.ObjectId(storeId),
-    isDeleted: false,
-  }).lean();
+  const storeObjId    = new Types.ObjectId(storeId);
+  const customerObjId = new Types.ObjectId(customerId);
+  const productObjId  = new Types.ObjectId(productId);
+
+  const product = await productRepo.findProductById(productId, storeObjId);
   if (!product) throw createError('Product not found', 404, 'NOT_FOUND');
   if (product.stock <= 0) throw createError('Product is out of stock', 400, 'BAD_REQUEST');
 
-  const cart = await Cart.findOne({
-    storeId: new Types.ObjectId(storeId),
-    customerId: new Types.ObjectId(customerId),
-  }).lean();
+  const cart = await cartRepo.findCart(storeObjId, customerObjId);
 
   const existingItem = cart?.items.find(
     (i) => i.productId.toString() === productId && i.selectedSize === (selectedSize ?? null)
@@ -125,56 +114,25 @@ export async function addItem(
   }
 
   if (existingItem) {
-    // Use $elemMatch to ensure BOTH conditions match the SAME array element.
-    // MongoDB's positional $ operator without $elemMatch pins to the first element
-    // that satisfies ANY of the filter fields — which can update the wrong item
-    // when multiple cart items share the same selectedSize (e.g. null).
-    await Cart.updateOne(
-      {
-        storeId: new Types.ObjectId(storeId),
-        customerId: new Types.ObjectId(customerId),
-        items: {
-          $elemMatch: {
-            productId: new Types.ObjectId(productId),
-            selectedSize: selectedSize ?? null,
-          },
-        },
-      },
-      { $inc: { 'items.$.quantity': quantity }, $set: { 'items.$.priceSnapshot': product.price } }
+    await cartRepo.incrementItemQuantity(
+      storeObjId, customerObjId, productObjId, selectedSize ?? null, quantity, product.price
     );
   } else {
     try {
-      await Cart.findOneAndUpdate(
-        { storeId: new Types.ObjectId(storeId), customerId: new Types.ObjectId(customerId) },
-        {
-          $push: {
-            items: {
-              productId: new Types.ObjectId(productId),
-              quantity,
-              priceSnapshot: product.price,
-              selectedSize: selectedSize ?? null,
-            },
-          },
-        },
-        { upsert: true }
-      );
+      await cartRepo.upsertPushItem(storeObjId, customerObjId, {
+        productId: productObjId,
+        quantity,
+        priceSnapshot: product.price,
+        selectedSize: selectedSize ?? null,
+      });
     } catch (err: any) {
-      // Duplicate key: two concurrent requests both tried to create the cart.
-      // The other request won — retry as a plain update (cart now exists).
       if (err.code === 11000) {
-        await Cart.updateOne(
-          { storeId: new Types.ObjectId(storeId), customerId: new Types.ObjectId(customerId) },
-          {
-            $push: {
-              items: {
-                productId: new Types.ObjectId(productId),
-                quantity,
-                priceSnapshot: product.price,
-                selectedSize: selectedSize ?? null,
-              },
-            },
-          }
-        );
+        await cartRepo.pushItemFallback(storeObjId, customerObjId, {
+          productId: productObjId,
+          quantity,
+          priceSnapshot: product.price,
+          selectedSize: selectedSize ?? null,
+        });
       } else {
         throw err;
       }
@@ -199,32 +157,19 @@ export async function updateItemQuantity(
     return removeItem(storeId, customerId, productId, selectedSize);
   }
 
-  const product = await Product.findOne({
-    _id: productId,
-    storeId: new Types.ObjectId(storeId),
-    isDeleted: false,
-  }).lean();
+  const storeObjId    = new Types.ObjectId(storeId);
+  const customerObjId = new Types.ObjectId(customerId);
+  const productObjId  = new Types.ObjectId(productId);
+
+  const product = await productRepo.findProductById(productId, storeObjId);
   if (!product) throw createError('Product not found', 404, 'NOT_FOUND');
 
   if (quantity > product.stock) {
     throw createError(`Only ${product.stock} unit(s) available`, 400, 'BAD_REQUEST');
   }
 
-  // Use $elemMatch so both productId AND selectedSize must match the SAME array element.
-  // Without it, the positional $ operator can pin to a different item that only
-  // happens to share the same selectedSize — updating the wrong line item.
-  const result = await Cart.updateOne(
-    {
-      storeId: new Types.ObjectId(storeId),
-      customerId: new Types.ObjectId(customerId),
-      items: {
-        $elemMatch: {
-          productId: new Types.ObjectId(productId),
-          selectedSize: selectedSize ?? null,
-        },
-      },
-    },
-    { $set: { 'items.$.quantity': quantity, 'items.$.priceSnapshot': product.price } }
+  const result = await cartRepo.setItemQuantity(
+    storeObjId, customerObjId, productObjId, selectedSize ?? null, quantity, product.price
   );
 
   if (result.matchedCount === 0) {
@@ -234,30 +179,31 @@ export async function updateItemQuantity(
   return buildCartView(storeId, customerId);
 }
 
-export async function removeItem(storeId: string, customerId: string, productId: string, selectedSize?: string): Promise<CartView> {
+export async function removeItem(
+  storeId: string,
+  customerId: string,
+  productId: string,
+  selectedSize?: string
+): Promise<CartView> {
   if (!Types.ObjectId.isValid(productId)) {
     throw createError('Invalid product ID', 400, 'BAD_REQUEST');
   }
 
-  // When selectedSize is provided, remove only that specific size variant.
-  // When not provided (e.g. a size-less product), remove all entries for this productId.
   const pullFilter: Record<string, unknown> = { productId: new Types.ObjectId(productId) };
   if (selectedSize !== undefined) {
     pullFilter.selectedSize = selectedSize ?? null;
   }
 
-  await Cart.updateOne(
-    { storeId: new Types.ObjectId(storeId), customerId: new Types.ObjectId(customerId) },
-    { $pull: { items: pullFilter } }
+  await cartRepo.pullItem(
+    new Types.ObjectId(storeId),
+    new Types.ObjectId(customerId),
+    pullFilter
   );
 
   return buildCartView(storeId, customerId);
 }
 
 export async function clearCart(storeId: string, customerId: string): Promise<CartView> {
-  await Cart.updateOne(
-    { storeId: new Types.ObjectId(storeId), customerId: new Types.ObjectId(customerId) },
-    { $set: { items: [] } }
-  );
+  await cartRepo.clearItems(new Types.ObjectId(storeId), new Types.ObjectId(customerId));
   return buildCartView(storeId, customerId);
 }

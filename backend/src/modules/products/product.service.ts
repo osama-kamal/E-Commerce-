@@ -1,7 +1,6 @@
 import { Types } from 'mongoose';
-import { Product } from './product.model';
-import { Category } from '../categories/category.model';
 import { createError } from '../../middleware/errorHandler';
+import * as productRepo from './product.repository';
 
 export interface ProductDoc {
   _id: Types.ObjectId;
@@ -43,62 +42,51 @@ export interface PaginatedProducts {
 }
 
 export async function listProducts(filters: ProductFilters): Promise<PaginatedProducts> {
-  const query: Record<string, unknown> = {
-    storeId: new Types.ObjectId(filters.storeId),
-    isDeleted: false,
-  };
+  const storeObjId = new Types.ObjectId(filters.storeId);
 
-  if (filters.category) {
-    if (!Types.ObjectId.isValid(filters.category)) {
-      throw createError('Invalid category ID', 400, 'BAD_REQUEST');
-    }
-    const categoryObjId = new Types.ObjectId(filters.category);
-    const children = await Category.find({ parentId: categoryObjId, storeId: new Types.ObjectId(filters.storeId) }).select('_id').lean();
-    const categoryIds = [categoryObjId, ...children.map(c => c._id)];
-    query.categoryId = { $in: categoryIds };
-  }
-
-  if (filters.minPrice !== undefined || filters.maxPrice !== undefined) {
-    const priceFilter: Record<string, number> = {};
-    if (filters.minPrice !== undefined) priceFilter.$gte = filters.minPrice;
-    if (filters.maxPrice !== undefined) priceFilter.$lte = filters.maxPrice;
-    query.price = priceFilter;
-  }
-
-  if (filters.inStock === 'true') {
-    query.stock = { $gt: 0 };
-  } else if (filters.inStock === 'false') {
-    query.stock = 0;
-  }
-
-  if (filters.onSale === 'true') {
-    query.discount = { $gt: 0 };
-  }
-
-  if (filters.search) {
-    const pattern = new RegExp('^' + filters.search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
-    query.$or = [
-      { name: { $regex: pattern } },
-      { description: { $regex: pattern } },
-    ];
-  }
-
+  // ── Build sort option ──────────────────────────────────────────────────────
   let sortOption: Record<string, 1 | -1> = { createdAt: -1 };
   if (filters.sortBy === 'price_asc') sortOption = { price: 1 };
   else if (filters.sortBy === 'price_desc') sortOption = { price: -1 };
   else if (filters.sortBy === 'rating') sortOption = { averageRating: -1, reviewCount: -1 };
   else if (filters.sortBy === 'newest') sortOption = { createdAt: -1 };
 
+  // ── Resolve category IDs (including children) ──────────────────────────────
+  let categoryIds: Types.ObjectId[] | undefined;
+  if (filters.category) {
+    if (!Types.ObjectId.isValid(filters.category)) {
+      throw createError('Invalid category ID', 400, 'BAD_REQUEST');
+    }
+    const parentId = new Types.ObjectId(filters.category);
+    const childIds = await productRepo.findChildCategoryIds(parentId, storeObjId);
+    categoryIds = [parentId, ...childIds];
+  }
+
+  // ── Resolve inStock flag ───────────────────────────────────────────────────
+  let inStock: boolean | null | undefined;
+  if (filters.inStock === 'true')  inStock = true;
+  else if (filters.inStock === 'false') inStock = false;
+
+  // ── Build search regex ─────────────────────────────────────────────────────
+  let searchPattern: RegExp | undefined;
+  if (filters.search) {
+    searchPattern = new RegExp('^' + filters.search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+  }
+
   const skip = (filters.page - 1) * filters.limit;
-  const [data, total] = await Promise.all([
-    Product.find(query)
-      .sort(sortOption)
-      .skip(skip)
-      .limit(filters.limit)
-      .select('_id storeId name description price discount stock categoryId images sizes averageRating reviewCount isDeleted createdAt updatedAt')
-      .lean(),
-    Product.countDocuments(query),
-  ]);
+
+  const { data, total } = await productRepo.findProductsPaginated({
+    storeId: storeObjId,
+    categoryIds,
+    minPrice: filters.minPrice,
+    maxPrice: filters.maxPrice,
+    inStock,
+    onSale: filters.onSale === 'true',
+    searchPattern,
+    sortOption,
+    skip,
+    limit: filters.limit,
+  });
 
   return {
     data: data.map((p) => ({ ...p, inStock: p.stock > 0 })) as unknown as ProductDoc[],
@@ -112,11 +100,7 @@ export async function getProductById(id: string, storeId: string): Promise<Produ
   if (!Types.ObjectId.isValid(id)) {
     throw createError('Invalid product ID', 400, 'BAD_REQUEST');
   }
-  const product = await Product.findOne({
-    _id: id,
-    storeId: new Types.ObjectId(storeId),
-    isDeleted: false,
-  }).lean();
+  const product = await productRepo.findProductById(id, new Types.ObjectId(storeId));
   if (!product) throw createError('Product not found', 404, 'NOT_FOUND');
   return { ...product, inStock: product.stock > 0 } as unknown as ProductDoc;
 }
@@ -143,11 +127,7 @@ export async function createProduct(data: {
   const limits = getPlanLimits(store.subscriptionPlan);
 
   if (limits.maxProducts !== -1) {
-    const currentCount = await Product.countDocuments({
-      storeId: new Types.ObjectId(data.storeId),
-      isDeleted: false,
-    });
-
+    const currentCount = await productRepo.countProductsByStore(new Types.ObjectId(data.storeId));
     if (currentCount >= limits.maxProducts) {
       throw createError(
         `Your ${store.subscriptionPlan} plan allows a maximum of ${limits.maxProducts} products. ` +
@@ -157,9 +137,8 @@ export async function createProduct(data: {
       );
     }
   }
-  // ─────────────────────────────────────────────────────────────────────────
 
-  const product = await Product.create(data);
+  const product = await productRepo.createProduct(data as any);
   return product.toObject() as unknown as ProductDoc;
 }
 
@@ -174,11 +153,7 @@ export async function updateProduct(
   if (data.categoryId && !Types.ObjectId.isValid(data.categoryId)) {
     throw createError('Invalid category ID', 400, 'BAD_REQUEST');
   }
-  const product = await Product.findOneAndUpdate(
-    { _id: id, storeId: new Types.ObjectId(storeId), isDeleted: false },
-    data,
-    { new: true }
-  ).lean();
+  const product = await productRepo.findAndUpdateProduct(id, new Types.ObjectId(storeId), data as any);
   if (!product) throw createError('Product not found', 404, 'NOT_FOUND');
   return product as unknown as ProductDoc;
 }
@@ -187,10 +162,7 @@ export async function softDeleteProduct(id: string, storeId: string): Promise<vo
   if (!Types.ObjectId.isValid(id)) {
     throw createError('Invalid product ID', 400, 'BAD_REQUEST');
   }
-  const result = await Product.findOneAndUpdate(
-    { _id: id, storeId: new Types.ObjectId(storeId), isDeleted: false },
-    { isDeleted: true }
-  );
+  const result = await productRepo.softDeleteProductById(id, new Types.ObjectId(storeId));
   if (!result) throw createError('Product not found', 404, 'NOT_FOUND');
 }
 
@@ -198,22 +170,15 @@ export async function removeProductImage(id: string, storeId: string, imageUrl: 
   if (!Types.ObjectId.isValid(id)) {
     throw createError('Invalid product ID', 400, 'BAD_REQUEST');
   }
-  const product = await Product.findOneAndUpdate(
-    { _id: id, storeId: new Types.ObjectId(storeId), isDeleted: false },
-    { $pull: { images: imageUrl } },
-    { new: true }
-  ).lean();
+  const product = await productRepo.pullProductImage(id, new Types.ObjectId(storeId), imageUrl);
   if (!product) throw createError('Product not found', 404, 'NOT_FOUND');
   return product as unknown as ProductDoc;
 }
 
 export async function bulkDeleteProducts(ids: string[], storeId: string): Promise<number> {
-  const validIds = ids.filter(id => Types.ObjectId.isValid(id));
+  const validIds = ids.filter(id => Types.ObjectId.isValid(id)).map(id => new Types.ObjectId(id));
   if (validIds.length === 0) throw createError('No valid product IDs provided', 400, 'BAD_REQUEST');
-  const result = await Product.updateMany(
-    { _id: { $in: validIds }, storeId: new Types.ObjectId(storeId), isDeleted: false },
-    { isDeleted: true }
-  );
+  const result = await productRepo.bulkSoftDelete(validIds, new Types.ObjectId(storeId));
   return result.modifiedCount;
 }
 
@@ -222,12 +187,9 @@ export async function bulkUpdateProducts(
   storeId: string,
   data: Partial<{ price: number; stock: number; discount: number; categoryId: string }>
 ): Promise<number> {
-  const validIds = ids.filter(id => Types.ObjectId.isValid(id));
+  const validIds = ids.filter(id => Types.ObjectId.isValid(id)).map(id => new Types.ObjectId(id));
   if (validIds.length === 0) throw createError('No valid product IDs provided', 400, 'BAD_REQUEST');
-  const result = await Product.updateMany(
-    { _id: { $in: validIds }, storeId: new Types.ObjectId(storeId), isDeleted: false },
-    data
-  );
+  const result = await productRepo.bulkUpdate(validIds, new Types.ObjectId(storeId), data as any);
   return result.modifiedCount;
 }
 
@@ -235,11 +197,7 @@ export async function addProductImage(id: string, storeId: string, imageUrl: str
   if (!Types.ObjectId.isValid(id)) {
     throw createError('Invalid product ID', 400, 'BAD_REQUEST');
   }
-  const product = await Product.findOneAndUpdate(
-    { _id: id, storeId: new Types.ObjectId(storeId), isDeleted: false },
-    { $push: { images: imageUrl } },
-    { new: true }
-  ).lean();
+  const product = await productRepo.pushProductImage(id, new Types.ObjectId(storeId), imageUrl);
   if (!product) throw createError('Product not found', 404, 'NOT_FOUND');
   return product as unknown as ProductDoc;
 }
