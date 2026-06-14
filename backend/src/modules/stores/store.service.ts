@@ -171,7 +171,12 @@ export async function updateStorePlan(
 
   const store = await Store.findByIdAndUpdate(
     storeId,
-    { subscriptionPlan: plan, subscriptionStatus: status },
+    {
+      subscriptionPlan: plan,
+      subscriptionStatus: status,
+      // Clear the pending request once the plan is activated
+      $unset: { requestedPlan: '' },
+    },
     { new: true, runValidators: true }
   ).lean();
 
@@ -187,9 +192,22 @@ export async function requestPlanUpgrade(
   ownerEmail: string,
   storeName: string
 ): Promise<void> {
+  // Fetch the current store status to decide whether to change it.
+  const store = await Store.findById(storeId).select('subscriptionStatus').lean();
+  const currentStatus = store?.subscriptionStatus ?? 'trialing';
+
+  // Only flip the status to pending_upgrade for stores that aren't already
+  // on an active paid plan. Active stores keep their current status so they
+  // don't lose feature access while the upgrade is being reviewed.
+  const newStatus = currentStatus === 'active' ? currentStatus : 'pending_upgrade';
+
+  await Store.findByIdAndUpdate(storeId, {
+    subscriptionStatus: newStatus,
+    requestedPlan,
+  });
+
   // Fire-and-forget email to the platform admin
-  const adminEmail = process.env.EMAIL_USER ?? '';
-  if (!adminEmail) return;
+  const adminEmail = process.env.ADMIN_NOTIFY_EMAIL ?? 'vendbase019@gmail.com';
 
   const { emailService } = await import('../../services/email.service');
   const subject = `[Plan Upgrade Request] ${storeName} → ${requestedPlan}`;

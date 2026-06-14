@@ -1,5 +1,5 @@
 import api from './axios';
-import { DashboardStats, TopProduct, User, PaginatedResponse } from '../types';
+import { DashboardStats, TopProduct, User, PaginatedResponse, Store } from '../types';
 
 export const adminApi = {
   getDashboard: (params?: { startDate?: string; endDate?: string }) =>
@@ -23,4 +23,17 @@ export const adminApi = {
         headers: storeId ? { 'X-Store-ID': storeId } : undefined,
       }
     ),
+
+  // ── Platform-admin: manage all stores ──────────────────────────────────────
+  listAllStores: (page = 1, limit = 50) =>
+    api.get<{ data: { data: Store[]; total: number; page: number; totalPages: number } }>(
+      '/admin/stores',
+      { params: { page, limit } }
+    ),
+
+  updateStorePlan: (storeId: string, plan: string, status: string, endsAt?: string) =>
+    api.patch<{ data: Store }>(`/admin/stores/${storeId}/plan`, { plan, status, ...(endsAt ? { endsAt } : {}) }),
+
+  listPendingUpgrades: () =>
+    api.get<{ data: (Store & { ownerEmail: string | null; ownerName: string | null; requestedPlan?: string })[] }>('/admin/stores/pending-upgrades'),
 };

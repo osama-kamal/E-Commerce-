@@ -9,7 +9,7 @@ export interface IUser extends Document {
   storeId: Types.ObjectId;
   email: string;
   passwordHash: string;
-  role: 'admin' | 'customer';
+  role: 'super-admin' | 'admin' | 'customer';
   isActive: boolean;
   refreshTokens: IRefreshToken[];
   passwordResetToken?: string;   // SHA-256 hash
@@ -41,7 +41,7 @@ const userSchema = new Schema<IUser>(
     },
     role: {
       type: String,
-      enum: ['admin', 'customer'],
+      enum: ['super-admin', 'admin', 'customer'],
       default: 'customer',
     },
     isActive: {

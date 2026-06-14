@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
+import { useAppSelector } from '../hooks/useAppDispatch';
 import { newsletterApi } from '../api/newsletter';
 import { categoriesApi } from '../api/categories';
 import { Category } from '../types';
@@ -103,22 +104,56 @@ export default function HomePage() {
     }
   };
 
+  const { isAuthenticated } = useAppSelector(s => s.auth);
+
   return (
-    <div className="bg-gray-50 dark:bg-gray-900 min-h-screen">
+    <div className="bg-amber-50/20 dark:bg-gray-900 min-h-screen">
       <div className="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Hero Carousel */}
         <div className="mb-8">
           <HeroCarousel />
         </div>
 
+        {/* Vendor CTA banner — shown only to unauthenticated visitors */}
+        {!isAuthenticated && (
+          <div className="mb-8 rounded-2xl overflow-hidden bg-gradient-to-r from-indigo-600 via-violet-600 to-purple-600 p-px shadow-xl">
+            <div className="rounded-2xl bg-gradient-to-r from-indigo-600 via-violet-600 to-purple-600 px-6 py-5 flex flex-col sm:flex-row items-center justify-between gap-4">
+              <div className="text-center sm:text-left">
+                <p className="text-xs font-semibold text-indigo-200 uppercase tracking-widest mb-1">For Entrepreneurs</p>
+                <h2 className="text-xl sm:text-2xl font-bold text-white leading-tight">
+                  Launch your own online store — free
+                </h2>
+                <p className="text-sm text-indigo-200 mt-1">
+                  Set up in minutes. No credit card required. Full 7-day free trial.
+                </p>
+              </div>
+              <div className="flex items-center gap-3 shrink-0">
+                <Link
+                  to="/start"
+                  className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-white text-indigo-700 font-bold text-sm hover:bg-indigo-50 transition-colors shadow-lg hover:shadow-xl hover:-translate-y-0.5 transform"
+                >
+                  <span>🚀</span>
+                  Start Free Trial
+                </Link>
+                <Link
+                  to="/login"
+                  className="text-sm text-indigo-200 hover:text-white font-medium transition-colors"
+                >
+                  Sign in →
+                </Link>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Live search bar */}
         <div className="flex gap-2 mb-8">
           <div className="relative flex-1 max-w-2xl mx-auto">
-            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">🔍</span>
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-amber-500 text-sm">🔍</span>
             <input
               type="text"
               placeholder="Search by name, description, or category…"
-              className="input pl-9 w-full"
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 pl-9 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-400 dark:bg-gray-800 dark:border-gray-600 dark:text-gray-100 dark:placeholder-gray-400 transition-shadow"
               value={searchInput}
               onChange={e => setSearchInput(e.target.value)}
             />
@@ -250,9 +285,9 @@ export default function HomePage() {
           <aside className="w-64 shrink-0 hidden lg:block">
             <div className="sticky top-20 space-y-4">
               {/* Categories Card */}
-              <div className="card p-4 backdrop-blur-md bg-white/90 dark:bg-gray-800/90 border border-gray-200 dark:border-gray-700 shadow-lg">
-                <h3 className="font-bold text-gray-900 dark:text-white mb-3 flex items-center gap-2">
-                  <span>📂</span> Categories
+              <div className="card p-4 backdrop-blur-md bg-amber-50/50 dark:bg-gray-800/90 border border-amber-100 dark:border-gray-700 shadow-lg">
+                <h3 className="font-bold text-amber-800 dark:text-amber-400 mb-3 flex items-center gap-2">
+                  <span className="text-amber-600">📂</span> Categories
                 </h3>
                 <ul className="space-y-1 max-h-64 overflow-y-auto">
                   <li>
@@ -260,8 +295,8 @@ export default function HomePage() {
                       onClick={() => handleCategoryChange('')}
                       className={`text-sm w-full text-left px-3 py-2 rounded-lg transition-all ${
                         !selectedCategory
-                          ? 'bg-primary-500 text-white font-medium shadow-sm'
-                          : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
+                          ? 'bg-gradient-to-r from-amber-500 to-yellow-600 text-white font-medium shadow-sm shadow-amber-200'
+                          : 'text-gray-600 dark:text-gray-300 hover:bg-amber-50 dark:hover:bg-gray-700'
                       }`}
                     >
                       All Products
@@ -273,8 +308,8 @@ export default function HomePage() {
                         onClick={() => handleCategoryChange(cat._id)}
                         className={`text-sm w-full text-left px-3 py-2 rounded-lg transition-all ${
                           selectedCategory === cat._id
-                            ? 'bg-primary-500 text-white font-medium shadow-sm'
-                            : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
+                            ? 'bg-gradient-to-r from-amber-500 to-yellow-600 text-white font-medium shadow-sm shadow-amber-200'
+                            : 'text-gray-600 dark:text-gray-300 hover:bg-amber-50 dark:hover:bg-gray-700'
                         }`}
                       >
                         {cat.level > 0 && <span className="mr-1 text-gray-400">└</span>}
@@ -286,9 +321,9 @@ export default function HomePage() {
               </div>
 
               {/* Price Range Card */}
-              <div className="card p-4 backdrop-blur-md bg-white/90 dark:bg-gray-800/90 border border-gray-200 dark:border-gray-700 shadow-lg">
-                <h3 className="font-bold text-gray-900 dark:text-white mb-3 flex items-center gap-2">
-                  <span>💰</span> Price Range
+              <div className="card p-4 backdrop-blur-md bg-amber-50/50 dark:bg-gray-800/90 border border-amber-100 dark:border-gray-700 shadow-lg">
+                <h3 className="font-bold text-amber-800 dark:text-amber-400 mb-3 flex items-center gap-2">
+                  <span className="text-amber-600">💰</span> Price Range
                 </h3>
                 <div className="flex gap-2">
                   <input
@@ -309,9 +344,9 @@ export default function HomePage() {
               </div>
 
               {/* Filters Card */}
-              <div className="card p-4 backdrop-blur-md bg-white/90 dark:bg-gray-800/90 border border-gray-200 dark:border-gray-700 shadow-lg">
-                <h3 className="font-bold text-gray-900 dark:text-white mb-3 flex items-center gap-2">
-                  <span>⚙️</span> Filters
+              <div className="card p-4 backdrop-blur-md bg-amber-50/50 dark:bg-gray-800/90 border border-amber-100 dark:border-gray-700 shadow-lg">
+                <h3 className="font-bold text-amber-800 dark:text-amber-400 mb-3 flex items-center gap-2">
+                  <span className="text-amber-600">⚙️</span> Filters
                 </h3>
                 <div className="space-y-3">
                   <label className="flex items-center gap-2 cursor-pointer group">
@@ -400,7 +435,9 @@ export default function HomePage() {
               </div>
             ) : (
               <div className={`grid grid-cols-2 md:grid-cols-3 lg:grid-cols-3 xl:grid-cols-4 gap-4 transition-opacity duration-200 ${isPlaceholderData ? 'opacity-60' : 'opacity-100'}`}>
-                {products.map((p, i) => <ProductCard key={p._id} product={p} index={i} />)}
+                {products.map((p, i) => (
+                  <ProductCard key={p._id} product={p} index={i} />
+                ))}
               </div>
             )}
 
@@ -481,9 +518,9 @@ export default function HomePage() {
               </div>
 
               {/* Top Rated Card */}
-              <div className="card p-4 backdrop-blur-md bg-gradient-to-br from-yellow-50 to-amber-50 dark:from-yellow-900/20 dark:to-amber-900/20 border border-yellow-200 dark:border-yellow-800 shadow-lg">
-                <h3 className="font-bold text-yellow-700 dark:text-yellow-400 mb-3 flex items-center gap-2">
-                  <span className="text-xl">⭐</span> Top Rated
+              <div className="card p-4 backdrop-blur-md bg-gradient-to-br from-amber-50 to-yellow-50 dark:from-yellow-900/20 dark:to-amber-900/20 border border-amber-100 dark:border-yellow-800 shadow-lg">
+                <h3 className="font-bold text-amber-700 dark:text-amber-400 mb-3 flex items-center gap-2">
+                  <span className="text-xl text-amber-600">⭐</span> Top Rated
                 </h3>
                 <div className="space-y-3">
                   {products
@@ -532,9 +569,9 @@ export default function HomePage() {
               </div>
 
               {/* Newsletter Card */}
-              <div className="card p-4 backdrop-blur-md bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 border border-blue-200 dark:border-blue-800 shadow-lg">
-                <h3 className="font-bold text-blue-600 dark:text-blue-400 mb-2 flex items-center gap-2">
-                  <span className="text-xl">📧</span> Newsletter
+              <div className="card p-4 backdrop-blur-md bg-gradient-to-br from-amber-50 to-yellow-50 dark:from-amber-900/20 dark:to-yellow-900/20 border border-amber-100 dark:border-amber-800 shadow-lg">
+                <h3 className="font-bold text-amber-700 dark:text-amber-400 mb-2 flex items-center gap-2">
+                  <span className="text-xl text-amber-600">📧</span> Newsletter
                 </h3>
                 <p className="text-xs text-gray-600 dark:text-gray-400 mb-3">
                   Subscribe to get special offers and updates!
@@ -549,7 +586,7 @@ export default function HomePage() {
                 <button
                   onClick={handleNewsletterSubscribe}
                   disabled={subscribing}
-                  className="btn-primary w-full text-sm py-2 disabled:opacity-50"
+                  className="w-full text-sm py-2 px-4 rounded-lg font-medium text-white bg-gradient-to-r from-amber-500 to-yellow-600 hover:from-amber-600 hover:to-yellow-700 shadow-sm shadow-amber-200 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {subscribing ? 'Subscribing...' : 'Subscribe'}
                 </button>

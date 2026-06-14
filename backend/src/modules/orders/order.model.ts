@@ -1,6 +1,7 @@
 import mongoose, { Document, Schema, Types } from 'mongoose';
 
 export type OrderStatus = 'pending' | 'processing' | 'shipped' | 'delivered' | 'cancelled';
+export type PaymentMethod = 'online' | 'cod';
 
 export interface IOrderItem {
   productId: Types.ObjectId;
@@ -24,6 +25,7 @@ export interface IOrder extends Document {
   items: IOrderItem[];
   totalAmount: number;
   status: OrderStatus;
+  paymentMethod: PaymentMethod;
   paymentIntentId?: string;
   discountAmount: number;
   couponCode?: string;
@@ -77,6 +79,12 @@ const orderSchema = new Schema<IOrder>(
       index: true,
     },
     paymentIntentId: { type: String },
+    paymentMethod: {
+      type: String,
+      enum: ['online', 'cod'],
+      default: 'online',
+      index: true,
+    },
     discountAmount: { type: Number, default: 0, min: 0 },
     couponCode: { type: String },
     // Idempotency key supplied by the client at checkout — prevents duplicate orders on retry

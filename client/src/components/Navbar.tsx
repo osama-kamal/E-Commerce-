@@ -50,8 +50,8 @@ export default function Navbar() {
 
   const initials = user?.email.slice(0, 2).toUpperCase() ?? '?';
 
-  // Dynamic store branding
-  const storeName = currentStore?.name ?? 'ShopHub';
+  // Dynamic store branding — falls back to "Vendbase" on the platform homepage
+  const storeName = currentStore?.name ?? 'Vendbase';
   const storeLogo = currentStore?.settings?.logoUrl;
 
   return (
@@ -185,7 +185,12 @@ export default function Navbar() {
             ) : (
               <>
                 <Link to="/login" className="text-sm text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white">Login</Link>
-                <Link to="/register" className="btn-primary text-sm">Register</Link>
+                <Link
+                  to="/start"
+                  className="text-sm font-semibold px-4 py-2 rounded-lg bg-primary-600 hover:bg-primary-700 text-white transition-colors"
+                >
+                  Start Free Trial
+                </Link>
               </>
             )}
 

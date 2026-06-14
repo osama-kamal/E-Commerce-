@@ -2,8 +2,8 @@ import api from './axios';
 import { Order, PaginatedResponse, ShippingAddress } from '../types';
 
 export const ordersApi = {
-  place: (shippingAddress: ShippingAddress, discountAmount = 0, couponCode?: string) =>
-    api.post<{ data: Order }>('/orders', { shippingAddress, discountAmount, couponCode }),
+  place: (shippingAddress: ShippingAddress, paymentMethod: 'online' | 'cod' = 'online', discountAmount = 0, couponCode?: string, idempotencyKey?: string) =>
+    api.post<{ data: Order }>('/orders', { shippingAddress, paymentMethod, discountAmount, couponCode, idempotencyKey }),
   getMyOrders: (page = 1, limit = 20) =>
     api.get<{ data: PaginatedResponse<Order> }>('/orders', { params: { page, limit } }),
   getById: (id: string) => api.get<{ data: Order }>(`/orders/${id}`),

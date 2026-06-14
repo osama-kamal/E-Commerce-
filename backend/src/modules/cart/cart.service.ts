@@ -125,12 +125,20 @@ export async function addItem(
   }
 
   if (existingItem) {
+    // Use $elemMatch to ensure BOTH conditions match the SAME array element.
+    // MongoDB's positional $ operator without $elemMatch pins to the first element
+    // that satisfies ANY of the filter fields — which can update the wrong item
+    // when multiple cart items share the same selectedSize (e.g. null).
     await Cart.updateOne(
       {
         storeId: new Types.ObjectId(storeId),
         customerId: new Types.ObjectId(customerId),
-        'items.productId': new Types.ObjectId(productId),
-        'items.selectedSize': selectedSize ?? null,
+        items: {
+          $elemMatch: {
+            productId: new Types.ObjectId(productId),
+            selectedSize: selectedSize ?? null,
+          },
+        },
       },
       { $inc: { 'items.$.quantity': quantity }, $set: { 'items.$.priceSnapshot': product.price } }
     );
@@ -202,14 +210,19 @@ export async function updateItemQuantity(
     throw createError(`Only ${product.stock} unit(s) available`, 400, 'BAD_REQUEST');
   }
 
-  // Match on both productId AND selectedSize so different sizes are treated as
-  // independent line items — fixes the positional $ operator ambiguity bug.
+  // Use $elemMatch so both productId AND selectedSize must match the SAME array element.
+  // Without it, the positional $ operator can pin to a different item that only
+  // happens to share the same selectedSize — updating the wrong line item.
   const result = await Cart.updateOne(
     {
       storeId: new Types.ObjectId(storeId),
       customerId: new Types.ObjectId(customerId),
-      'items.productId': new Types.ObjectId(productId),
-      'items.selectedSize': selectedSize ?? null,
+      items: {
+        $elemMatch: {
+          productId: new Types.ObjectId(productId),
+          selectedSize: selectedSize ?? null,
+        },
+      },
     },
     { $set: { 'items.$.quantity': quantity, 'items.$.priceSnapshot': product.price } }
   );

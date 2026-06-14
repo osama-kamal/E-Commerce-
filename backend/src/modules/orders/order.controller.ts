@@ -21,8 +21,8 @@ function getStoreId(req: Request): string {
 export async function placeOrder(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     const customerId = req.user!.userId.toString();
-    const { shippingAddress, discountAmount = 0, couponCode } = req.body;
-    const order = await orderService.placeOrder(getStoreId(req), customerId, shippingAddress, discountAmount, couponCode);
+    const { shippingAddress, paymentMethod = 'online', discountAmount = 0, couponCode, idempotencyKey } = req.body;
+    const order = await orderService.placeOrder(getStoreId(req), customerId, shippingAddress, paymentMethod, discountAmount, couponCode, idempotencyKey);
     sendSuccess(res, order, 201);
   } catch (err) {
     logger.error('[placeOrder] Failed to place order', { error: err, body: req.body, userId: req.user?.userId });

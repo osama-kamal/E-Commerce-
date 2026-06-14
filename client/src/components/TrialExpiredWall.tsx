@@ -1,5 +1,6 @@
 import { useNavigate } from 'react-router-dom';
-import { useAppSelector } from '../hooks/useAppDispatch';
+import { useAppSelector, useAppDispatch } from '../hooks/useAppDispatch';
+import { fetchCurrentStore } from '../store/storeSlice';
 import { motion } from 'framer-motion';
 
 /**
@@ -8,7 +9,14 @@ import { motion } from 'framer-motion';
  */
 export default function TrialExpiredWall() {
   const navigate = useNavigate();
+  const dispatch = useAppDispatch();
   const currentStore = useAppSelector(s => s.currentStore.current);
+
+  // If the super-admin just activated a plan, the vendor can click this to
+  // re-fetch the store data without a full page reload.
+  const handleRefresh = () => {
+    dispatch(fetchCurrentStore());
+  };
 
   return (
     <div className="flex-1 bg-gray-950 flex items-center justify-center p-6">
@@ -73,7 +81,15 @@ export default function TrialExpiredWall() {
           </a>
         </div>
 
-        <p className="text-gray-600 text-xs mt-6">
+        {/* Already activated? Refresh the session without reloading */}
+        <button
+          onClick={handleRefresh}
+          className="mt-5 text-xs text-gray-600 hover:text-gray-400 transition-colors underline underline-offset-2"
+        >
+          Already activated a plan? Click here to refresh
+        </button>
+
+        <p className="text-gray-600 text-xs mt-4">
           Need more time? Email us at{' '}
           <a href="mailto:support@shophub.com" className="text-gray-500 hover:text-gray-400 underline">
             support@shophub.com

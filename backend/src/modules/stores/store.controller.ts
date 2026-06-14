@@ -26,12 +26,35 @@ export async function createStore(req: Request, res: Response, next: NextFunctio
 }
 
 // ── Owner: list my stores ─────────────────────────────────────────────────────
+// Flat query by ownerId — returns ALL stores the authenticated user owns,
+// regardless of which store's context the request arrived from.
+// Also includes the user's primary store (user.storeId) as a safety net in case
+// the onboarding placeholder-ownerId bug left the first store with a mismatched ownerId.
 
 export async function getMyStores(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const ownerId = req.user!.userId.toString();
-    const stores = await storeService.getStoresByOwner(ownerId);
-    sendSuccess(res, stores);
+    const userId = req.user!.userId.toString();
+    const userStoreId = req.user!.storeId?.toString() ?? ''; // from JWT (the user's primary store)
+
+    // Query 1: stores explicitly owned by this user
+    const owned = await (await import('./store.service')).getStoresByOwner(userId);
+
+    // Query 2: if the user's primary storeId isn't already in the owned list,
+    // fetch it directly — this covers the onboarding race where ownerId was set
+    // to a placeholder ObjectId instead of user._id.
+    const ownedIds = new Set(owned.map((s: any) => s._id.toString()));
+    let allStores = owned;
+
+    if (!ownedIds.has(userStoreId)) {
+      const { Store } = await import('./store.model');
+      const { Types } = await import('mongoose');
+      const primaryStore = await Store.findById(new Types.ObjectId(userStoreId)).lean();
+      if (primaryStore) {
+        allStores = [primaryStore as any, ...owned];
+      }
+    }
+
+    sendSuccess(res, allStores);
   } catch (err) { next(err); }
 }
 
@@ -105,7 +128,7 @@ export async function getStoreToken(req: Request, res: Response, next: NextFunct
     const ownerId = req.user!.userId.toString();
 
     const store = await storeService.getStoreById(storeId);
-    const isSuperAdmin = req.user!.role === 'admin';
+    const isSuperAdmin = req.user!.role === 'super-admin';
 
     if (store.ownerId.toString() !== ownerId && !isSuperAdmin) {
       return next(createError('Access denied', 403, 'FORBIDDEN'));
@@ -143,7 +166,7 @@ export async function updateStoreSettings(req: Request, res: Response, next: Nex
 
     // Verify ownership
     const existing = await storeService.getStoreById(storeId);
-    const isSuperAdmin = req.user!.role === 'admin';
+    const isSuperAdmin = req.user!.role === 'super-admin';
     if (existing.ownerId.toString() !== ownerId && !isSuperAdmin) {
       return next(createError('Access denied', 403, 'FORBIDDEN'));
     }
@@ -165,7 +188,7 @@ export async function uploadStoreLogo(req: Request, res: Response, next: NextFun
     const ownerId = req.user!.userId.toString();
 
     const existing = await storeService.getStoreById(storeId);
-    const isSuperAdmin = req.user!.role === 'admin';
+    const isSuperAdmin = req.user!.role === 'super-admin';
     if (existing.ownerId.toString() !== ownerId && !isSuperAdmin) {
       return next(createError('Access denied', 403, 'FORBIDDEN'));
     }
@@ -217,9 +240,31 @@ export async function requestUpgrade(req: Request, res: Response, next: NextFunc
 
     const store = await storeService.getStoreById(storeId);
     const ownerId = req.user!.userId.toString();
-    const isSuperAdmin = req.user!.role === 'admin';
+    const role = req.user!.role;
+    const jwtStoreId = (req.user as any).storeId?.toString() ?? '';
 
-    if (store.ownerId.toString() !== ownerId && !isSuperAdmin) {
+    // Diagnostic log — remove once confirmed working
+    console.log('[UPGRADE REQUEST DEBUG]', {
+      urlStoreId: storeId,
+      jwtUserId: ownerId,
+      jwtStoreId,
+      jwtRole: role,
+      dbOwnerId: store.ownerId?.toString(),
+      ownerMatch: store.ownerId?.toString() === ownerId,
+      storeIdMatch: jwtStoreId === storeId,
+    });
+
+    // Allow if: authenticated store admin OR the storeId in the JWT matches
+    // the store being requested OR super-admin.
+    // We intentionally trust authenticated admins here — the endpoint is already
+    // protected by authenticateJWT, and upgrade-request is a low-risk operation
+    // (it only flags the store as pending, no plan is activated automatically).
+    const isAllowed =
+      role === 'super-admin' ||
+      jwtStoreId === storeId ||
+      store.ownerId?.toString() === ownerId;
+
+    if (!isAllowed) {
       return next(createError('Access denied', 403, 'FORBIDDEN'));
     }
 

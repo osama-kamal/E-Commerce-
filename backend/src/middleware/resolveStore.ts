@@ -107,7 +107,7 @@ export function requireStoreOwner(req: Request, _res: Response, next: NextFuncti
   }
 
   const isOwner = req.store.ownerId.toString() === req.user.userId.toString();
-  const isSuperAdmin = req.user.role === 'admin';
+  const isSuperAdmin = req.user.role === 'super-admin';
 
   if (!isOwner && !isSuperAdmin) {
     return next(createError('You do not have permission to manage this store', 403, 'FORBIDDEN'));

@@ -100,10 +100,10 @@ export async function getLowStockProducts(req: Request, res: Response, next: Nex
 export async function updateStorePlan(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     const { id } = req.params;
-    const { plan, status } = req.body as { plan: string; status: string };
+    const { plan, status, endsAt } = req.body as { plan: string; status: string; endsAt?: string };
 
     const validPlans = ['free', 'starter', 'pro', 'enterprise'];
-    const validStatuses = ['active', 'trialing', 'past_due', 'cancelled', 'suspended'];
+    const validStatuses = ['active', 'trialing', 'past_due', 'cancelled', 'suspended', 'pending_upgrade'];
 
     if (!plan || !validPlans.includes(plan)) {
       return next(createError(`plan must be one of: ${validPlans.join(', ')}`, 400, 'BAD_REQUEST'));
@@ -112,9 +112,69 @@ export async function updateStorePlan(req: Request, res: Response, next: NextFun
       return next(createError(`status must be one of: ${validStatuses.join(', ')}`, 400, 'BAD_REQUEST'));
     }
 
-    const { updateStorePlan: updatePlan } = await import('../stores/store.service');
-    const store = await updatePlan(id, plan as any, status as any);
+    const { Store } = await import('../stores/store.model');
+    const updateFields: Record<string, unknown> = {
+      subscriptionPlan: plan,
+      subscriptionStatus: status,
+      $unset: { requestedPlan: '' },
+    };
+
+    if (endsAt) {
+      const parsed = new Date(endsAt);
+      if (!isNaN(parsed.getTime())) {
+        updateFields.subscriptionEndsAt = parsed;
+      }
+    }
+
+    const store = await Store.findByIdAndUpdate(id, updateFields, { new: true, runValidators: true }).lean();
+    if (!store) return next(createError('Store not found', 404, 'NOT_FOUND'));
+
     sendSuccess(res, store);
+  } catch (err) { next(err); }
+}
+
+// ── Super-admin: list stores with pending upgrade requests ───────────────────
+
+export async function listPendingUpgrades(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const { Store } = await import('../stores/store.model');
+    const { User } = await import('../auth/user.model');
+
+    // Catch both cases:
+    //  - trialing/free stores: status flipped to pending_upgrade
+    //  - active stores: status kept as active, requestedPlan set to flag the request
+    const pending = await Store.find({
+      requestedPlan: { $exists: true, $ne: null },
+    })
+      .sort({ updatedAt: -1 })
+      .lean();
+
+    // Enrich with owner email so the platform admin can identify who to contact
+    const ownerIds = [...new Set(pending.map(s => s.ownerId?.toString()).filter(Boolean))];
+    const owners = await User.find({ _id: { $in: ownerIds } })
+      .select('_id email')
+      .lean();
+    const ownerMap = new Map(owners.map(u => [u._id.toString(), u]));
+
+    const now = Date.now();
+    const enriched = pending.map(store => {
+      const endsAt = (store as any).subscriptionEndsAt
+        ? new Date((store as any).subscriptionEndsAt)
+        : null;
+      const daysRemaining = endsAt
+        ? Math.max(0, Math.ceil((endsAt.getTime() - now) / 86_400_000))
+        : null;
+
+      return {
+        ...store,
+        ownerEmail: ownerMap.get(store.ownerId?.toString())?.email ?? null,
+        ownerName: null,
+        subscriptionEndsAt: endsAt ? endsAt.toISOString() : null,
+        daysRemaining,
+      };
+    });
+
+    sendSuccess(res, enriched);
   } catch (err) { next(err); }
 }
 

@@ -63,6 +63,9 @@ const authSlice = createSlice({
       // No refreshToken to remove from localStorage — it was never stored there
       localStorage.removeItem('currentStoreId');
       localStorage.removeItem('currentStore');
+      // Clear impersonation backup so the yellow banner never leaks after logout
+      localStorage.removeItem('platformAdminToken');
+      localStorage.removeItem('platformAdminStore');
     },
   },
 });

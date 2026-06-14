@@ -4,17 +4,18 @@ import { config } from '../config/index';
 
 export interface JwtPayload {
   userId: string;
-  role: 'admin' | 'customer';
+  role: 'super-admin' | 'admin' | 'customer';
   storeId: string;
 }
 
 /**
  * Sign a short-lived access token (15 min by default).
- * The storeId is embedded so every authenticated request carries tenant context.
+ * The role and storeId are embedded so every authenticated request carries
+ * both tenant context and permission level.
  */
 export function signAccessToken(
   userId: Types.ObjectId,
-  role: 'admin' | 'customer',
+  role: 'super-admin' | 'admin' | 'customer',
   storeId: string
 ): string {
   return jwt.sign(

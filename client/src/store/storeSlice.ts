@@ -46,7 +46,34 @@ const initialState: StoreState = {
 
 /** Fetch the current store from the backend and refresh the cached copy. */
 export const fetchCurrentStore = createAsyncThunk('store/fetchCurrent', async () => {
-  const storeId = localStorage.getItem('currentStoreId') || import.meta.env.VITE_STORE_ID;
+  // Priority order for resolving which store to load:
+  //   1. currentStoreId in localStorage (explicit store the user last selected)
+  //   2. storeId embedded in the JWT (the store this account actually belongs to)
+  //   3. VITE_STORE_ID env var (legacy fallback for single-tenant deployments)
+  //
+  // Using the JWT storeId as #2 prevents a stale VITE_STORE_ID (which equals
+  // the platform store) from loading the wrong store for vendor accounts.
+  let storeId = localStorage.getItem('currentStoreId');
+
+  if (!storeId) {
+    // Try to extract storeId from the JWT payload
+    try {
+      const token = localStorage.getItem('accessToken');
+      if (token) {
+        const payload = JSON.parse(atob(token.split('.')[1]));
+        if (typeof payload?.storeId === 'string' && payload.storeId) {
+          storeId = payload.storeId;
+        }
+      }
+    } catch {
+      // Malformed token — fall through to env var
+    }
+  }
+
+  if (!storeId) {
+    storeId = import.meta.env.VITE_STORE_ID;
+  }
+
   if (!storeId) return null;
 
   const res = await axios.get<{ data: Store }>('/api/v1/stores/current', {
@@ -56,30 +83,38 @@ export const fetchCurrentStore = createAsyncThunk('store/fetchCurrent', async ()
 });
 
 /** Fetch all stores owned by the authenticated user.
- *  If the user is a super-admin (role: admin), returns ALL stores. */
+ *
+ * - Super-admin (JWT role === 'super-admin'): fetches all tenant stores via
+ *   /api/v1/admin/stores for the platform management view.
+ * - All other authenticated users (store admins): fetches their own stores
+ *   via GET /api/v1/stores/mine so multi-store owners can switch between them.
+ */
 export const fetchMyStores = createAsyncThunk('store/fetchMine', async () => {
   const token = localStorage.getItem('accessToken') || '';
 
-  // Decode role from JWT without a full verify (client-side only, for UI purposes)
-  let role = 'customer';
+  // Decode role from JWT (client-side only — not a security gate, just UI)
+  let jwtRole: string | undefined;
   try {
     const payload = JSON.parse(atob(token.split('.')[1]));
-    role = payload.role ?? 'customer';
-  } catch { /* ignore */ }
+    jwtRole = typeof payload?.role === 'string' ? payload.role : undefined;
+  } catch { /* ignore malformed token */ }
 
-  if (role === 'admin') {
-    // Super-admin: fetch all stores
+  const isSuperAdmin = jwtRole === 'super-admin';
+
+  if (isSuperAdmin) {
+    // Super-admin: fetch all tenant stores for the platform management list
     const res = await axios.get<{ data: { data: import('../types').Store[] } }>('/api/v1/admin/stores', {
       headers: { Authorization: `Bearer ${token}` },
     });
     return res.data.data.data ?? [];
-  } else {
-    // Regular user: fetch only owned stores
-    const res = await axios.get<{ data: import('../types').Store[] }>('/api/v1/stores/mine', {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    return res.data.data;
   }
+
+  // Store admin: fetch only stores owned by this user (supports multi-store owners).
+  // No X-Store-ID header — queries by ownerId, independent of active store context.
+  const res = await axios.get<{ data: import('../types').Store[] }>('/api/v1/stores/mine', {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  return res.data.data ?? [];
 });
 
 // ── Slice ─────────────────────────────────────────────────────────────────────

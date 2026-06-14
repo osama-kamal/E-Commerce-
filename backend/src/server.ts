@@ -53,6 +53,13 @@ async function bootstrap(): Promise<void> {
   // ── 4. Verify email SMTP (non-blocking) ───────────────────────────────────
   emailService.verifyConnection();
 
+  // ── 5. Register dunning job — runs every hour after DB is connected ───────
+  // Finds all stores that have been past_due for > 7 days and promotes them
+  // to 'suspended'. Pure MongoDB bulk-update — no Stripe API calls.
+  const { runDunningJob } = await import('./modules/payments/subscription.service');
+  setInterval(runDunningJob, 60 * 60 * 1000);
+  logger.info('⏱️  Dunning job registered — runs every 60 minutes');
+
   logger.info('✅ All services connected — server is fully ready');
 
   // ── Graceful shutdown ──────────────────────────────────────────────────────

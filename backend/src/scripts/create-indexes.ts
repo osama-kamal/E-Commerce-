@@ -3,6 +3,7 @@ import dotenv from 'dotenv';
 import { Order } from '../modules/orders/order.model';
 import { Product } from '../modules/products/product.model';
 import { User } from '../modules/auth/user.model';
+import { Store } from '../modules/stores/store.model';
 
 dotenv.config();
 
@@ -45,6 +46,21 @@ async function createIndexes() {
     // await User.collection.createIndex({ lastLoginAt: -1 });
     // console.log('✓ Created index: { lastLoginAt: -1 }');
 
+    // Stores collection indexes — Stripe billing fields
+    console.log('\nCreating Stores (Stripe billing) indexes...');
+    await Store.collection.createIndex(
+      { stripeCustomerId: 1 },
+      { sparse: true, unique: true, name: 'stores_stripeCustomerId_sparse_unique' }
+    );
+    console.log('✓ Created index: stores.stripeCustomerId (sparse unique)');
+
+    await Store.collection.createIndex(
+      { stripeSubscriptionId: 1 },
+      { sparse: true, unique: true, name: 'stores_stripeSubscriptionId_sparse_unique' }
+    );
+
+    console.log('✓ Created index: stores.stripeSubscriptionId (sparse unique)');
+
     console.log('\n✅ All indexes created successfully!');
     
     // List all indexes
@@ -56,6 +72,9 @@ async function createIndexes() {
     const productIndexes = await Product.collection.indexes();
     console.log('Products:', productIndexes.map(idx => idx.name).join(', '));
     
+    const storeIndexes = await Store.collection.indexes();
+    console.log('Stores:', storeIndexes.map(idx => idx.name).join(', '));
+
     const userIndexes = await User.collection.indexes();
     console.log('Users:', userIndexes.map(idx => idx.name).join(', '));
 

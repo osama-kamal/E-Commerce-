@@ -21,20 +21,48 @@ api.interceptors.request.use((config) => {
   }
 
   // Multi-tenant: attach the store identifier so the backend can resolve the tenant.
-  const currentStoreId = localStorage.getItem('currentStoreId');
-  const envStoreId = import.meta.env.VITE_STORE_ID as string | undefined;
-  const storeSlug = import.meta.env.VITE_STORE_SLUG as string | undefined;
+  //
+  // Priority order:
+  //  1. Storefront slug in sessionStorage (set by StorefrontProvider while inside /s/:slug)
+  //     This MUST take precedence — otherwise VITE_STORE_ID would always win and
+  //     override it with the platform store's ID, breaking storefront cart/wishlist.
+  //  2. currentStoreId in localStorage (vendor admin session — explicit user selection)
+  //  3. VITE_STORE_ID env var (legacy single-store fallback, only when nothing else is set)
+  //  4. VITE_STORE_SLUG env var (build-time slug, last resort)
 
-  const storeId = currentStoreId || envStoreId;
+  const storefrontSlug = sessionStorage.getItem('sf_active_slug');
 
-  // Guard: only send X-Store-ID if it's a valid 24-char MongoDB ObjectId.
-  const isValidObjectId = (id: string | undefined | null): id is string =>
-    typeof id === 'string' && /^[a-f\d]{24}$/i.test(id);
+  if (storefrontSlug) {
+    // Inside a /s/:slug storefront — always use the slug, ignore everything else
+    config.headers['X-Store-Slug'] = storefrontSlug;
+  } else {
+    const currentStoreId = localStorage.getItem('currentStoreId');
+    const envStoreId = import.meta.env.VITE_STORE_ID as string | undefined;
+    const storeSlug = import.meta.env.VITE_STORE_SLUG as string | undefined;
 
-  if (isValidObjectId(storeId)) {
-    config.headers['X-Store-ID'] = storeId;
-  } else if (storeSlug) {
-    config.headers['X-Store-Slug'] = storeSlug;
+    const storeId = currentStoreId || envStoreId;
+
+    // Guard: only send X-Store-ID if it's a valid 24-char MongoDB ObjectId.
+    const isValidObjectId = (id: string | undefined | null): id is string =>
+      typeof id === 'string' && /^[a-f\d]{24}$/i.test(id);
+
+    if (isValidObjectId(storeId)) {
+      config.headers['X-Store-ID'] = storeId;
+    } else {
+      if (storeId) {
+        // The ID is present but invalid — warn loudly so typos are caught immediately.
+        // A bad ID means resolveStore will skip it and return 404 for all tenant routes.
+        console.error(
+          `[axios] ⚠️ currentStoreId in localStorage is NOT a valid 24-char ObjectId ` +
+          `(got "${storeId}", length ${storeId.length}). ` +
+          `All API calls will return 404 until a valid ID is set. ` +
+          `Fix: localStorage.setItem('currentStoreId', 'YOUR_24_CHAR_ID')`
+        );
+      }
+      if (storeSlug) {
+        config.headers['X-Store-Slug'] = storeSlug;
+      }
+    }
   }
 
   return config;

@@ -6,7 +6,7 @@ declare global {
     interface Request {
       user?: {
         userId: Types.ObjectId;
-        role: 'admin' | 'customer';
+        role: 'super-admin' | 'admin' | 'customer';
         storeId?: Types.ObjectId; // set by resolveStore middleware
       };
       /** The resolved tenant store — set by resolveStore middleware */

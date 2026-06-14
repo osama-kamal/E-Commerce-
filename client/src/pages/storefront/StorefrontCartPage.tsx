@@ -1,0 +1,110 @@
+/**
+ * StorefrontCartPage  (/s/:slug/cart)
+ *
+ * Cart view for a storefront customer. Shows cart items fetched via the
+ * global api (which carries X-Store-Slug via sessionStorage) and links
+ * back into the storefront for continued shopping.
+ */
+
+import { useEffect } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
+import { useStorefront } from '../../contexts/StorefrontContext';
+import { useAppSelector } from '../../hooks/useAppDispatch';
+import { useCart, useUpdateCartItem, useRemoveCartItem } from '../../hooks/useCart';
+
+export default function StorefrontCartPage() {
+  const { slug } = useStorefront();
+  const isAuthenticated = useAppSelector(s => s.auth.isAuthenticated);
+  const navigate = useNavigate();
+
+  // Redirect to login if not authenticated
+  useEffect(() => {
+    if (!isAuthenticated) {
+      navigate(`/login?redirect=/s/${slug}/cart`, { replace: true });
+    }
+  }, [isAuthenticated, navigate, slug]);
+
+  const { data: cart, isLoading } = useCart();
+  const updateItem = useUpdateCartItem();
+  const removeItem = useRemoveCartItem();
+
+  if (!isAuthenticated) return null;
+
+  return (
+    <div className="max-w-3xl mx-auto px-4 sm:px-6 py-8">
+      <div className="flex items-center gap-3 mb-6">
+        <Link to={`/s/${slug}`} className="text-sm text-gray-500 dark:text-gray-400 hover:text-primary-600">
+          ← Continue shopping
+        </Link>
+        <span className="text-gray-300 dark:text-gray-600">/</span>
+        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Your Cart</h1>
+      </div>
+
+      {isLoading ? (
+        <div className="flex justify-center py-16">
+          <div className="w-8 h-8 border-4 border-primary-600 border-t-transparent rounded-full animate-spin" />
+        </div>
+      ) : !cart || cart.items.length === 0 ? (
+        <div className="text-center py-24 card">
+          <p className="text-5xl mb-4">🛒</p>
+          <h2 className="text-xl font-semibold text-gray-700 dark:text-gray-300 mb-2">Your cart is empty</h2>
+          <p className="text-sm text-gray-400 mb-6">Browse the store and add some items.</p>
+          <Link to={`/s/${slug}`} className="btn-primary px-8">Shop Now</Link>
+        </div>
+      ) : (
+        <>
+          <div className="card divide-y divide-gray-100 dark:divide-gray-800 mb-6">
+            {cart.items.map(item => (
+              <div key={`${item.productId}-${item.selectedSize ?? ''}`} className="flex items-center gap-4 p-4">
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold text-gray-900 dark:text-white truncate">{item.name}</p>
+                  {item.selectedSize && (
+                    <p className="text-xs text-gray-400">Size: {item.selectedSize}</p>
+                  )}
+                  <p className="text-sm font-bold text-primary-600 mt-0.5">${item.currentPrice.toFixed(2)}</p>
+                </div>
+
+                <div className="flex items-center border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
+                  <button
+                    onClick={() => updateItem.mutate({ productId: item.productId, quantity: item.quantity - 1 })}
+                    className="px-3 py-1.5 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-40"
+                    disabled={updateItem.isPending}
+                  >−</button>
+                  <span className="w-8 text-center text-sm font-medium dark:text-white">{item.quantity}</span>
+                  <button
+                    onClick={() => updateItem.mutate({ productId: item.productId, quantity: item.quantity + 1 })}
+                    className="px-3 py-1.5 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-40"
+                    disabled={updateItem.isPending}
+                  >+</button>
+                </div>
+
+                <p className="text-sm font-semibold text-gray-900 dark:text-white w-20 text-right">
+                  ${item.lineTotal.toFixed(2)}
+                </p>
+
+                <button
+                  onClick={() => removeItem.mutate({ productId: item.productId })}
+                  className="text-gray-400 hover:text-red-500 transition-colors text-lg ml-2"
+                  aria-label="Remove item"
+                >×</button>
+              </div>
+            ))}
+          </div>
+
+          <div className="card p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+            <div>
+              <p className="text-sm text-gray-500 dark:text-gray-400">Subtotal</p>
+              <p className="text-2xl font-bold text-gray-900 dark:text-white">${cart.subtotal.toFixed(2)}</p>
+            </div>
+            <Link
+              to="/checkout"
+              className="btn-primary px-8 py-3 text-base w-full sm:w-auto text-center"
+            >
+              Proceed to Checkout
+            </Link>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}

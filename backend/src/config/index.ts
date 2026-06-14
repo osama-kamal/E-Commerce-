@@ -74,6 +74,26 @@ const envSchema = z.object({
   STRIPE_SECRET_KEY: z.string().optional(),
   STRIPE_WEBHOOK_SECRET: z.string().optional(),
 
+  // ── Stripe Price IDs (OPTIONAL — subscription billing disabled without these) ─
+  // Set these to the Price IDs from your Stripe dashboard (test or live).
+  // Use test Price IDs (price_xxx from test mode) during development.
+  STRIPE_PRICE_STARTER: z.string().optional(),
+  STRIPE_PRICE_PRO: z.string().optional(),
+  STRIPE_PRICE_ENTERPRISE: z.string().optional(),
+
+  // ── Paymob (OPTIONAL — MENA payment gateway) ────────────────────────────────
+  // Obtain from: Paymob Dashboard → Settings → Account Info / API Keys
+  // ⚠️  Never commit real values — use .env file only, never hardcode.
+  PAYMOB_API_KEY: z.string().optional(),
+  PAYMOB_SECRET_KEY: z.string().optional(),
+  PAYMOB_HMAC_SECRET: z.string().optional(),
+  // Paymob integration IDs (card, wallet, etc.) — found in Paymob dashboard under Developers > Payment Integrations
+  PAYMOB_INTEGRATION_ID_CARD: z.string().optional(),
+  PAYMOB_INTEGRATION_ID_WALLET: z.string().optional(),
+  // Iframe ID — from Paymob Dashboard → Developers → Iframes
+  // This is DIFFERENT from the Integration ID used in payment key generation.
+  PAYMOB_IFRAME_ID: z.string().optional(),
+
   // ── AI / Chatbot (OPTIONAL) ─────────────────────────────────────────────────
   OPENAI_API_KEY: z.string().optional(),
 
@@ -124,11 +144,17 @@ if (config.MONGODB_URI === 'mongodb://localhost:27017/ecommerce' && !config.MONG
 // These won't crash the server, but features that depend on them will silently
 // fail at runtime without this warning.
 const optionalWarnings: Array<{ key: keyof typeof config; feature: string }> = [
-  { key: 'STRIPE_SECRET_KEY',    feature: 'Stripe payments' },
-  { key: 'STRIPE_WEBHOOK_SECRET', feature: 'Stripe webhooks' },
-  { key: 'OPENAI_API_KEY',       feature: 'AI chatbot / recommendations' },
-  { key: 'EMAIL_USER',           feature: 'Transactional email' },
-  { key: 'CLOUDINARY_CLOUD_NAME', feature: 'Cloudinary image uploads' },
+  { key: 'STRIPE_SECRET_KEY',      feature: 'Stripe payments' },
+  { key: 'STRIPE_WEBHOOK_SECRET',  feature: 'Stripe webhooks' },
+  { key: 'STRIPE_PRICE_STARTER',   feature: 'Stripe subscription billing (starter plan)' },
+  { key: 'STRIPE_PRICE_PRO',       feature: 'Stripe subscription billing (pro plan)' },
+  { key: 'STRIPE_PRICE_ENTERPRISE', feature: 'Stripe subscription billing (enterprise plan)' },
+  { key: 'PAYMOB_API_KEY',          feature: 'Paymob payments (MENA)' },
+  { key: 'PAYMOB_SECRET_KEY',       feature: 'Paymob payments (MENA)' },
+  { key: 'PAYMOB_HMAC_SECRET',      feature: 'Paymob webhook verification' },
+  { key: 'OPENAI_API_KEY',          feature: 'AI chatbot / recommendations' },
+  { key: 'EMAIL_USER',             feature: 'Transactional email' },
+  { key: 'CLOUDINARY_CLOUD_NAME',  feature: 'Cloudinary image uploads' },
 ];
 
 const missing = optionalWarnings.filter(({ key }) => !config[key]);
@@ -153,6 +179,9 @@ export const {
   CORS_ORIGINS,
   STRIPE_SECRET_KEY,
   STRIPE_WEBHOOK_SECRET,
+  STRIPE_PRICE_STARTER,
+  STRIPE_PRICE_PRO,
+  STRIPE_PRICE_ENTERPRISE,
   OPENAI_API_KEY,
   EMAIL_HOST,
   EMAIL_PORT,
@@ -164,4 +193,10 @@ export const {
   CLOUDINARY_CLOUD_NAME,
   CLOUDINARY_API_KEY,
   CLOUDINARY_API_SECRET,
+  PAYMOB_API_KEY,
+  PAYMOB_SECRET_KEY,
+  PAYMOB_HMAC_SECRET,
+  PAYMOB_INTEGRATION_ID_CARD,
+  PAYMOB_INTEGRATION_ID_WALLET,
+  PAYMOB_IFRAME_ID,
 } = config;

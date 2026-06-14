@@ -87,7 +87,9 @@ export function useAddToCart() {
     onMutate: async ({ productId, quantity, selectedSize, productName }) => {
       const snapshot = applyOptimistic(qc, dispatch, (prev) => {
         const existingIdx = prev.items.findIndex(
-          (i) => i.productId === productId && i.selectedSize === (selectedSize ?? undefined)
+          // Normalise both sides to string — server may return ObjectId-shaped strings
+          (i) => String(i.productId) === String(productId) &&
+                 (i.selectedSize ?? undefined) === (selectedSize ?? undefined)
         );
         let items = [...prev.items];
         if (existingIdx >= 0) {

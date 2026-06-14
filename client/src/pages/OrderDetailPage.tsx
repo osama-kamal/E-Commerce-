@@ -248,6 +248,28 @@ export default function OrderDetailPage() {
         </p>
       </div>
 
+      {/* Payment method */}
+      <div className="card p-5 mb-4">
+        <h2 className="font-semibold text-gray-900 dark:text-white mb-2">Payment Method</h2>
+        {order.paymentMethod === 'cod' ? (
+          <div className="flex items-center gap-2 text-sm">
+            <span className="text-xl">💵</span>
+            <div>
+              <p className="font-semibold text-amber-700 dark:text-amber-400">Cash on Delivery</p>
+              <p className="text-gray-500 dark:text-gray-400 text-xs">Payment will be collected at your door upon delivery.</p>
+            </div>
+          </div>
+        ) : (
+          <div className="flex items-center gap-2 text-sm">
+            <span className="text-xl">💳</span>
+            <div>
+              <p className="font-semibold text-blue-700 dark:text-blue-400">Online Payment</p>
+              <p className="text-gray-500 dark:text-gray-400 text-xs">Payment processed securely via Stripe.</p>
+            </div>
+          </div>
+        )}
+      </div>
+
       {/* Cancel button */}
       {order.status === 'pending' && (
         <button

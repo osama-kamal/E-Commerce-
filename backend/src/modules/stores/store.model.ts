@@ -1,7 +1,7 @@
 import mongoose, { Document, Schema, Types } from 'mongoose';
 
 export type SubscriptionPlan = 'free' | 'starter' | 'pro' | 'enterprise';
-export type SubscriptionStatus = 'active' | 'trialing' | 'past_due' | 'cancelled' | 'suspended';
+export type SubscriptionStatus = 'active' | 'trialing' | 'past_due' | 'cancelled' | 'suspended' | 'pending_upgrade';
 
 export interface IStoreSettings {
   logoUrl?: string;
@@ -20,6 +20,12 @@ export interface IStore extends Document {
   ownerId: Types.ObjectId;
   subscriptionPlan: SubscriptionPlan;
   subscriptionStatus: SubscriptionStatus;
+  requestedPlan?: SubscriptionPlan;
+  subscriptionEndsAt?: Date;          // when the current paid plan cycle expires
+  stripeCustomerId?: string;          // cus_xxx — sparse unique index
+  stripeSubscriptionId?: string;      // sub_xxx — sparse unique index
+  subscriptionDunningStartedAt?: Date; // set on first invoice.payment_failed
+  suspensionScheduled?: boolean;      // cleared when payment is recovered
   customDomain?: string;
   isActive: boolean;
   settings: IStoreSettings;
@@ -60,10 +66,31 @@ const storeSchema = new Schema<IStore>(
     },
     subscriptionStatus: {
       type: String,
-      enum: ['active', 'trialing', 'past_due', 'cancelled', 'suspended'],
+      enum: ['active', 'trialing', 'past_due', 'cancelled', 'suspended', 'pending_upgrade'],
       default: 'trialing',
     },
     customDomain: { type: String, trim: true, lowercase: true, sparse: true, unique: true },
+    requestedPlan: {
+      type: String,
+      enum: ['free', 'starter', 'pro', 'enterprise'],
+      default: null,
+    },
+    subscriptionEndsAt: { type: Date, default: null },
+    // ── Stripe billing fields ────────────────────────────────────────────────
+    stripeCustomerId: {
+      type: String,
+      sparse: true,
+      unique: true,
+      default: null,
+    },
+    stripeSubscriptionId: {
+      type: String,
+      sparse: true,
+      unique: true,
+      default: null,
+    },
+    subscriptionDunningStartedAt: { type: Date, default: null },
+    suspensionScheduled: { type: Boolean, default: false },
     isActive: { type: Boolean, default: true },
     settings: { type: storeSettingsSchema, default: () => ({}) },
   },

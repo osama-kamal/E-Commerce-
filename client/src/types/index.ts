@@ -1,7 +1,7 @@
 export interface User {
   _id: string;
   email: string;
-  role: 'admin' | 'customer';
+  role: 'super-admin' | 'admin' | 'customer';
   isActive: boolean;
   createdAt: string;
 }
@@ -64,6 +64,7 @@ export interface ShippingAddress {
 }
 
 export type OrderStatus = 'pending' | 'processing' | 'shipped' | 'delivered' | 'cancelled';
+export type PaymentMethod = 'online' | 'cod';
 
 export interface Order {
   _id: string;
@@ -73,6 +74,7 @@ export interface Order {
   discountAmount?: number;
   couponCode?: string;
   status: OrderStatus;
+  paymentMethod: PaymentMethod;
   paymentIntentId?: string;
   shippingAddress: ShippingAddress;
   createdAt: string;
@@ -275,6 +277,7 @@ export interface StoreSettings {
   logoUrl?: string;
   contactEmail?: string;
   contactPhone?: string;
+  description?: string;
   facebook?: string;
   instagram?: string;
   twitter?: string;
@@ -289,6 +292,7 @@ export interface Store {
   ownerId: string;
   subscriptionPlan: string;
   subscriptionStatus: string;
+  requestedPlan?: string;
   customDomain?: string;
   isActive: boolean;
   settings: StoreSettings;

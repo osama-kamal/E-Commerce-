@@ -4,19 +4,26 @@ import { sendSuccess } from '../../utils/response';
 import { createError } from '../../middleware/errorHandler';
 
 /**
- * For cart operations, always use the user's own storeId from the JWT.
- * This prevents the cart from being created/read in the wrong store
- * when the X-Store-ID header doesn't match the user's store.
+ * Resolve the store context for cart operations.
+ *
+ * Priority:
+ *  1. req.store._id — set by resolveStore middleware from X-Store-ID or X-Store-Slug header.
+ *     This is the authoritative store the customer is currently browsing. When a customer
+ *     visits /s/default the slug resolves to the correct storeId here, regardless of what
+ *     store the customer's JWT was originally issued for.
+ *  2. req.user.storeId — the store baked into the JWT. Used only as a fallback when no
+ *     explicit store header is present (e.g. vendor using the admin panel).
  */
 function getCartStoreId(req: Request): string {
-  // Prefer the user's storeId from JWT (authoritative — set at login)
+  // Prefer the store resolved from the request header (X-Store-ID or X-Store-Slug)
+  const resolvedStoreId = req.store?._id?.toString();
+  if (resolvedStoreId) return resolvedStoreId;
+
+  // Fallback to the user's own storeId from JWT (vendor admin flows)
   const userStoreId = req.user?.storeId?.toString();
   if (userStoreId) return userStoreId;
 
-  // Fallback to resolved store from header (for edge cases)
-  const storeId = req.store?._id?.toString();
-  if (!storeId) throw createError('Store context is required', 400, 'BAD_REQUEST');
-  return storeId;
+  throw createError('Store context is required', 400, 'BAD_REQUEST');
 }
 
 export async function getCart(req: Request, res: Response, next: NextFunction): Promise<void> {

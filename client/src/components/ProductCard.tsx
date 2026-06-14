@@ -15,9 +15,11 @@ import toast from 'react-hot-toast';
 interface Props {
   product: Product;
   index?: number;
+  detailPath?: string;   // override the default /products/:id link (e.g. for storefront routes)
+  loginRedirect?: string; // override the /login redirect (e.g. /s/slug for storefront)
 }
 
-export default function ProductCard({ product, index = 0 }: Props) {
+export default function ProductCard({ product, index = 0, detailPath, loginRedirect }: Props) {
   const dispatch = useAppDispatch();
   const navigate = useNavigate();
   const isAuthenticated = useAppSelector((s) => s.auth.isAuthenticated);
@@ -32,6 +34,9 @@ export default function ProductCard({ product, index = 0 }: Props) {
   const [imgLoaded, setImgLoaded] = useState(false);
   const [wishlistLoading, setWishlistLoading] = useState(false);
   const [showQuickView, setShowQuickView] = useState(false);
+  const [qty, setQty] = useState(1);
+  const [isAdding, setIsAdding] = useState(false);
+  const [selectedSize, setSelectedSize] = useState<string | null>(null);
 
   // ── React Query optimistic cart mutation ───────────────────────────────────
   const addToCart = useAddToCart();
@@ -41,28 +46,46 @@ export default function ProductCard({ product, index = 0 }: Props) {
   const isLowStock = product.stock > 0 && product.stock <= 3;
   const hasDiscount = product.discount > 0;
   const discountedPrice = hasDiscount ? product.price * (1 - product.discount / 100) : product.price;
+  const hasSizes = Array.isArray(product.sizes) && product.sizes.length > 0;
+  const needsSize = hasSizes && !selectedSize; // true when size required but not chosen
 
-  const handleAddToCart = (e: React.MouseEvent) => {
+  const handleAddToCart = async (e: React.MouseEvent) => {
     e.preventDefault();
-    if (!isAuthenticated) { navigate('/login'); return; }
-    addToCart.mutate(
-      { productId: product._id, quantity: 1, productName: product.name },
-      {
-        onSuccess: () => {
-          dispatch(addNotification({
-            type: 'success',
-            title: 'Added to Cart',
-            message: `${product.name} has been added to your cart`,
-            actionUrl: '/cart',
-          }));
-        },
-      }
-    );
+    if (!isAuthenticated) {
+      navigate(loginRedirect ? `/login?redirect=${encodeURIComponent(loginRedirect)}` : '/login');
+      return;
+    }
+    if (needsSize) return; // guard: size required but not selected
+    if (isAdding) return; // synchronous guard — blocks any click that arrives before re-render
+    setIsAdding(true);
+    try {
+      const addedQty = qty; // capture before reset
+      await addToCart.mutateAsync({
+        productId: product._id,
+        quantity: addedQty,
+        productName: product.name,
+        selectedSize: selectedSize ?? undefined,
+      });
+      setQty(1);
+      dispatch(addNotification({
+        type: 'success',
+        title: 'Added to Cart',
+        message: `${addedQty > 1 ? `${addedQty}× ` : ''}${product.name}${selectedSize ? ` (${selectedSize})` : ''} added to your cart`,
+        actionUrl: '/cart',
+      }));
+    } catch {
+      // error toast is already shown by the axios interceptor
+    } finally {
+      setIsAdding(false);
+    }
   };
 
   const handleToggleWishlist = async (e: React.MouseEvent) => {
     e.preventDefault();
-    if (!isAuthenticated) { navigate('/login'); return; }
+    if (!isAuthenticated) {
+      navigate(loginRedirect ? `/login?redirect=${encodeURIComponent(loginRedirect)}` : '/login');
+      return;
+    }
     setWishlistLoading(true);
     try {
       if (isInWishlist) {
@@ -110,13 +133,11 @@ export default function ProductCard({ product, index = 0 }: Props) {
   return (
     <>
       <motion.div
-        initial={{ opacity: 0, y: 24 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.35, delay: index * 0.05, ease: 'easeOut' }}
-        whileHover={{ scale: 1.03 }}
-        className="card overflow-hidden cursor-pointer shadow-sm hover:shadow-2xl transition-shadow duration-300 group"
+        whileHover={{ scale: 1.02 }}
+        transition={{ duration: 0.15 }}
+        className="card rounded-2xl overflow-hidden cursor-pointer shadow-sm hover:shadow-md hover:shadow-amber-100 hover:bg-amber-50/30 border border-amber-100 transition-all duration-300 group"
       >
-      <Link to={`/products/${product._id}`} className="block">
+      <Link to={detailPath ?? `/products/${product._id}`} className="block">
         <div className="relative aspect-square bg-gray-100 dark:bg-gray-800 overflow-hidden">
           {!imgLoaded && <div className="absolute inset-0 shimmer" />}
           {image ? (
@@ -188,7 +209,7 @@ export default function ProductCard({ product, index = 0 }: Props) {
           <div className="mt-3">
             {hasDiscount ? (
               <div className="flex items-baseline gap-1.5">
-                <span className="text-lg font-bold text-red-600 dark:text-red-400">
+                <span className="text-lg font-semibold text-amber-700 dark:text-amber-400">
                   ${discountedPrice.toFixed(2)}
                 </span>
                 <span className="text-sm text-gray-400 line-through">
@@ -196,31 +217,98 @@ export default function ProductCard({ product, index = 0 }: Props) {
                 </span>
               </div>
             ) : (
-              <span className="text-lg font-bold text-gray-900 dark:text-white">
+              <span className="text-lg font-semibold text-amber-900 dark:text-amber-300">
                 ${product.price.toFixed(2)}
               </span>
             )}
           </div>
 
-          {/* Row 2 — Full-width action button */}
+          {/* Size selector — only shown when product has variants */}
+          {hasSizes && !isOutOfStock && (
+            <div className="mt-2">
+              <div className="flex flex-wrap gap-1.5">
+                {product.sizes.map(size => (
+                  <button
+                    key={size}
+                    onClick={(e) => { e.preventDefault(); setSelectedSize(s => s === size ? null : size); }}
+                    className={`px-2.5 py-1 text-xs font-medium rounded-md border transition-colors ${
+                      selectedSize === size
+                        ? 'border-amber-500 bg-amber-500 text-white'
+                        : 'border-amber-200 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:border-amber-400'
+                    }`}
+                  >
+                    {size}
+                  </button>
+                ))}
+              </div>
+              {needsSize && (
+                <p className="text-xs text-amber-600 dark:text-amber-400 mt-1 flex items-center gap-1">
+                  <span>⚠</span> Please select a size
+                </p>
+              )}
+            </div>
+          )}
+
+          {/* Row 2 — Quantity selector + Add to Cart */}
           <div className="mt-2">
             {isOutOfStock ? (
               <div className="w-full text-center text-xs font-medium text-red-500 py-1.5 border border-red-200 dark:border-red-800 rounded-lg bg-red-50 dark:bg-red-900/20">
                 Out of Stock
               </div>
             ) : (
-              <button
-                onClick={handleAddToCart}
-                disabled={!isAuthenticated || addToCart.isPending}
-                className="btn-primary w-full text-sm py-2 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {addToCart.isPending ? 'Adding…' : 'Add to Cart'}
-              </button>
+              <div className="flex items-center gap-2">
+                {/* Quantity selector with editable input */}
+                <div className="flex items-center border border-amber-200 dark:border-gray-600 rounded-lg shrink-0">
+                  <button
+                    onClick={(e) => { e.preventDefault(); setQty(q => Math.max(1, q - 1)); }}
+                    disabled={qty <= 1}
+                    aria-label="Decrease quantity"
+                    className="px-2 py-1.5 text-sm text-amber-700 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-gray-800 rounded-l-lg disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                  >
+                    −
+                  </button>
+                  <input
+                    type="number"
+                    min={1}
+                    max={product.stock}
+                    value={qty}
+                    onClick={(e) => e.preventDefault()}
+                    onChange={(e) => {
+                      const v = parseInt(e.target.value, 10);
+                      if (!isNaN(v)) setQty(Math.min(product.stock, Math.max(1, v)));
+                    }}
+                    className="w-9 py-1.5 text-sm font-semibold text-gray-900 dark:text-white text-center bg-transparent border-none outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                    aria-label="Quantity"
+                  />
+                  <button
+                    onClick={(e) => { e.preventDefault(); setQty(q => Math.min(product.stock, q + 1)); }}
+                    disabled={qty >= product.stock}
+                    aria-label="Increase quantity"
+                    className="px-2 py-1.5 text-sm text-amber-700 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-gray-800 rounded-r-lg disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                  >
+                    +
+                  </button>
+                </div>
+
+                {/* Add to Cart button */}
+                <button
+                  onClick={handleAddToCart}
+                  disabled={!isAuthenticated || isAdding || needsSize}
+                  aria-disabled={needsSize}
+                  className={`flex-1 text-sm py-2 px-3 rounded-lg font-medium text-white shadow-sm transition-all disabled:cursor-not-allowed ${
+                    needsSize
+                      ? 'bg-gray-400 dark:bg-gray-600 shadow-none opacity-70'
+                      : 'bg-gradient-to-r from-amber-500 to-yellow-600 hover:from-amber-600 hover:to-yellow-700 shadow-amber-200 disabled:opacity-50'
+                  }`}
+                >
+                  {isAdding ? 'Adding…' : needsSize ? 'Select a size' : 'Add to Cart'}
+                </button>
+              </div>
             )}
           </div>
 
           {/* Row 3 — Compare checkbox, pinned at bottom with separator */}
-          <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700">
+          <div className="mt-3 pt-3 border-t border-amber-100 dark:border-gray-700">
             <label className="flex items-center gap-2 cursor-pointer group">
               <input
                 type="checkbox"

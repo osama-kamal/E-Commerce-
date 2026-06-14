@@ -6,7 +6,10 @@
   html {
     scroll-behavior: smooth;
   }
-  /* Smooth dark mode transition on all elements */
+  /* Dark mode color transitions — scoped to only color-related properties so
+     Framer Motion's opacity/transform animations are never overridden by this
+     blanket CSS transition rule. The transition-property list intentionally
+     omits 'opacity' and 'transform'. */
   *, *::before, *::after {
     transition-property: background-color, border-color, color;
     transition-duration: 500ms;

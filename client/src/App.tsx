@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useRef } from 'react';
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Provider } from 'react-redux';
 import { Toaster } from 'react-hot-toast';
 import { store } from './store';
@@ -12,8 +12,10 @@ import { useNotifications } from './hooks/useNotifications';
 import Navbar from './components/Navbar';
 import ProtectedRoute from './components/ProtectedRoute';
 import AdminLayout from './components/AdminLayout';
+import StorefrontLayout from './components/StorefrontLayout';
 import BackToTop from './components/BackToTop';
 import ComparisonBar from './components/ComparisonBar';
+import Footer from './components/Footer';
 
 // Chatbot is heavy (chat UI + API wiring) — load only after first interaction
 const Chatbot = lazy(() => import('./components/Chatbot'));
@@ -42,7 +44,17 @@ const AdminCategories   = lazy(() => import('./pages/admin/AdminCategories'));
 const AdminSettings     = lazy(() => import('./pages/admin/AdminSettings'));
 const AdminNewStore     = lazy(() => import('./pages/admin/AdminNewStore'));
 const AdminPricing      = lazy(() => import('./pages/admin/AdminPricing'));
+const AdminPlanEditor   = lazy(() => import('./pages/admin/AdminPlanEditor'));
+const PlatformStores    = lazy(() => import('./pages/admin/PlatformStores'));
 const StartStorePage    = lazy(() => import('./pages/StartStorePage'));
+const TermsOfServicePage = lazy(() => import('./pages/TermsOfServicePage'));
+const PrivacyPolicyPage  = lazy(() => import('./pages/PrivacyPolicyPage'));
+
+// Storefront pages — public tenant storefronts at /s/:slug
+const StorefrontHomePage    = lazy(() => import('./pages/storefront/StorefrontHomePage'));
+const StorefrontProductPage = lazy(() => import('./pages/storefront/StorefrontProductPage'));
+const StorefrontCartPage    = lazy(() => import('./pages/storefront/StorefrontCartPage'));
+const StorefrontOrdersPage  = lazy(() => import('./pages/storefront/StorefrontOrdersPage'));
 
 // Minimal fallback shown while a chunk is loading
 function PageLoader() {
@@ -51,6 +63,30 @@ function PageLoader() {
       <div className="w-8 h-8 border-4 border-primary-600 border-t-transparent rounded-full animate-spin" />
     </div>
   );
+}
+
+// ── Platform admin route guard ────────────────────────────────────────────────
+// Allows access only when the JWT carries role: 'super-admin'.
+// Regular store admins (role: 'admin') are redirected to their own dashboard.
+
+function getJwtRole(): string | undefined {
+  try {
+    const token = localStorage.getItem('accessToken');
+    if (!token) return undefined;
+    const payload = JSON.parse(atob(token.split('.')[1]));
+    return typeof payload?.role === 'string' ? payload.role : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function PlatformAdminRoute({ children }: { children: React.ReactNode }) {
+  const isSuperAdmin = getJwtRole() === 'super-admin';
+  if (!isSuperAdmin) {
+    // Silently redirect to the regular store dashboard — no error, no data leak
+    return <Navigate to="/admin" replace />;
+  }
+  return <>{children}</>;
 }
 
 function Layout({ children }: { children: React.ReactNode }) {
@@ -90,6 +126,7 @@ function Layout({ children }: { children: React.ReactNode }) {
           {children}
         </Suspense>
       </main>
+      <Footer />
       <ComparisonBar />
       <Suspense fallback={null}>
         <Chatbot />
@@ -119,6 +156,8 @@ export default function App() {
           <Route path="/start"      element={<Suspense fallback={<PageLoader />}><StartStorePage /></Suspense>} />
           <Route path="/forgot-password" element={<Suspense fallback={<PageLoader />}><ForgotPasswordPage /></Suspense>} />
           <Route path="/reset-password"  element={<Suspense fallback={<PageLoader />}><ResetPasswordPage /></Suspense>} />
+          <Route path="/terms"           element={<Layout><TermsOfServicePage /></Layout>} />
+          <Route path="/privacy"         element={<Layout><PrivacyPolicyPage /></Layout>} />
           <Route path="/products/:id" element={<Layout><ProductDetailPage /></Layout>} />
           <Route path="/compare"    element={<Layout><ComparePage /></Layout>} />
 
@@ -130,6 +169,14 @@ export default function App() {
             <Route path="/orders"      element={<Layout><OrdersPage /></Layout>} />
             <Route path="/orders/:id"  element={<Layout><OrderDetailPage /></Layout>} />
             <Route path="/profile"     element={<Layout><ProfilePage /></Layout>} />
+          </Route>
+
+          {/* Storefront — public tenant storefronts at /s/:slug */}
+          <Route path="/s/:slug" element={<StorefrontLayout />}>
+            <Route index element={<Suspense fallback={<PageLoader />}><StorefrontHomePage /></Suspense>} />
+            <Route path="products/:id" element={<Suspense fallback={<PageLoader />}><StorefrontProductPage /></Suspense>} />
+            <Route path="cart"    element={<Suspense fallback={<PageLoader />}><StorefrontCartPage /></Suspense>} />
+            <Route path="orders"  element={<Suspense fallback={<PageLoader />}><StorefrontOrdersPage /></Suspense>} />
           </Route>
 
           {/* Admin protected */}
@@ -144,6 +191,22 @@ export default function App() {
               <Route path="coupons"    element={<Suspense fallback={<PageLoader />}><AdminCoupons /></Suspense>} />
               <Route path="settings"   element={<Suspense fallback={<PageLoader />}><AdminSettings /></Suspense>} />
               <Route path="pricing"    element={<Suspense fallback={<PageLoader />}><AdminPricing /></Suspense>} />
+              <Route
+                path="plan-editor"
+                element={
+                  <PlatformAdminRoute>
+                    <Suspense fallback={<PageLoader />}><AdminPlanEditor /></Suspense>
+                  </PlatformAdminRoute>
+                }
+              />
+              <Route
+                path="stores"
+                element={
+                  <PlatformAdminRoute>
+                    <Suspense fallback={<PageLoader />}><PlatformStores /></Suspense>
+                  </PlatformAdminRoute>
+                }
+              />
               <Route path="stores/new" element={<Suspense fallback={<PageLoader />}><AdminNewStore /></Suspense>} />
             </Route>
           </Route>

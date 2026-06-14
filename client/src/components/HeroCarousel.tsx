@@ -49,16 +49,18 @@ export default function HeroCarousel() {
             className="relative h-full flex-shrink-0"
             style={{ width: `${100 / slides.length}%` }}
           >
-            {/* Use fetchpriority=high only on first slide (LCP candidate) */}
+            {/* fetchpriority (lowercase) is the correct HTML attribute name.
+                React 18 types only expose camelCase fetchPriority which warns
+                at runtime, so we spread it as an untyped extra prop instead. */}
             <img
               src={sl.image}
               alt={sl.alt}
               className="absolute inset-0 w-full h-full object-cover"
               loading={i === 0 ? 'eager' : 'lazy'}
-              fetchPriority={i === 0 ? 'high' : 'auto'}
               decoding="async"
               width="1200"
               height="450"
+              {...({ fetchpriority: i === 0 ? 'high' : 'auto' } as object)}
             />
             {/* Gradient overlay */}
             <div className="absolute inset-0 bg-gradient-to-r from-black/70 via-black/30 to-transparent" />

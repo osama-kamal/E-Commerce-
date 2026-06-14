@@ -4,9 +4,18 @@ import { useForm } from 'react-hook-form';
 import { yupResolver } from '@hookform/resolvers/yup';
 import * as yup from 'yup';
 import toast from 'react-hot-toast';
+import { motion, AnimatePresence } from 'framer-motion';
 import { useAppDispatch } from '../hooks/useAppDispatch';
 import { setCredentials } from '../store/authSlice';
 import { onboardingApi } from '../api/onboarding';
+
+// ── Shared step animation variants ───────────────────────────────────────────
+
+const stepVariants = {
+  enter: (dir: number) => ({ x: dir > 0 ? 24 : -24, opacity: 0 }),
+  center: { x: 0, opacity: 1, transition: { duration: 0.28, ease: 'easeOut' } },
+  exit:  (dir: number) => ({ x: dir > 0 ? -24 : 24, opacity: 0, transition: { duration: 0.2, ease: 'easeIn' } }),
+};
 
 // ── Validation schema ─────────────────────────────────────────────────────────
 
@@ -158,6 +167,7 @@ export default function StartStorePage() {
   const dispatch = useAppDispatch();
   const navigate = useNavigate();
   const [step, setStep] = useState(1);
+  const [dir, setDir] = useState(1); // 1 = forward, -1 = backward
   const [success, setSuccess] = useState(false);
   const [createdStoreName, setCreatedStoreName] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -168,7 +178,7 @@ export default function StartStorePage() {
     watch,
     trigger,
     formState: { errors, isSubmitting },
-  } = useForm<FormData>({ resolver: yupResolver(schema), mode: 'onChange' });
+  } = useForm<FormData>({ resolver: yupResolver(schema), mode: 'onTouched' });
 
   const watchedPassword = watch('password', '');
   const watchedStoreName = watch('storeName', '');
@@ -179,7 +189,9 @@ export default function StartStorePage() {
       ? ['fullName', 'email', 'password']
       : ['storeName', 'storeCategory'];
     const valid = await trigger(fields);
-    if (valid) setStep(s => s + 1);
+    if (!valid) return;
+    setDir(1);
+    setStep(s => s + 1);
   };
 
   const onSubmit = async (data: FormData) => {
@@ -222,8 +234,8 @@ export default function StartStorePage() {
       <div className="hidden lg:flex lg:w-[45%] xl:w-[40%] flex-col justify-between p-12 bg-gradient-to-br from-indigo-950 via-[#0d0d2b] to-[#0a0a1a] border-r border-white/5">
         <div>
           <Link to="/" className="flex items-center gap-2 text-white font-bold text-xl">
-            <span className="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center text-sm">S</span>
-            ShopHub
+            <span className="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center text-sm">V</span>
+            Vendbase
           </Link>
         </div>
 
@@ -257,7 +269,7 @@ export default function StartStorePage() {
           </div>
         </div>
 
-        <p className="text-white/20 text-xs">© 2026 ShopHub. All rights reserved.</p>
+        <p className="text-white/20 text-xs">© 2026 Vendbase. All rights reserved.</p>
       </div>
 
       {/* Right panel — form */}
@@ -266,8 +278,8 @@ export default function StartStorePage() {
 
           {/* Mobile logo */}
           <div className="lg:hidden mb-8 flex items-center gap-2">
-            <span className="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center text-white text-sm font-bold">S</span>
-            <span className="text-white font-bold text-xl">ShopHub</span>
+            <span className="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center text-white text-sm font-bold">V</span>
+            <span className="text-white font-bold text-xl">Vendbase</span>
           </div>
 
           {success ? (
@@ -291,9 +303,21 @@ export default function StartStorePage() {
 
               <form onSubmit={handleSubmit(onSubmit)} noValidate>
 
+                {/* ── AnimatePresence: one always-present motion.div keyed on step ── */}
+                {/* Direct children of AnimatePresence must NOT be conditionally      */}
+                {/* rendered — the key change is what triggers exit → enter.          */}
+                <AnimatePresence mode="wait" custom={dir}>
+                  <motion.div
+                    key={step}
+                    custom={dir}
+                    variants={stepVariants}
+                    initial="enter"
+                    animate="center"
+                    exit="exit"
+                  >
                 {/* ── Step 1: Account ─────────────────────────────────── */}
                 {step === 1 && (
-                  <div className="space-y-5 animate-fade-in">
+                  <div className="space-y-5">
                     <div>
                       <label className="block text-sm font-medium text-white/70 mb-1.5">Full name</label>
                       <input
@@ -356,7 +380,7 @@ export default function StartStorePage() {
 
                 {/* ── Step 2: Store ────────────────────────────────────── */}
                 {step === 2 && (
-                  <div className="space-y-6 animate-fade-in">
+                  <div className="space-y-6">
                     <div>
                       <label className="block text-sm font-medium text-white/70 mb-1.5">Store name</label>
                       <input
@@ -368,7 +392,7 @@ export default function StartStorePage() {
                       {watchedStoreName && (
                         <p className="text-white/30 text-xs mt-1.5 flex items-center gap-1">
                           <span className="text-white/20">URL:</span>
-                          <span className="text-indigo-400 font-mono">{slugify(watchedStoreName)}.shophub.com</span>
+                          <span className="text-indigo-400 font-mono">{slugify(watchedStoreName)}.vendbase.com</span>
                         </p>
                       )}
                       {errors.storeName && <p className="text-red-400 text-xs mt-1.5">{errors.storeName.message}</p>}
@@ -400,7 +424,7 @@ export default function StartStorePage() {
                     <div className="flex gap-3">
                       <button
                         type="button"
-                        onClick={() => setStep(1)}
+                        onClick={() => { setDir(-1); setStep(1); }}
                         className="flex-1 py-3.5 rounded-xl border border-white/10 text-white/60 hover:text-white hover:border-white/20 font-semibold transition-all duration-200"
                       >
                         ← Back
@@ -418,7 +442,7 @@ export default function StartStorePage() {
 
                 {/* ── Step 3: Review & Submit ──────────────────────────── */}
                 {step === 3 && (
-                  <div className="space-y-6 animate-fade-in">
+                  <div className="space-y-6">
                     <div className="rounded-2xl border border-white/10 bg-white/3 overflow-hidden">
                       <div className="px-5 py-4 border-b border-white/8">
                         <p className="text-white/40 text-xs uppercase tracking-widest font-semibold">Account</p>
@@ -436,7 +460,7 @@ export default function StartStorePage() {
                       </div>
                       <div className="px-5 py-4 space-y-3">
                         <Row label="Name" value={watch('storeName')} />
-                        <Row label="URL" value={`${slugify(watch('storeName'))}.shophub.com`} accent />
+                        <Row label="URL" value={`${slugify(watch('storeName'))}.vendbase.com`} accent />
                         <Row
                           label="Category"
                           value={CATEGORIES.find(c => c.value === watch('storeCategory'))?.label ?? '—'}
@@ -448,15 +472,17 @@ export default function StartStorePage() {
                     <div className="flex gap-3">
                       <button
                         type="button"
-                        onClick={() => setStep(2)}
+                        onClick={() => { setDir(-1); setStep(2); }}
                         className="flex-1 py-3.5 rounded-xl border border-white/10 text-white/60 hover:text-white hover:border-white/20 font-semibold transition-all duration-200"
                       >
                         ← Back
                       </button>
-                      <button
+                      <motion.button
                         type="submit"
                         disabled={isSubmitting}
-                        className="flex-[2] py-3.5 rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white font-semibold transition-all duration-200 shadow-lg shadow-indigo-600/30 hover:-translate-y-0.5 active:translate-y-0 disabled:opacity-60 disabled:cursor-not-allowed disabled:translate-y-0 flex items-center justify-center gap-2"
+                        whileHover={!isSubmitting ? { scale: 1.02 } : undefined}
+                        whileTap={!isSubmitting ? { scale: 0.98 } : undefined}
+                        className="flex-[2] py-3.5 rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white font-semibold transition-all duration-200 shadow-lg shadow-indigo-600/30 disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                       >
                         {isSubmitting ? (
                           <>
@@ -466,7 +492,7 @@ export default function StartStorePage() {
                         ) : (
                           '🚀 Launch my store'
                         )}
-                      </button>
+                      </motion.button>
                     </div>
 
                     <p className="text-center text-white/20 text-xs">
@@ -477,6 +503,9 @@ export default function StartStorePage() {
                     </p>
                   </div>
                 )}
+
+                  </motion.div>
+                </AnimatePresence>
               </form>
             </>
           )}

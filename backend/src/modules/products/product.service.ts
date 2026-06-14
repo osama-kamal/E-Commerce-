@@ -9,11 +9,15 @@ export interface ProductDoc {
   name: string;
   description: string;
   price: number;
+  discount: number;
   stock: number;
   categoryId: Types.ObjectId;
   images: string[];
+  sizes: string[];
   isDeleted: boolean;
   inStock: boolean;
+  averageRating: number;
+  reviewCount: number;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -91,7 +95,7 @@ export async function listProducts(filters: ProductFilters): Promise<PaginatedPr
       .sort(sortOption)
       .skip(skip)
       .limit(filters.limit)
-      .select('_id storeId name description price discount stock categoryId images averageRating reviewCount isDeleted createdAt updatedAt')
+      .select('_id storeId name description price discount stock categoryId images sizes averageRating reviewCount isDeleted createdAt updatedAt')
       .lean(),
     Product.countDocuments(query),
   ]);

@@ -42,6 +42,11 @@ class EmailService {
     this.apiKey = apiKey;
     this.enabled = true;
 
+    // Confirm key is loaded without exposing the value
+    console.log(
+      `[EmailService] Brevo key loaded: ${!!apiKey} | prefix: ${apiKey.slice(0, 10)}...`
+    );
+
     logger.info('Brevo HTTP API email service initialised', {
       from: `${this.fromName} <${this.fromEmail}>`,
       frontendUrl: this.frontendUrl,

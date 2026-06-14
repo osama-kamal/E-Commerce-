@@ -1,5 +1,5 @@
 import mongoose, { Types } from 'mongoose';
-import { Order, IOrder, OrderStatus, STATUS_TRANSITIONS } from './order.model';
+import { Order, IOrder, OrderStatus, STATUS_TRANSITIONS, PaymentMethod } from './order.model';
 import { Cart } from '../cart/cart.model';
 import { Product } from '../products/product.model';
 import { User } from '../auth/user.model';
@@ -34,6 +34,7 @@ export interface OrderDoc {
   items: { productId: Types.ObjectId; name: string; price: number; quantity: number }[];
   totalAmount: number;
   status: OrderStatus;
+  paymentMethod: PaymentMethod;
   paymentIntentId?: string;
   shippingAddress: IShippingAddress;
   createdAt: Date;
@@ -51,6 +52,7 @@ export async function placeOrder(
   storeId: string,
   customerId: string,
   shippingAddress: IShippingAddress,
+  paymentMethod: PaymentMethod = 'online',
   discountAmount = 0,
   couponCode?: string,
   idempotencyKey?: string
@@ -75,21 +77,48 @@ export async function placeOrder(
 
   // Fallback guard: block a second pending order with the same cart fingerprint
   // within a 5-minute window (catches retries that don't send an idempotency key).
+  // We match on customerId + storeId + status only — a new checkout attempt with
+  // a different cart or total is allowed to proceed.
   const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
-  const recentDuplicate = await Order.findOne({
-    storeId: storeObjId,
-    customerId: customerObjId,
-    status: 'pending',
-    createdAt: { $gte: fiveMinutesAgo },
-  })
-    .select('_id')
-    .lean();
-  if (recentDuplicate) {
-    throw createError(
-      'A pending order was placed very recently. Please wait a moment before placing another order, or complete your existing checkout.',
-      409,
-      'DUPLICATE_ORDER'
-    );
+
+  // Pre-calculate what the total would be, so we can fingerprint on it
+  const cartForCheck = await Cart.findOne({ storeId: storeObjId, customerId: customerObjId }).lean();
+  if (cartForCheck && cartForCheck.items.length > 0) {
+    const productIdsForCheck = cartForCheck.items.map(i => i.productId);
+    const productsForCheck = await Product.find({
+      _id: { $in: productIdsForCheck },
+      storeId: storeObjId,
+      isDeleted: false,
+    }).select('price discount').lean();
+
+    const productPriceMap = new Map(productsForCheck.map(p => [p._id.toString(), p]));
+    let checkTotal = 0;
+    for (const item of cartForCheck.items) {
+      const p = productPriceMap.get(item.productId.toString());
+      if (p) {
+        const effective = p.discount > 0 ? Math.round(p.price * (1 - p.discount / 100) * 100) / 100 : p.price;
+        checkTotal += effective * item.quantity;
+      }
+    }
+    checkTotal = Math.max(0, Math.round((checkTotal - discountAmount) * 100) / 100);
+
+    const recentDuplicate = await Order.findOne({
+      storeId: storeObjId,
+      customerId: customerObjId,
+      status: 'pending',
+      totalAmount: checkTotal,
+      createdAt: { $gte: fiveMinutesAgo },
+    })
+      .select('_id')
+      .lean();
+
+    if (recentDuplicate) {
+      throw createError(
+        'A pending order was placed very recently. Please wait a moment before placing another order, or complete your existing checkout.',
+        409,
+        'DUPLICATE_ORDER'
+      );
+    }
   }
 
   const validateAndBuild = async (session?: mongoose.ClientSession) => {
@@ -167,6 +196,7 @@ export async function placeOrder(
           discountAmount,
           couponCode,
           shippingAddress,
+          paymentMethod,
           status: 'pending',
           ...(idempotencyKey && { idempotencyKey }),
         }],
@@ -221,6 +251,7 @@ export async function placeOrder(
       discountAmount,
       couponCode,
       shippingAddress,
+      paymentMethod,
       status: 'pending',
       ...(idempotencyKey && { idempotencyKey }),
     });

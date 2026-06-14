@@ -131,15 +131,45 @@ export async function login(
       storeId: new Types.ObjectId(storeId),
       email: email.toLowerCase(),
     }).select('+passwordHash') as IUser | null;
+
+    // If the store-scoped user is a customer (or lower-privileged), check whether
+    // this email has a higher-privileged account (super-admin or admin) in any store.
+    // Privilege order: super-admin > admin > customer.
+    if (user?.role === 'customer') {
+      const privilegedUser = await User.findOne({
+        email: email.toLowerCase(),
+        role: { $in: ['super-admin', 'admin'] },
+      }).select('+passwordHash').sort({ createdAt: 1 }) as IUser | null;
+
+      if (privilegedUser) {
+        const valid = await bcrypt.compare(password, privilegedUser.passwordHash);
+        if (valid) user = privilegedUser;
+      }
+    }
+
+    // If no store-scoped user found at all, fall back to global privileged lookup
+    if (!user) {
+      user = await User.findOne({
+        email: email.toLowerCase(),
+        role: { $in: ['super-admin', 'admin'] },
+      }).select('+passwordHash').sort({ createdAt: 1 }) as IUser | null;
+    }
   } else {
-    // Global lookup — find the admin user with this email across all stores.
-    // Prefer admin role so store owners can always log in without knowing their store ID.
+    // Global lookup — prefer highest privilege level.
+    // super-admin > admin > customer
     user = await User.findOne({
       email: email.toLowerCase(),
-      role: 'admin',
+      role: 'super-admin',
     }).select('+passwordHash').sort({ createdAt: 1 }) as IUser | null;
 
-    // Fallback: any role
+    if (!user) {
+      user = await User.findOne({
+        email: email.toLowerCase(),
+        role: 'admin',
+      }).select('+passwordHash').sort({ createdAt: 1 }) as IUser | null;
+    }
+
+    // Fallback: any role (e.g. customer logging in from main site)
     if (!user) {
       user = await User.findOne({
         email: email.toLowerCase(),

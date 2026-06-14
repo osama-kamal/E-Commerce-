@@ -33,25 +33,30 @@ export function authenticateJWT(req: Request, _res: Response, next: NextFunction
       };
 
       // Cross-tenant guard: if a store has already been resolved (by resolveStore),
-      // ensure the token's storeId matches it OR the user is the store owner.
-      // This allows multi-store owners to switch stores without re-issuing tokens.
+      // ensure the token's storeId matches it OR the user is the store owner OR
+      // the user is a super-admin (who can access any store).
       if (req.store) {
         const resolvedStoreId = (req.store as any)._id.toString();
         const tokenStoreId = payload.storeId.toString();
 
         if (tokenStoreId !== resolvedStoreId) {
-          // Token is for a different store — check if this user owns the resolved store
-          const { Store } = await import('../modules/stores/store.model');
-          const isOwner = await Store.exists({
-            _id: resolvedStoreId,
-            ownerId: new Types.ObjectId(payload.userId),
-          });
+          // Super-admin: always allow cross-store access
+          const isSuperAdmin = payload.role === 'super-admin';
 
-          if (!isOwner) {
-            return next(createError('Token does not belong to this store', 403, 'FORBIDDEN'));
+          if (!isSuperAdmin) {
+            // Check if this user owns the resolved store (multi-store vendor switching)
+            const { Store } = await import('../modules/stores/store.model');
+            const isOwner = await Store.exists({
+              _id: resolvedStoreId,
+              ownerId: new Types.ObjectId(payload.userId),
+            });
+
+            if (!isOwner) {
+              return next(createError('Token does not belong to this store', 403, 'FORBIDDEN'));
+            }
           }
 
-          // Owner switching stores — update storeId to the resolved store
+          // Owner or super-admin switching stores — update storeId to the resolved store
           req.user!.storeId = new Types.ObjectId(resolvedStoreId);
         }
       }
@@ -72,10 +77,18 @@ export function authenticateJWT(req: Request, _res: Response, next: NextFunction
 /**
  * Role-based access control middleware.
  * Must be used after authenticateJWT.
+ *
+ * super-admin automatically passes ALL role checks — they have every permission
+ * that admin has, plus platform-level access.
  */
-export function authorizeRole(...roles: Array<'admin' | 'customer'>) {
+export function authorizeRole(...roles: Array<'super-admin' | 'admin' | 'customer'>) {
   return (req: Request, _res: Response, next: NextFunction): void => {
-    if (!req.user || !roles.includes(req.user.role)) {
+    if (!req.user) {
+      return next(createError('You do not have permission to access this resource', 403, 'FORBIDDEN'));
+    }
+    // super-admin bypasses all role restrictions
+    if (req.user.role === 'super-admin') return next();
+    if (!roles.includes(req.user.role as any)) {
       return next(
         createError('You do not have permission to access this resource', 403, 'FORBIDDEN')
       );

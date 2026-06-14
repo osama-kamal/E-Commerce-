@@ -11,6 +11,7 @@ const shippingAddressSchema = z.object({
 export const placeOrderSchema = z.object({
   body: z.object({
     shippingAddress: shippingAddressSchema,
+    paymentMethod: z.enum(['online', 'cod']).default('online'),
     discountAmount: z.coerce.number().min(0).default(0),
     couponCode: z.string().optional(),
   }),

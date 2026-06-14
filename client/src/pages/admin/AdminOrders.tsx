@@ -13,6 +13,21 @@ const STATUS_COLORS: Record<string, string> = {
   cancelled: 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300',
 };
 
+function PaymentBadge({ method }: { method?: string }) {
+  if (method === 'cod') {
+    return (
+      <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-medium bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300">
+        💵 COD
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-medium bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300">
+      💳 Online
+    </span>
+  );
+}
+
 function OrderDetailsModal({ order, onClose }: { order: Order; onClose: () => void }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -54,6 +69,10 @@ function OrderDetailsModal({ order, onClose }: { order: Order; onClose: () => vo
             <div>
               <p className="text-gray-500 dark:text-gray-400">Total Amount</p>
               <p className="font-bold text-lg text-gray-900 dark:text-white">${order.totalAmount.toFixed(2)}</p>
+            </div>
+            <div>
+              <p className="text-gray-500 dark:text-gray-400">Payment Method</p>
+              <PaymentBadge method={order.paymentMethod} />
             </div>
             {order.couponCode && (
               <div>
@@ -255,7 +274,7 @@ export default function AdminOrders() {
                 <th className="px-4 py-3 w-10">
                   <input type="checkbox" checked={allSelected} onChange={toggleAll} className="rounded" />
                 </th>
-                {['Order ID', 'Date', 'Items', 'Total', 'Status', 'Update Status', 'Details'].map(h => (
+                {['Order ID', 'Date', 'Items', 'Total', 'Payment', 'Status', 'Update Status', 'Details'].map(h => (
                   <th key={h} className="text-left px-4 py-3 text-gray-500 dark:text-gray-400 font-medium">{h}</th>
                 ))}
               </tr>
@@ -281,6 +300,9 @@ export default function AdminOrders() {
                   <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{new Date(order.createdAt).toLocaleDateString()}</td>
                   <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{order.items.length} item{order.items.length !== 1 ? 's' : ''}</td>
                   <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">${order.totalAmount.toFixed(2)}</td>
+                  <td className="px-4 py-3">
+                    <PaymentBadge method={order.paymentMethod} />
+                  </td>
                   <td className="px-4 py-3">
                     <span className={`text-xs px-2 py-1 rounded-full capitalize ${STATUS_COLORS[order.status]}`}>
                       {order.status}
