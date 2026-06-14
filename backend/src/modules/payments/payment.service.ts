@@ -100,6 +100,15 @@ export async function handleWebhook(
   rawBody: Buffer,
   signature: string
 ): Promise<void> {
+  // ── DEBUG: confirm the webhook route is being hit at all ──────────────────
+  // Remove once confirmed working end-to-end.
+  console.log('[STRIPE DEBUG] handleWebhook called', {
+    bodyLength: rawBody?.length ?? 0,
+    hasSignature: !!signature,
+    hasWebhookSecret: !!config.STRIPE_WEBHOOK_SECRET,
+    timestamp: new Date().toISOString(),
+  });
+
   // ── [STEP 1] Signature verification ─────────────────────────────────────────
   // Guard: STRIPE_WEBHOOK_SECRET must be configured.
   if (!config.STRIPE_WEBHOOK_SECRET) {
@@ -254,6 +263,14 @@ export async function handleWebhook(
 // ── Internal event handlers ────────────────────────────────────────────────────
 
 async function handlePaymentSucceeded(event: Stripe.Event): Promise<void> {
+  // ── DEBUG: confirm this handler is being reached ──────────────────────────
+  // Remove this log once the webhook is confirmed working end-to-end.
+  console.log('[STRIPE DEBUG] handlePaymentSucceeded reached', {
+    eventId: event.id,
+    type: event.type,
+    timestamp: new Date().toISOString(),
+  });
+
   const intent = event.data.object as Stripe.PaymentIntent;
   const { orderId, customerId } = intent.metadata as { orderId: string; customerId: string };
 
