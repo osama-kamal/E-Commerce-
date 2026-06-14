@@ -29,6 +29,8 @@ import chatbotRoutes from './modules/chatbot/chatbot.routes';
 import couponRoutes from './modules/coupons/coupon.routes';
 import storeRoutes from './modules/stores/store.routes';
 import onboardingRoutes from './modules/onboarding/onboarding.routes';
+import supportRoutes from './modules/support/support.routes';
+import planRoutes from './modules/plans/plan.routes';
 
 const app = express();
 
@@ -73,10 +75,14 @@ app.use(limiter);
 // ── NoSQL injection sanitization ──────────────────────────────────────────────
 app.use(mongoSanitize());
 
-// ── Stripe webhook — must be registered BEFORE express.json() ─────────────────
+// ── Webhook routes — raw body MUST be registered before express.json() ────────
+// express.json() consumes the request stream. Any webhook route that needs the
+// raw Buffer for HMAC verification (Stripe, Paymob) must be mounted here, BEFORE
+// the global JSON parser runs, so express.raw() on those routes gets first access
+// to the unconsumed stream.
 app.use('/api/v1/payments', paymentRoutes);
 
-// ── Body parsing ──────────────────────────────────────────────────────────────
+// ── Body parsing (applies to all routes registered after this point) ──────────
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
@@ -98,6 +104,12 @@ app.use('/api/v1/onboarding', onboardingRoutes);
 // ── Auth routes — work without store context ──────────────────────────────────
 app.use('/api/v1/auth', authRoutes);
 
+// ── Support / lead-capture routes — public, no store context needed ───────────
+app.use('/api/v1/support', supportRoutes);
+
+// ── Plan display config — public GET, super-admin PUT ─────────────────────────
+app.use('/api/v1/plans', planRoutes);
+
 // ── Admin plan management — no store context needed (super-admin acts globally) ─
 // Only the plan-specific endpoints are registered here without resolveStore.
 // All other admin routes (dashboard, users, orders, etc.) need store context
@@ -105,10 +117,11 @@ app.use('/api/v1/auth', authRoutes);
 import { Router as ExpressRouter } from 'express';
 const globalAdminRouter = ExpressRouter();
 import { authenticateJWT, authorizeRole } from './middleware/authenticate';
-import { updateStorePlan, listAllStoresAdmin } from './modules/admin/admin.controller';
-globalAdminRouter.use(authenticateJWT, authorizeRole('admin'));
+import { updateStorePlan, listAllStoresAdmin, listPendingUpgrades } from './modules/admin/admin.controller';
+globalAdminRouter.use(authenticateJWT, authorizeRole('admin', 'super-admin'));
 globalAdminRouter.patch('/stores/:id/plan', updateStorePlan);
 globalAdminRouter.get('/stores', listAllStoresAdmin);
+globalAdminRouter.get('/stores/pending-upgrades', listPendingUpgrades);
 app.use('/api/v1/admin', globalAdminRouter);
 
 // ── Store-scoped API routes ───────────────────────────────────────────────────
