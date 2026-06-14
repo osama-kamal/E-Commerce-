@@ -1,7 +1,7 @@
 import { Types } from 'mongoose';
-import { Product } from '../modules/products/product.model';
-import { Order } from '../modules/orders/order.model';
-import { OPENAI_API_KEY } from '../config';
+import { Product } from '../products/product.model';
+import { Order } from '../orders/order.model';
+import { OPENAI_API_KEY } from '../../config';
 
 // ── Tool definitions sent to OpenAI ──────────────────────────────────────────
 

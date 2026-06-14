@@ -1,5 +1,5 @@
-import { Product } from '../modules/products/product.model';
-import { Order } from '../modules/orders/order.model';
+import { Product } from '../products/product.model';
+import { Order } from '../orders/order.model';
 
 export const recommendationsService = {
   /**

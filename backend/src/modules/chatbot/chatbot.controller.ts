@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { chatbotService } from '../../services/chatbot.service';
+import { chatbotService } from './chatbot.service';
 import { sendSuccess, sendError } from '../../utils/response';
 
 export const chatbotController = {

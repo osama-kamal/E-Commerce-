@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { recommendationsService } from '../../services/recommendations.service';
+import { recommendationsService } from '../recommendations/recommendations.service';
 import { sendSuccess, sendError } from '../../utils/response';
 
 export const recommendationsController = {
