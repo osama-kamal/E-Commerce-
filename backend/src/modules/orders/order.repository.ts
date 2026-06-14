@@ -129,3 +129,30 @@ export async function clearCartAfterOrder(
   if (session) q.session(session);
   return q;
 }
+
+// ── Payment integration helpers ───────────────────────────────────────────────
+
+/** Used by createPaymentIntent — find a pending order scoped to customer + store. */
+export async function findPendingOrderForPayment(
+  orderId: string,
+  customerId: Types.ObjectId,
+  storeId: Types.ObjectId
+) {
+  return Order.findOne({
+    _id: orderId,
+    customerId,
+    storeId,
+  }).lean();
+}
+
+/** Attach the Stripe PaymentIntent ID to an order for later reconciliation. */
+export async function attachPaymentIntentId(orderId: string, paymentIntentId: string) {
+  return Order.updateOne({ _id: orderId }, { paymentIntentId });
+}
+
+/** Find a live order document by orderId only (no storeId constraint).
+ *  Use only in trusted server-side contexts like payment webhooks
+ *  where the storeId is not available but the source is already verified. */
+export async function findOrderDocumentByOrderIdOnly(orderId: string) {
+  return Order.findById(orderId);
+}

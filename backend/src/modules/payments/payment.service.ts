@@ -3,12 +3,12 @@ import { stripe } from '../../config/stripe';
 import { config } from '../../config/index';
 import { Payment } from './payment.model';
 import { StripeWebhookEvent } from './stripeWebhookEvent.model';
-import { Order } from '../orders/order.model';
 import { User } from '../auth/user.model';
 import { createError } from '../../middleware/errorHandler';
 import { logger } from '../../utils/logger';
 import { Types } from 'mongoose';
 import { emailService } from '../../services/email.service';
+import * as orderRepo from '../orders/order.repository';
 import {
   handleSubscriptionCreated,
   handleSubscriptionUpdated,
@@ -30,11 +30,11 @@ export async function createPaymentIntent(
 
   // Scope the lookup to customerId AND storeId — prevents a customer from
   // creating a payment intent for an order in a different store (item #10).
-  const order = await Order.findOne({
-    _id: orderId,
-    customerId: new Types.ObjectId(customerId),
-    storeId: new Types.ObjectId(storeId),
-  }).lean();
+  const order = await orderRepo.findPendingOrderForPayment(
+    orderId,
+    new Types.ObjectId(customerId),
+    new Types.ObjectId(storeId)
+  );
 
   if (!order) throw createError('Order not found', 404, 'NOT_FOUND');
 
@@ -65,7 +65,7 @@ export async function createPaymentIntent(
   );
 
   // Attach the paymentIntentId to the order for later reconciliation
-  await Order.updateOne({ _id: orderId }, { paymentIntentId: paymentIntent.id });
+  await orderRepo.attachPaymentIntentId(orderId, paymentIntent.id);
 
   if (!paymentIntent.client_secret) {
     throw createError('Failed to create payment intent', 500, 'INTERNAL_ERROR');
@@ -262,7 +262,7 @@ async function handlePaymentSucceeded(event: Stripe.Event): Promise<void> {
     return;
   }
 
-  const order = await Order.findById(orderId);
+  const order = await orderRepo.findOrderDocumentByOrderIdOnly(orderId);
   if (!order) {
     logger.error('Order not found for succeeded payment', { orderId, intentId: intent.id });
     return;
@@ -279,7 +279,7 @@ async function handlePaymentSucceeded(event: Stripe.Event): Promise<void> {
     stripeEventId: event.id,
   });
 
-  // Advance order to processing
+  // Advance order to processing — same automated flow as Paymob webhook
   order.status = 'processing';
   await order.save();
 
