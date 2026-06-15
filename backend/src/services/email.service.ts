@@ -66,6 +66,10 @@ class EmailService {
   }
 
   // ── Core send ─────────────────────────────────────────────────────────────
+  // This method is intentionally fire-and-forget — it NEVER re-throws.
+  // A failed email must not crash or block the request that triggered it
+  // (login, order placement, payment, etc.). All failures are logged and
+  // swallowed so the rest of the flow continues normally.
 
   async sendEmail(options: {
     to: string;
@@ -83,7 +87,7 @@ class EmailService {
     }
 
     try {
-      const { error } = await this.client.emails.send({
+      const { data, error } = await this.client.emails.send({
         from: `${this.fromName} <${this.fromEmail}>`,
         to:   [options.to],
         subject: options.subject,
@@ -93,26 +97,30 @@ class EmailService {
       });
 
       if (error) {
-        logger.error('Resend API returned an error', {
+        // Resend returned a structured error (e.g. 403 sandbox restriction,
+        // unverified domain, invalid address). Log it and return — do NOT throw.
+        logger.warn('Resend API error — email not sent (non-fatal)', {
           to: options.to,
           subject: options.subject,
-          error,
+          errorName: error.name,
+          errorMessage: error.message,
         });
-        throw new Error(`Resend error: ${error.message}`);
+        return;
       }
 
       logger.info('Email sent via Resend', {
         to: options.to,
         subject: options.subject,
+        messageId: data?.id,
         bcc: options.bcc ?? [],
       });
     } catch (err) {
-      logger.error('Failed to send email via Resend', {
+      // Network-level failure, timeout, etc. — log and return, never re-throw.
+      logger.warn('Failed to send email via Resend (non-fatal) — continuing', {
         to: options.to,
         subject: options.subject,
-        error: err,
+        error: (err as Error)?.message ?? String(err),
       });
-      throw err;
     }
   }
 
