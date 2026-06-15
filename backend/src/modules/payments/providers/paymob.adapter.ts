@@ -146,6 +146,12 @@ export class PaymobAdapter implements IPaymentProvider {
     const integrationId = config.PAYMOB_INTEGRATION_ID_CARD;
     if (!integrationId) throw new Error('PAYMOB_INTEGRATION_ID_CARD is not configured');
 
+    // The callback_url tells Paymob where to POST the HMAC-signed transaction
+    // result after the customer completes or fails payment. Without this field,
+    // Paymob will NOT fire the webhook even if "Auto Callback" is enabled in
+    // the dashboard. The path must match the registered route exactly.
+    const callbackUrl = `${config.BACKEND_URL}/api/v1/payments/paymob/webhook`;
+
     const res = await paymobPost<{ token?: string; detail?: string }>(
       '/api/acceptance/payment_keys',
       {
@@ -156,12 +162,20 @@ export class PaymobAdapter implements IPaymentProvider {
         billing_data: billingData,
         currency,
         integration_id: parseInt(integrationId, 10),
+        callback_url: callbackUrl,
       }
     );
 
     if (!res.token) {
       throw new Error(`Paymob payment key request failed: ${res.detail ?? JSON.stringify(res)}`);
     }
+
+    logger.info('PaymobAdapter: payment key obtained', {
+      paymobOrderId,
+      callbackUrl,
+      integrationId,
+    });
+
     return res.token;
   }
 

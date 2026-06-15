@@ -108,6 +108,11 @@ const envSchema = z.object({
   // ── Frontend ────────────────────────────────────────────────────────────────
   FRONTEND_URL: z.string().default('http://localhost:5173'),
 
+  // ── Backend public URL (used for webhook callback_url in Paymob requests) ──
+  // Set to your Railway domain in production, or your ngrok URL when testing locally.
+  // Example: https://my-app.up.railway.app  OR  https://abc.ngrok-free.dev
+  BACKEND_URL: z.string().default('http://localhost:5000'),
+
   // ── Cloudinary (OPTIONAL) ───────────────────────────────────────────────────
   CLOUDINARY_CLOUD_NAME: z.string().optional(),
   CLOUDINARY_API_KEY: z.string().optional(),
@@ -190,6 +195,7 @@ export const {
   EMAIL_PASS,
   EMAIL_FROM_NAME,
   FRONTEND_URL,
+  BACKEND_URL,
   CLOUDINARY_CLOUD_NAME,
   CLOUDINARY_API_KEY,
   CLOUDINARY_API_SECRET,
