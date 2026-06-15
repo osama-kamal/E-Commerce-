@@ -4,6 +4,7 @@ import { User } from '../auth/user.model';
 import { createError } from '../../middleware/errorHandler';
 import { IShippingAddress } from './order.model';
 import { emailService } from '../../services/email.service';
+import { logger } from '../../utils/logger';
 import * as orderRepo from './order.repository';
 import * as productRepo from '../products/product.repository';
 import * as cartRepo from '../cart/cart.repository';
@@ -210,7 +211,7 @@ export async function placeOrder(
     if (!isTransactionUnsupported) throw txErr;
 
     // ── Non-transactional fallback (Atlas M0 / standalone MongoDB) ───────────
-    console.warn('[placeOrder] Transactions not supported — using non-transactional fallback');
+    logger.warn('[placeOrder] Transactions not supported — using non-transactional fallback');
 
     const { cart, orderItems, totalAmount } = await validateAndBuild();
     const finalAmount = Math.max(0, Math.round((totalAmount - discountAmount) * 100) / 100);

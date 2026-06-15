@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import * as storeService from './store.service';
 import { sendSuccess } from '../../utils/response';
 import { createError } from '../../middleware/errorHandler';
+import { logger } from '../../utils/logger';
 
 // ── Owner: create a store ─────────────────────────────────────────────────────
 
@@ -243,17 +244,6 @@ export async function requestUpgrade(req: Request, res: Response, next: NextFunc
     const role = req.user!.role;
     const jwtStoreId = (req.user as any).storeId?.toString() ?? '';
 
-    // Diagnostic log — remove once confirmed working
-    console.log('[UPGRADE REQUEST DEBUG]', {
-      urlStoreId: storeId,
-      jwtUserId: ownerId,
-      jwtStoreId,
-      jwtRole: role,
-      dbOwnerId: store.ownerId?.toString(),
-      ownerMatch: store.ownerId?.toString() === ownerId,
-      storeIdMatch: jwtStoreId === storeId,
-    });
-
     // Allow if: authenticated store admin OR the storeId in the JWT matches
     // the store being requested OR super-admin.
     // We intentionally trust authenticated admins here — the endpoint is already
@@ -273,14 +263,11 @@ export async function requestUpgrade(req: Request, res: Response, next: NextFunc
     const owner = await User.findById(store.ownerId).lean();
     const ownerEmail = owner?.email ?? 'unknown';
 
-    // Log the request regardless of email success
-    console.log(`[UPGRADE REQUEST] Store: ${store.name} (${storeId}) | Owner: ${ownerEmail} | Plan: ${requestedPlan}`);
-
     // Try to send email — never fail the request if email fails
     try {
       await storeService.requestPlanUpgrade(storeId, requestedPlan as any, ownerEmail, store.name);
     } catch (emailErr) {
-      console.warn('[UPGRADE REQUEST] Email notification failed (request still recorded):', emailErr);
+      logger.warn('[UPGRADE REQUEST] Email notification failed (request still recorded)', { error: emailErr });
     }
 
     sendSuccess(res, {

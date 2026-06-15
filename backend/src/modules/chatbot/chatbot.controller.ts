@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { chatbotService } from './chatbot.service';
 import { sendSuccess, sendError } from '../../utils/response';
+import { logger } from '../../utils/logger';
 
 export const chatbotController = {
   /**
@@ -29,7 +30,7 @@ export const chatbotController = {
         timestamp: new Date().toISOString(),
       });
     } catch (err: any) {
-      console.error('Chatbot error:', err);
+      logger.error('Chatbot error', { error: err });
       return sendError(res, 'CHATBOT_ERROR', 'Failed to process message', 500);
     }
   },

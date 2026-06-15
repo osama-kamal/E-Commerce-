@@ -2,6 +2,7 @@ import { Types } from 'mongoose';
 import { Product } from '../products/product.model';
 import { Order } from '../orders/order.model';
 import { OPENAI_API_KEY } from '../../config';
+import { logger } from '../../utils/logger';
 
 // ── Tool definitions sent to OpenAI ──────────────────────────────────────────
 
@@ -182,11 +183,10 @@ export const chatbotService = {
     const lowerMessage = message.toLowerCase().trim();
 
     if (OPENAI_API_KEY && (OPENAI_API_KEY.startsWith('sk-') || OPENAI_API_KEY.startsWith('sk-proj-'))) {
-      console.log('[Chatbot] OpenAI key found, attempting AI response...');
       return await this.chatWithOpenAI(message, userId, storeId);
     }
 
-    console.warn('[Chatbot] No valid OpenAI key — using rule-based fallback. Key present:', !!OPENAI_API_KEY);
+    logger.warn('[Chatbot] No valid OpenAI key — using rule-based fallback', { keyPresent: !!OPENAI_API_KEY });
     return await this.ruleBasedChat(lowerMessage, userId, storeId);
   },
 
@@ -246,7 +246,7 @@ Guidelines:
           toolArgs = {};
         }
 
-        console.log(`[Chatbot] Calling tool: ${toolCall.function.name}`, toolArgs);
+        logger.info('[Chatbot] Calling tool', { tool: toolCall.function.name, args: toolArgs });
         const toolResult = await executeTool(toolCall.function.name, toolArgs, userId, storeId);
 
         toolCallMessages.push({
@@ -261,7 +261,7 @@ Guidelines:
       return finalResponse.choices[0].message.content ?? '😔 I couldn\'t generate a response. Please try again.';
 
     } catch (error) {
-      console.error('[Chatbot] OpenAI API error — falling back to rule-based:', error);
+      logger.error('[Chatbot] OpenAI API error — falling back to rule-based', { error });
       return await this.ruleBasedChat(message.toLowerCase(), userId, storeId);
     }
   },
@@ -293,7 +293,7 @@ Guidelines:
 
     if (!response.ok) {
       const errorBody = await response.text();
-      console.error('[Chatbot] OpenAI HTTP error:', response.status, errorBody);
+      logger.error('[Chatbot] OpenAI HTTP error', { status: response.status });
       throw new Error(`OpenAI API error: ${response.status} ${errorBody}`);
     }
 
