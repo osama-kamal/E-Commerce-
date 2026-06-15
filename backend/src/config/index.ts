@@ -105,6 +105,14 @@ const envSchema = z.object({
   EMAIL_PASS: z.string().optional(),
   EMAIL_FROM_NAME: z.string().default('Ecommerce Store'),
 
+  // ── Resend (replaces Brevo) — transactional email via resend.com ─────────
+  // Obtain API key from: https://resend.com → API Keys
+  // EMAIL_FROM_ADDRESS must be a verified sender domain in your Resend account.
+  RESEND_API_KEY: z.string().optional(),
+  EMAIL_FROM_ADDRESS: z.string().optional(),
+  // Optional — BCC every order confirmation to this address for admin visibility.
+  ADMIN_BCC_EMAIL: z.string().optional(),
+
   // ── Frontend ────────────────────────────────────────────────────────────────
   FRONTEND_URL: z.string().default('http://localhost:5173'),
 
@@ -158,7 +166,8 @@ const optionalWarnings: Array<{ key: keyof typeof config; feature: string }> = [
   { key: 'PAYMOB_SECRET_KEY',       feature: 'Paymob payments (MENA)' },
   { key: 'PAYMOB_HMAC_SECRET',      feature: 'Paymob webhook verification' },
   { key: 'OPENAI_API_KEY',          feature: 'AI chatbot / recommendations' },
-  { key: 'EMAIL_USER',             feature: 'Transactional email' },
+  { key: 'EMAIL_USER',             feature: 'Transactional email (SMTP fallback)' },
+  { key: 'RESEND_API_KEY',         feature: 'Transactional email (Resend)' },
   { key: 'CLOUDINARY_CLOUD_NAME',  feature: 'Cloudinary image uploads' },
 ];
 
@@ -194,6 +203,9 @@ export const {
   EMAIL_USER,
   EMAIL_PASS,
   EMAIL_FROM_NAME,
+  RESEND_API_KEY,
+  EMAIL_FROM_ADDRESS,
+  ADMIN_BCC_EMAIL,
   FRONTEND_URL,
   BACKEND_URL,
   CLOUDINARY_CLOUD_NAME,

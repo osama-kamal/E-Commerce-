@@ -1,4 +1,4 @@
-import axios from 'axios';
+import { Resend } from 'resend';
 import { logger } from '../utils/logger';
 import {
   welcomeTemplate,
@@ -14,52 +14,55 @@ import {
 import { Store } from '../modules/stores/store.model';
 
 const PLATFORM_NAME = 'Ecommerce Store';
-const BREVO_API_URL = 'https://api.brevo.com/v3/smtp/email';
 
 // ── EmailService ──────────────────────────────────────────────────────────────
-// Uses Brevo HTTP API (not SMTP) — bypasses Railway's SMTP port blocking.
-// Supports sending to any email address on the free tier (300 emails/day).
+// Uses the Resend SDK for transactional email delivery.
+//
+// Required env vars:
+//   RESEND_API_KEY   — from resend.com → API Keys
+//   EMAIL_FROM_ADDRESS — verified sender address, e.g. orders@yourdomain.com
+//   EMAIL_FROM_NAME  — display name, e.g. "My Store"
+//   ADMIN_BCC_EMAIL  — (optional) gets a BCC copy of every order confirmation
 
 class EmailService {
   private enabled: boolean = false;
-  private apiKey: string = '';
+  private client: Resend | null = null;
   private fromEmail: string = '';
   private fromName: string = '';
   private frontendUrl: string = '';
+  /** BCC address for admin order notifications (optional) */
+  private adminBccEmail: string | undefined;
 
   constructor() {
-    const apiKey = process.env.BREVO_API_KEY;
-    this.fromEmail = process.env.EMAIL_FROM_ADDRESS ?? 'osamahamroush9@gmail.com';
-    this.fromName = process.env.EMAIL_FROM_NAME ?? 'Ecommerce Store';
-    this.frontendUrl = process.env.FRONTEND_URL ?? 'http://localhost:5173';
+    const apiKey = process.env.RESEND_API_KEY;
+    this.fromEmail = process.env.EMAIL_FROM_ADDRESS ?? 'onboarding@resend.dev';
+    this.fromName  = process.env.EMAIL_FROM_NAME    ?? PLATFORM_NAME;
+    this.frontendUrl = process.env.FRONTEND_URL     ?? 'http://localhost:5173';
+    this.adminBccEmail = process.env.ADMIN_BCC_EMAIL ?? undefined;
 
     if (!apiKey) {
-      logger.warn('BREVO_API_KEY not set — email sending is disabled');
+      logger.warn('RESEND_API_KEY not set — email sending is disabled');
       this.enabled = false;
       return;
     }
 
-    this.apiKey = apiKey;
+    this.client  = new Resend(apiKey);
     this.enabled = true;
 
-    // Confirm key is loaded without exposing the value
-    console.log(
-      `[EmailService] Brevo key loaded: ${!!apiKey} | prefix: ${apiKey.slice(0, 10)}...`
-    );
-
-    logger.info('Brevo HTTP API email service initialised', {
+    logger.info('Resend email service initialised', {
       from: `${this.fromName} <${this.fromEmail}>`,
+      adminBcc: this.adminBccEmail ?? '(none)',
       frontendUrl: this.frontendUrl,
     });
   }
 
-  // No-op kept for interface compatibility
+  // No-op kept for interface compatibility (server.ts calls this at startup)
   async verifyConnection(): Promise<void> {
     if (!this.enabled) {
       logger.warn('Email service disabled — skipping verification');
       return;
     }
-    logger.info('✅ Brevo HTTP API email service ready');
+    logger.info('✅ Resend email service ready');
   }
 
   // ── Core send ─────────────────────────────────────────────────────────────
@@ -69,8 +72,9 @@ class EmailService {
     subject: string;
     html: string;
     text: string;
+    bcc?: string[];
   }): Promise<void> {
-    if (!this.enabled) {
+    if (!this.enabled || !this.client) {
       logger.warn('Email service disabled — skipping send', {
         to: options.to,
         subject: options.subject,
@@ -79,37 +83,34 @@ class EmailService {
     }
 
     try {
-      await axios.post(
-        BREVO_API_URL,
-        {
-          sender: { name: this.fromName, email: this.fromEmail },
-          to: [{ email: options.to }],
-          subject: options.subject,
-          htmlContent: options.html,
-          textContent: options.text,
-        },
-        {
-          headers: {
-            'api-key': this.apiKey,
-            'Content-Type': 'application/json',
-            Accept: 'application/json',
-          },
-          timeout: 15000,
-        }
-      );
-
-      logger.info('Email sent via Brevo API', {
-        to: options.to,
+      const { error } = await this.client.emails.send({
+        from: `${this.fromName} <${this.fromEmail}>`,
+        to:   [options.to],
         subject: options.subject,
+        html:    options.html,
+        text:    options.text,
+        ...(options.bcc?.length ? { bcc: options.bcc } : {}),
       });
-    } catch (err: unknown) {
-      const axiosError = err as { response?: { data?: unknown; status?: number }; message?: string };
-      logger.error('Failed to send email via Brevo API', {
+
+      if (error) {
+        logger.error('Resend API returned an error', {
+          to: options.to,
+          subject: options.subject,
+          error,
+        });
+        throw new Error(`Resend error: ${error.message}`);
+      }
+
+      logger.info('Email sent via Resend', {
         to: options.to,
         subject: options.subject,
-        status: axiosError?.response?.status,
-        data: axiosError?.response?.data,
-        message: axiosError?.message,
+        bcc: options.bcc ?? [],
+      });
+    } catch (err) {
+      logger.error('Failed to send email via Resend', {
+        to: options.to,
+        subject: options.subject,
+        error: err,
       });
       throw err;
     }
@@ -132,10 +133,10 @@ class EmailService {
         return DEFAULT_BRANDING;
       }
       return {
-        storeName: store.name,
-        logoUrl: store.settings?.logoUrl || undefined,
-        contactEmail: store.settings?.contactEmail || undefined,
-        contactPhone: store.settings?.contactPhone || undefined,
+        storeName:    store.name,
+        logoUrl:      store.settings?.logoUrl       || undefined,
+        contactEmail: store.settings?.contactEmail  || undefined,
+        contactPhone: store.settings?.contactPhone  || undefined,
       };
     } catch (err) {
       logger.error('fetchStoreBranding: DB query failed — using default branding', { storeId, error: err });
@@ -170,7 +171,18 @@ class EmailService {
     try {
       const branding = await this.fetchStoreBranding(storeId);
       const { html, text } = orderConfirmationTemplate({ ...order, frontendUrl: this.frontendUrl }, branding);
-      await this.sendEmail({ to, subject: `Order Confirmed — #${order.orderId}`, html, text });
+
+      // BCC the admin so they're notified of every new order.
+      // The customer (to) does NOT see the BCC address.
+      const bcc = this.adminBccEmail ? [this.adminBccEmail] : undefined;
+
+      await this.sendEmail({
+        to,
+        subject: `Order Confirmed — #${order.orderId}`,
+        html,
+        text,
+        ...(bcc ? { bcc } : {}),
+      });
     } catch (err) {
       logger.error('Failed to send order confirmation email', { to, orderId: order.orderId, error: err });
     }
@@ -180,7 +192,12 @@ class EmailService {
     try {
       const branding = await this.fetchStoreBranding(storeId);
       const { html, text } = orderStatusTemplate({ ...order, frontendUrl: this.frontendUrl }, branding);
-      await this.sendEmail({ to, subject: `Order #${order.orderId} — Status Update: ${order.status}`, html, text });
+      await this.sendEmail({
+        to,
+        subject: `Order #${order.orderId} — Status Update: ${order.status}`,
+        html,
+        text,
+      });
     } catch (err) {
       logger.error('Failed to send order status email', { to, orderId: order.orderId, error: err });
     }
@@ -190,7 +207,12 @@ class EmailService {
     try {
       const branding = await this.fetchStoreBranding(storeId);
       const { html, text } = paymentReceiptTemplate({ ...payment, frontendUrl: this.frontendUrl }, branding);
-      await this.sendEmail({ to, subject: `Payment Receipt — Order #${payment.orderId}`, html, text });
+      await this.sendEmail({
+        to,
+        subject: `Payment Receipt — Order #${payment.orderId}`,
+        html,
+        text,
+      });
     } catch (err) {
       logger.error('Failed to send payment receipt email', { to, orderId: payment.orderId, error: err });
     }
