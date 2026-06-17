@@ -244,15 +244,27 @@ export async function requestUpgrade(req: Request, res: Response, next: NextFunc
     const role = req.user!.role;
     const jwtStoreId = (req.user as any).storeId?.toString() ?? '';
 
-    // Allow if: authenticated store admin OR the storeId in the JWT matches
-    // the store being requested OR super-admin.
-    // We intentionally trust authenticated admins here — the endpoint is already
-    // protected by authenticateJWT, and upgrade-request is a low-risk operation
-    // (it only flags the store as pending, no plan is activated automatically).
-    const isAllowed =
+    // Allow if: super-admin OR JWT storeId matches URL param OR DB ownerId matches user.
+    // Also do a direct DB ownership check as a safety net — covers cases where the
+    // JWT storeId is stale (e.g. issued before a store switch) or the ownerId in the
+    // DB was set to a placeholder during onboarding.
+    const isOwnerByJwt =
       role === 'super-admin' ||
       jwtStoreId === storeId ||
       store.ownerId?.toString() === ownerId;
+
+    let isAllowed = isOwnerByJwt;
+
+    if (!isAllowed) {
+      // Fallback: check DB directly — handles onboarding ownerId mismatches
+      const { Store: StoreModel } = await import('../stores/store.model');
+      const { Types: MongoTypes } = await import('mongoose');
+      const ownsStore = await StoreModel.exists({
+        _id: new MongoTypes.ObjectId(storeId),
+        ownerId: new MongoTypes.ObjectId(ownerId),
+      });
+      isAllowed = !!ownsStore;
+    }
 
     if (!isAllowed) {
       return next(createError('Access denied', 403, 'FORBIDDEN'));
