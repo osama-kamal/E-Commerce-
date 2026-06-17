@@ -127,9 +127,10 @@ export async function getStoreToken(req: Request, res: Response, next: NextFunct
   try {
     const storeId = req.params.id;
     const ownerId = req.user!.userId.toString();
+    const callerRole = req.user!.role;
 
     const store = await storeService.getStoreById(storeId);
-    const isSuperAdmin = req.user!.role === 'super-admin';
+    const isSuperAdmin = callerRole === 'super-admin';
 
     if (store.ownerId.toString() !== ownerId && !isSuperAdmin) {
       return next(createError('Access denied', 403, 'FORBIDDEN'));
@@ -137,9 +138,17 @@ export async function getStoreToken(req: Request, res: Response, next: NextFunct
 
     const { signAccessToken } = await import('../../utils/jwt');
     const { Types } = await import('mongoose');
+
+    // When a super-admin gets a token for another store they don't own,
+    // issue it with role 'admin' so the frontend correctly enters impersonation
+    // mode (store admin nav, impersonation banner) rather than staying in
+    // platform-admin mode. For the super-admin's own store, preserve their role.
+    const isOwnStore = store.ownerId.toString() === ownerId;
+    const tokenRole = (isSuperAdmin && !isOwnStore) ? 'admin' : callerRole;
+
     const accessToken = signAccessToken(
       new Types.ObjectId(ownerId),
-      req.user!.role,
+      tokenRole as 'super-admin' | 'admin' | 'customer',
       storeId
     );
 
