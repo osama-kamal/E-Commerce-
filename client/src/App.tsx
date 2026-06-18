@@ -111,10 +111,28 @@ function Layout({ children }: { children: React.ReactNode }) {
   
   useEffect(() => {
     const token = localStorage.getItem('accessToken');
-    if (token) {
-      wishlistApi.get()
-        .then(res => store.dispatch(setWishlist(res.data.data.products)))
-        .catch(() => { /* not logged in yet */ });
+    if (!token) return;
+
+    // Defer the wishlist fetch until after the browser has finished painting
+    // the initial frame. This removes the API round-trip from the critical
+    // path, reducing Total Blocking Time measured by Lighthouse.
+    // requestIdleCallback is used when available (Chrome/Edge); setTimeout(200)
+    // is the fallback for Safari and Firefox.
+    let handle: number;
+    if (typeof requestIdleCallback !== 'undefined') {
+      handle = requestIdleCallback(() => {
+        wishlistApi.get()
+          .then(res => store.dispatch(setWishlist(res.data.data.products)))
+          .catch(() => { /* not logged in yet */ });
+      });
+      return () => cancelIdleCallback(handle);
+    } else {
+      handle = window.setTimeout(() => {
+        wishlistApi.get()
+          .then(res => store.dispatch(setWishlist(res.data.data.products)))
+          .catch(() => { /* not logged in yet */ });
+      }, 200);
+      return () => clearTimeout(handle);
     }
   }, []);
 

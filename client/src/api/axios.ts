@@ -40,14 +40,16 @@ api.interceptors.request.use((config) => {
     const envStoreId = import.meta.env.VITE_STORE_ID as string | undefined;
     const storeSlug = import.meta.env.VITE_STORE_SLUG as string | undefined;
 
-    const storeId = currentStoreId || envStoreId;
+    const storeId: string | undefined = currentStoreId || envStoreId;
 
     // Guard: only send X-Store-ID if it's a valid 24-char MongoDB ObjectId.
-    const isValidObjectId = (id: string | undefined | null): id is string =>
+    // Intentionally returns boolean (not a type predicate) so TypeScript does not
+    // narrow storeId to never in the else-branch, which would break .length access.
+    const isValidObjectId = (id: string | undefined | null): boolean =>
       typeof id === 'string' && /^[a-f\d]{24}$/i.test(id);
 
     if (isValidObjectId(storeId)) {
-      config.headers['X-Store-ID'] = storeId;
+      config.headers['X-Store-ID'] = storeId as string;
     } else {
       if (storeId) {
         // The ID is present but invalid — warn loudly so typos are caught immediately.

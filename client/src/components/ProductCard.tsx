@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { motion } from 'framer-motion';
 import { Product } from '../types';
 import StarRating from './StarRating';
 import QuickViewModal from './QuickViewModal';
@@ -132,10 +131,8 @@ export default function ProductCard({ product, index = 0, detailPath, loginRedir
 
   return (
     <>
-      <motion.div
-        whileHover={{ scale: 1.02 }}
-        transition={{ duration: 0.15 }}
-        className="card rounded-2xl overflow-hidden cursor-pointer shadow-sm hover:shadow-md hover:shadow-amber-100 hover:bg-amber-50/30 border border-amber-100 transition-all duration-300 group"
+      <div
+        className="card rounded-2xl overflow-hidden cursor-pointer shadow-sm hover:shadow-md hover:shadow-amber-100 hover:bg-amber-50/30 border border-amber-100 transition-all duration-300 hover:scale-[1.02] group"
       >
       <Link to={detailPath ?? `/products/${product._id}`} className="block">
         <div className="relative aspect-square bg-gray-100 dark:bg-gray-800 overflow-hidden">
@@ -349,8 +346,7 @@ export default function ProductCard({ product, index = 0, detailPath, loginRedir
           </div>
         </div>
       </Link>
-    </motion.div>
-
+    </div>
       <QuickViewModal
         product={product}
         isOpen={showQuickView}

@@ -328,7 +328,7 @@ function CheckoutForm() {
                 {/* ── Payment Method ── */}
                 <div className="border-t dark:border-gray-700 pt-4">
                   <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Payment Method</p>
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <label className={`flex items-center gap-3 p-3 rounded-xl border-2 cursor-pointer transition-colors ${
                       paymentMethod === 'online' ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/20' : 'border-gray-200 dark:border-gray-700 hover:border-gray-300'
                     }`}>
@@ -358,7 +358,7 @@ function CheckoutForm() {
                   {paymentMethod === 'online' && (
                     <div className="mt-3">
                       <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-2 uppercase tracking-wide">Payment Gateway</p>
-                      <div className="grid grid-cols-2 gap-2">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                         <label className={`flex items-center gap-2 p-2.5 rounded-lg border cursor-pointer transition-colors text-sm ${
                           onlineProvider === 'stripe' ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400' : 'border-gray-200 dark:border-gray-700 text-gray-600 hover:border-gray-300'
                         }`}>

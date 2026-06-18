@@ -106,12 +106,13 @@ export default function CartPage() {
                   <p className="text-sm text-gray-500">${item.currentPrice.toFixed(2)} each</p>
                 </div>
 
-                {/* Quantity controls — optimistic: UI updates instantly */}
+                {/* Quantity controls — 44px min touch targets per HIG */}
                 <div className="flex items-center border border-gray-300 dark:border-gray-600 rounded-lg">
                   <button
                     onClick={() => updateItem.mutate({ productId: item.productId, quantity: item.quantity - 1 })}
                     disabled={updateItem.isPending}
-                    className="px-2 py-1 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50"
+                    aria-label="Decrease quantity"
+                    className="min-w-[44px] min-h-[44px] flex items-center justify-center px-3 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-l-lg disabled:opacity-50 transition-colors"
                   >
                     −
                   </button>
@@ -121,7 +122,8 @@ export default function CartPage() {
                   <button
                     onClick={() => updateItem.mutate({ productId: item.productId, quantity: item.quantity + 1 })}
                     disabled={updateItem.isPending}
-                    className="px-2 py-1 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50"
+                    aria-label="Increase quantity"
+                    className="min-w-[44px] min-h-[44px] flex items-center justify-center px-3 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-r-lg disabled:opacity-50 transition-colors"
                   >
                     +
                   </button>

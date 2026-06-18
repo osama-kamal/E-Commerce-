@@ -18,7 +18,7 @@ export default function ComparisonBar() {
         exit={{ y: 100, opacity: 0 }}
         className="fixed bottom-0 left-0 right-0 bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 shadow-2xl z-50"
       >
-        <div className="container mx-auto px-4 py-4">
+        <div className="container mx-auto px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
           <div className="flex items-center justify-between gap-4">
             <div className="flex items-center gap-3">
               <span className="text-sm font-medium text-gray-700 dark:text-gray-300">

@@ -1,13 +1,20 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
+// ── Slide data ─────────────────────────────────────────────────────────────────
+// fm=webp appended to every URL — Unsplash serves WebP natively when requested.
+// WebP is ~30% smaller than JPEG at equivalent quality, directly reducing LCP.
 const slides = [
-  { id: 1, title: '🛍️ Shop Now',        subtitle: 'Discover Our Amazing Collection',    image: 'https://images.unsplash.com/photo-1595665593673-bf1ad72905c0?q=80&w=1328&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D', cta: 'Shop Now',  alt: 'A bright, well-stocked retail store interior' },
-  { id: 2, title: '🔥 Hot Deals',        subtitle: 'Up to 50% Off on Selected Items',     image: 'https://images.unsplash.com/photo-1558769132-cb1aea458c5e?q=80&w=1074&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D', cta: 'See Deals', alt: 'Colorful shopping bags and sale tags' },
-  { id: 3, title: '👗 Fashion Week',     subtitle: 'Trending Styles for Every Occasion',  image: 'https://images.unsplash.com/photo-1705675451868-014a161e591b?q=80&w=735&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D', cta: 'Explore',   alt: 'Fashion clothing displayed on hangers' },
-  { id: 4, title: '💻 Tech Essentials',  subtitle: 'Latest Gadgets and Electronics',      image: 'https://images.unsplash.com/photo-1657812159103-1b2a52a7f5e8?w=600&auto=format&fit=crop&q=60&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxzZWFyY2h8NDN8fGUlMjBjb21tZXJjZXxlbnwwfHwwfHx8MA%3D%3D', cta: 'Shop Tech', alt: 'Laptop and modern tech gadgets on a desk' },
-  { id: 5, title: '🎁 Special Offers',   subtitle: 'Exclusive Deals Just for You',        image: 'https://images.unsplash.com/photo-1763872038252-e6c4e0a11067?w=600&auto=format&fit=crop&q=60&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxzZWFyY2h8OTR8fGUlMjBjb21tZXJjZXxlbnwwfHwwfHx8MA%3D%3D', cta: 'Claim Now', alt: 'Gift boxes wrapped with colorful ribbons' },
+  { id: 1, title: '🛍️ Shop Now',        subtitle: 'Discover Our Amazing Collection',    image: 'https://images.unsplash.com/photo-1595665593673-bf1ad72905c0?q=80&w=1328&auto=format&fit=crop&fm=webp&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D', cta: 'Shop Now',  alt: 'A bright, well-stocked retail store interior' },
+  { id: 2, title: '🔥 Hot Deals',        subtitle: 'Up to 50% Off on Selected Items',     image: 'https://images.unsplash.com/photo-1558769132-cb1aea458c5e?q=80&w=1074&auto=format&fit=crop&fm=webp&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D', cta: 'See Deals', alt: 'Colorful shopping bags and sale tags' },
+  { id: 3, title: '👗 Fashion Week',     subtitle: 'Trending Styles for Every Occasion',  image: 'https://images.unsplash.com/photo-1705675451868-014a161e591b?q=80&w=735&auto=format&fit=crop&fm=webp&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D', cta: 'Explore',   alt: 'Fashion clothing displayed on hangers' },
+  { id: 4, title: '💻 Tech Essentials',  subtitle: 'Latest Gadgets and Electronics',      image: 'https://images.unsplash.com/photo-1657812159103-1b2a52a7f5e8?w=600&auto=format&fit=crop&fm=webp&q=60&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxzZWFyY2h8NDN8fGUlMjBjb21tZXJjZXxlbnwwfHwwfHx8MA%3D%3D', cta: 'Shop Tech', alt: 'Laptop and modern tech gadgets on a desk' },
+  { id: 5, title: '🎁 Special Offers',   subtitle: 'Exclusive Deals Just for You',        image: 'https://images.unsplash.com/photo-1763872038252-e6c4e0a11067?w=600&auto=format&fit=crop&fm=webp&q=60&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxzZWFyY2h8OTR8fGUlMjBjb21tZXJjZXxlbnwwfHwwfHx8MA%3D%3D', cta: 'Claim Now', alt: 'Gift boxes wrapped with colorful ribbons' },
 ];
+
+// How many slides on either side of the active slide to keep mounted.
+// 1 means: render active - 1, active, active + 1. Others are unmounted (no img fetch).
+const RENDER_WINDOW = 1;
 
 export default function HeroCarousel() {
   const [, setSearchParams] = useSearchParams();
@@ -43,12 +50,26 @@ export default function HeroCarousel() {
         className="flex h-full transition-transform duration-[600ms] ease-in-out"
         style={{ width: `${slides.length * 100}%`, transform: `translateX(-${(current * 100) / slides.length}%)` }}
       >
-        {slides.map((sl, i) => (
+        {slides.map((sl, i) => {
+          // Only mount slides within the render window around the active slide.
+          // Slides outside this range are replaced with a lightweight placeholder
+          // div that holds the same dimensions, keeping the CSS transform math
+          // correct without triggering any image fetches.
+          const distance = Math.min(
+            Math.abs(i - current),
+            slides.length - Math.abs(i - current) // wrap-around distance
+          );
+          const isMounted = distance <= RENDER_WINDOW;
+
+          return (
           <div
             key={sl.id}
             className="relative h-full flex-shrink-0"
             style={{ width: `${100 / slides.length}%` }}
+            aria-hidden={i !== current}
           >
+            {isMounted ? (
+              <>
             {/* fetchpriority (lowercase) is the correct HTML attribute name.
                 React 18 types only expose camelCase fetchPriority which warns
                 at runtime, so we spread it as an untyped extra prop instead. */}
@@ -77,8 +98,16 @@ export default function HeroCarousel() {
                 </button>
               </div>
             </div>
+              </>
+            ) : (
+              // Unmounted placeholder — no img tag, no network request.
+              // bg-gray-900 provides a neutral dark colour that matches the
+              // gradient overlay so any brief flash during slide transition is invisible.
+              <div className="absolute inset-0 bg-gray-900" aria-hidden="true" />
+            )}
           </div>
-        ))}
+          );
+        })}
       </div>
 
       {/* Prev / Next */}
