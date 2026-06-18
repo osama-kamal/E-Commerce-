@@ -77,17 +77,21 @@ const storeSchema = new Schema<IStore>(
     },
     subscriptionEndsAt: { type: Date, default: null },
     // ── Stripe billing fields ────────────────────────────────────────────────
+    // IMPORTANT: default must be `undefined` (not `null`) so sparse indexes
+    // skip documents that have no Stripe customer/subscription yet.
+    // `null` is a real BSON value — sparse indexes still index it and will
+    // throw E11000 on the second store created without a Stripe customer.
     stripeCustomerId: {
       type: String,
       sparse: true,
       unique: true,
-      default: null,
+      default: undefined,
     },
     stripeSubscriptionId: {
       type: String,
       sparse: true,
       unique: true,
-      default: null,
+      default: undefined,
     },
     subscriptionDunningStartedAt: { type: Date, default: null },
     suspensionScheduled: { type: Boolean, default: false },
