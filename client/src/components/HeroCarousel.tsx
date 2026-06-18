@@ -2,11 +2,11 @@ import { useState, useEffect, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
 const slides = [
-  { id: 1, title: '🛍️ Shop Now',        subtitle: 'Discover Our Amazing Collection',    image: 'https://images.unsplash.com/photo-1441986300917-64674bd600d8?w=1200&q=80', cta: 'Shop Now',  alt: 'A bright, well-stocked retail store interior' },
-  { id: 2, title: '🔥 Hot Deals',        subtitle: 'Up to 50% Off on Selected Items',     image: 'https://images.unsplash.com/photo-1607082348824-0a96f2a4b9da?w=1200&q=80', cta: 'See Deals', alt: 'Colorful shopping bags and sale tags' },
-  { id: 3, title: '👗 Fashion Week',     subtitle: 'Trending Styles for Every Occasion',  image: 'https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=1200&q=80', cta: 'Explore',   alt: 'Fashion clothing displayed on hangers' },
-  { id: 4, title: '💻 Tech Essentials',  subtitle: 'Latest Gadgets and Electronics',      image: 'https://images.unsplash.com/photo-1498049794561-7780e7231661?w=1200&q=80', cta: 'Shop Tech', alt: 'Laptop and modern tech gadgets on a desk' },
-  { id: 5, title: '🎁 Special Offers',   subtitle: 'Exclusive Deals Just for You',        image: 'https://images.unsplash.com/photo-1607082349566-187342175e2f?w=1200&q=80', cta: 'Claim Now', alt: 'Gift boxes wrapped with colorful ribbons' },
+  { id: 1, title: '🛍️ Shop Now',        subtitle: 'Discover Our Amazing Collection',    image: 'https://images.unsplash.com/photo-1595665593673-bf1ad72905c0?q=80&w=1328&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D', cta: 'Shop Now',  alt: 'A bright, well-stocked retail store interior' },
+  { id: 2, title: '🔥 Hot Deals',        subtitle: 'Up to 50% Off on Selected Items',     image: 'https://images.unsplash.com/photo-1558769132-cb1aea458c5e?q=80&w=1074&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D', cta: 'See Deals', alt: 'Colorful shopping bags and sale tags' },
+  { id: 3, title: '👗 Fashion Week',     subtitle: 'Trending Styles for Every Occasion',  image: 'https://images.unsplash.com/photo-1705675451868-014a161e591b?q=80&w=735&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D', cta: 'Explore',   alt: 'Fashion clothing displayed on hangers' },
+  { id: 4, title: '💻 Tech Essentials',  subtitle: 'Latest Gadgets and Electronics',      image: 'https://images.unsplash.com/photo-1657812159103-1b2a52a7f5e8?w=600&auto=format&fit=crop&q=60&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxzZWFyY2h8NDN8fGUlMjBjb21tZXJjZXxlbnwwfHwwfHx8MA%3D%3D', cta: 'Shop Tech', alt: 'Laptop and modern tech gadgets on a desk' },
+  { id: 5, title: '🎁 Special Offers',   subtitle: 'Exclusive Deals Just for You',        image: 'https://images.unsplash.com/photo-1763872038252-e6c4e0a11067?w=600&auto=format&fit=crop&q=60&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxzZWFyY2h8OTR8fGUlMjBjb21tZXJjZXxlbnwwfHwwfHx8MA%3D%3D', cta: 'Claim Now', alt: 'Gift boxes wrapped with colorful ribbons' },
 ];
 
 export default function HeroCarousel() {
