@@ -27,8 +27,8 @@ router.post('/register', authLimiter, validate(registerSchema), registerHandler)
 // POST /api/v1/auth/login — brute-force limited
 router.post('/login', authLimiter, validate(loginSchema), loginHandler);
 
-// POST /api/v1/auth/refresh — cookie-based, no body needed
-router.post('/refresh', validate(refreshSchema), refreshHandler);
+// POST /api/v1/auth/refresh — cookie-based, rate-limited
+router.post('/refresh', authLimiter, validate(refreshSchema), refreshHandler);
 
 // POST /api/v1/auth/logout  (requires valid access token)
 router.post('/logout', authenticateJWT, validate(logoutSchema), logoutHandler);

@@ -76,11 +76,12 @@ export async function getInventoryReport(params: InventoryReportParams): Promise
   ];
 
   if (search?.trim()) {
+    const safeSearch = search.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     pipeline.push({
       $match: {
         $or: [
-          { name: { $regex: search.trim(), $options: 'i' } },
-          { 'category.name': { $regex: search.trim(), $options: 'i' } },
+          { name: { $regex: safeSearch, $options: 'i' } },
+          { 'category.name': { $regex: safeSearch, $options: 'i' } },
         ],
       },
     });
@@ -134,8 +135,9 @@ export async function getSalesReport(params: SalesReportParams): Promise<SalesRe
   ];
 
   if (search?.trim()) {
+    const safeSearch = search.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const searchConditions: any[] = [
-      { 'user.email': { $regex: search.trim(), $options: 'i' } },
+      { 'user.email': { $regex: safeSearch, $options: 'i' } },
     ];
     if (Types.ObjectId.isValid(search.trim())) {
       searchConditions.push({ _id: new Types.ObjectId(search.trim()) });
