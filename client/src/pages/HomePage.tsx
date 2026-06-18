@@ -173,10 +173,10 @@ export default function HomePage() {
           {/* Mobile Filters Button */}
           <button
             onClick={() => setShowMobileFilters(true)}
-            className="lg:hidden fixed bottom-20 right-4 z-40 bg-primary-600 text-white p-4 rounded-full shadow-2xl hover:bg-primary-700 transition-all"
+            className="lg:hidden fixed bottom-20 left-4 z-40 bg-primary-600 text-white p-3 md:p-4 rounded-full shadow-2xl hover:bg-primary-700 transition-all"
             aria-label="Open filters"
           >
-            <span className="text-2xl">⚙️</span>
+            <span className="text-xl md:text-2xl">⚙️</span>
           </button>
 
           {/* Mobile Filters Modal */}

@@ -287,7 +287,7 @@ function CheckoutForm() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
+    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-amber-50 dark:bg-gray-950">
       {paymobIframeUrl && (
         <PaymobIframeModal
           iframeUrl={paymobIframeUrl}

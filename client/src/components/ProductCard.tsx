@@ -132,9 +132,9 @@ export default function ProductCard({ product, index = 0, detailPath, loginRedir
   return (
     <>
       <div
-        className="card rounded-2xl overflow-hidden cursor-pointer shadow-sm hover:shadow-md hover:shadow-amber-100 hover:bg-amber-50/30 border border-amber-100 transition-all duration-300 hover:scale-[1.02] group"
+        className="card rounded-2xl overflow-hidden cursor-pointer shadow-sm hover:shadow-md hover:shadow-amber-100 hover:bg-amber-50/30 border border-amber-100 transition-all duration-300 hover:scale-[1.02] group flex flex-col"
       >
-      <Link to={detailPath ?? `/products/${product._id}`} className="block">
+      <Link to={detailPath ?? `/products/${product._id}`} className="flex flex-col flex-1">
         <div className="relative aspect-square bg-gray-100 dark:bg-gray-800 overflow-hidden">
           {!imgLoaded && <div className="absolute inset-0 shimmer" />}
           {image ? (
@@ -196,7 +196,7 @@ export default function ProductCard({ product, index = 0, detailPath, loginRedir
           </button>
         </div>
 
-        <div className="p-4">
+        <div className="p-4 flex flex-col flex-1">
           <h3 className="font-medium text-gray-900 dark:text-white truncate">{product.name}</h3>
           <div className="flex items-center gap-1 mt-1">
             <StarRating rating={product.averageRating} size="sm" />
@@ -245,21 +245,21 @@ export default function ProductCard({ product, index = 0, detailPath, loginRedir
             </div>
           )}
 
-          {/* Action footer — identical vertical stack for ALL cards */}
+          {/* Action footer — quantity stepper + Add to Cart, aligned consistently */}
           <div className="mt-2">
             {isOutOfStock ? (
               <div className="w-full text-center text-xs font-medium text-red-500 py-1.5 border border-red-200 dark:border-red-800 rounded-lg bg-red-50 dark:bg-red-900/20">
                 Out of Stock
               </div>
             ) : (
-              <div className="flex flex-col gap-2">
-                {/* Row 1 — Quantity selector centred on its own line */}
-                <div className="flex items-center justify-center border border-amber-200 dark:border-gray-600 rounded-lg">
+              <div className="flex items-center gap-2">
+                {/* Quantity stepper — fixed width, doesn't grow */}
+                <div className="flex items-center border border-amber-200 dark:border-gray-600 rounded-lg shrink-0 w-[88px]">
                   <button
                     onClick={(e) => { e.preventDefault(); setQty(q => Math.max(1, q - 1)); }}
                     disabled={qty <= 1}
                     aria-label="Decrease quantity"
-                    className="px-3 py-1.5 text-sm text-amber-700 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-gray-800 rounded-l-lg disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                    className="px-2 py-1.5 text-sm text-amber-700 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-gray-800 rounded-l-lg disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
                   >
                     −
                   </button>
@@ -277,26 +277,26 @@ export default function ProductCard({ product, index = 0, detailPath, loginRedir
                       const v = parseInt(e.target.value, 10);
                       if (isNaN(v) || v < 1) setQty(1);
                     }}
-                    className="w-12 py-1.5 text-sm font-semibold text-gray-900 dark:text-white text-center bg-transparent border-none outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                    className="flex-1 py-1.5 text-sm font-semibold text-gray-900 dark:text-white text-center bg-transparent border-none outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                     aria-label="Quantity"
                   />
                   <button
                     onClick={(e) => { e.preventDefault(); setQty(q => Math.min(product.stock, q + 1)); }}
                     disabled={qty >= product.stock}
                     aria-label="Increase quantity"
-                    className="px-3 py-1.5 text-sm text-amber-700 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-gray-800 rounded-r-lg disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                    className="px-2 py-1.5 text-sm text-amber-700 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-gray-800 rounded-r-lg disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
                   >
                     +
                   </button>
                 </div>
 
-                {/* Row 2 — Full-width Add to Cart button */}
+                {/* Add to Cart button — grows to fill remaining space */}
                 <button
                   onClick={handleAddToCart}
                   disabled={!isAuthenticated || isAdding || needsSize}
                   aria-disabled={needsSize}
                   title={isAdding ? 'Adding…' : needsSize ? 'Select a size first' : 'Add to Cart'}
-                  className={`w-full flex items-center justify-center gap-2 py-2 px-3 rounded-lg font-medium text-white shadow-sm transition-all disabled:cursor-not-allowed ${
+                  className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-lg font-medium text-white shadow-sm transition-all disabled:cursor-not-allowed ${
                     needsSize
                       ? 'bg-gray-400 dark:bg-gray-600 shadow-none opacity-70'
                       : 'bg-gradient-to-r from-amber-500 to-yellow-600 hover:from-amber-600 hover:to-yellow-700 shadow-amber-200 disabled:opacity-50'
@@ -304,25 +304,25 @@ export default function ProductCard({ product, index = 0, detailPath, loginRedir
                 >
                   {isAdding ? (
                     <>
-                      <svg className="w-4 h-4 animate-spin shrink-0" fill="none" viewBox="0 0 24 24">
+                      <svg className="w-3.5 h-3.5 animate-spin shrink-0" fill="none" viewBox="0 0 24 24">
                         <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                         <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
                       </svg>
-                      <span className="text-sm">Adding…</span>
+                      <span className="text-xs">Adding…</span>
                     </>
                   ) : needsSize ? (
                     <>
-                      <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" aria-hidden="true">
+                      <svg className="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" aria-hidden="true">
                         <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
                       </svg>
-                      <span className="text-sm">Select a size</span>
+                      <span className="text-xs">Pick a size</span>
                     </>
                   ) : (
                     <>
-                      <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" aria-hidden="true">
+                      <svg className="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" aria-hidden="true">
                         <path strokeLinecap="round" strokeLinejoin="round" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13l-1.5 6h13M10 19a1 1 0 100 2 1 1 0 000-2zm7 0a1 1 0 100 2 1 1 0 000-2z" />
                       </svg>
-                      <span className="text-sm">Add to Cart</span>
+                      <span className="text-xs">Add to Cart</span>
                     </>
                   )}
                 </button>
@@ -330,10 +330,8 @@ export default function ProductCard({ product, index = 0, detailPath, loginRedir
             )}
           </div>
 
-          {/* Row 3 — Compare checkbox, pinned at bottom with separator.
-               mt-4 adds breathing room between action buttons and the separator
-               for consistent vertical rhythm across all card variants. */}
-          <div className="mt-4 pt-3 border-t border-amber-100 dark:border-gray-700">
+          {/* Compare checkbox — always pinned at the very bottom of every card */}
+          <div className="mt-auto pt-3 border-t border-amber-100 dark:border-gray-700">
             <label className="flex items-center gap-2 cursor-pointer group">
               <input
                 type="checkbox"
