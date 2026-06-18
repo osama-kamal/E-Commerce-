@@ -270,7 +270,15 @@ function CheckoutForm() {
     navigate(`/orders/${orderId}?success=1`);
   };
 
-  if (!cart || cart.items.length === 0) { navigate('/cart'); return null; }
+  // Guard: redirect to cart if it becomes empty during checkout.
+  // Must be a useEffect — calling navigate() directly in the render body
+  // causes "Cannot update a component while rendering a different component".
+  const cartIsEmpty = !cart || cart.items.length === 0;
+  useEffect(() => {
+    if (cartIsEmpty) navigate('/cart');
+  }, [cartIsEmpty, navigate]);
+
+  if (cartIsEmpty) return null;
 
   const slideVariants = {
     enter:  { opacity: 0, x: 40 },
