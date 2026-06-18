@@ -5,8 +5,7 @@ import { wishlistApi } from '../api/wishlist';
 import { categoriesApi } from '../api/categories';
 import { productsApi } from '../api/products';
 import { addToWishlist, removeFromWishlist } from '../store/wishlistSlice';
-import { useAppDispatch, useAppSelector } from '../hooks/useAppDispatch';
-import { Review, Category } from '../types';
+import { useAppDispatch, useAppSelector } from '../hooks/useAppDispatch';import { Review, Category } from '../types';
 import StarRating from '../components/StarRating';
 import { ProductDetailSkeleton } from '../components/Skeleton';
 import Breadcrumbs, { Crumb } from '../components/Breadcrumbs';
@@ -40,6 +39,8 @@ export default function ProductDetailPage() {
   const isInWishlist = useAppSelector(s =>
     id ? s.wishlist.items.some(i => i._id === id) : false
   );
+  // Used to add bottom padding so the ComparisonBar never overlaps the action buttons
+  const comparisonCount = useAppSelector(s => s.comparison.products.length);
 
   // ── React Query — product data ─────────────────────────────────────────────
   const { data: product, isLoading: loading } = useProduct(id);
@@ -55,16 +56,27 @@ export default function ProductDetailPage() {
   const [qty, setQty] = useState(1);
   const [selectedSize, setSelectedSize] = useState<string | null>(null);
   const [relatedProducts, setRelatedProducts] = useState<import('../types').Product[]>([]);
-  const [imageZoom, setImageZoom] = useState(false);
+  const [lightboxOpen, setLightboxOpen] = useState(false);
   const [wishlistLoading, setWishlistLoading] = useState(false);
   const [rating, setRating] = useState(5);
   const [comment, setComment] = useState('');
   const [reviewLoading, setReviewLoading] = useState(false);
 
+  // Close lightbox on Escape key + prevent body scroll while open
+  useEffect(() => {
+    if (!lightboxOpen) return;
+    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') setLightboxOpen(false); };
+    document.addEventListener('keydown', handler);
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.removeEventListener('keydown', handler);
+      document.body.style.overflow = '';
+    };
+  }, [lightboxOpen]);
+
   // Load reviews, categories, and related products once the product is available
   useEffect(() => {
     if (!id || !product) return;
-
     reviewsApi.getForProduct(id).then(rRes => {
       const r = rRes.data.data;
       setReviews(r.reviews);
@@ -177,44 +189,107 @@ export default function ProductDetailPage() {
   const stockStatus = getStockStatus();
 
   return (
-    <div className="max-w-5xl mx-auto px-4 sm:px-6 py-8">
+    <div className={`max-w-5xl mx-auto px-4 sm:px-6 py-8 ${comparisonCount > 0 ? 'pb-28' : ''}`}>
+      {/* pb-28 (112px) ensures the ComparisonBar (~80px) never overlaps
+          the Add-to-Cart / wishlist row when products are queued for comparison. */}
       <Breadcrumbs crumbs={crumbs} />
       <div className="grid md:grid-cols-2 gap-8 mb-12">
-        {/* Images with Zoom */}
+        {/* Images — tap/click to open fullscreen lightbox */}
         <div>
-          <div 
+          <div
             className="relative aspect-square bg-gray-100 dark:bg-gray-800 rounded-xl overflow-hidden mb-3 cursor-zoom-in group"
-            onMouseEnter={() => setImageZoom(true)}
-            onMouseLeave={() => setImageZoom(false)}
+            onClick={() => product.images[selectedImage] && setLightboxOpen(true)}
+            role="button"
+            aria-label="View image fullscreen"
+            tabIndex={0}
+            onKeyDown={e => e.key === 'Enter' && product.images[selectedImage] && setLightboxOpen(true)}
           >
             {product.images[selectedImage] ? (
               <>
                 <ImageWithShimmer
                   src={product.images[selectedImage]}
                   alt={product.name}
-                  className={`w-full h-full object-cover transition-transform duration-300 ${imageZoom ? 'scale-150' : 'scale-100'}`}
+                  className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
                 />
-                {imageZoom && (
-                  <div className="absolute top-2 right-2 bg-black/50 text-white text-xs px-2 py-1 rounded">
-                    Hover to zoom
-                  </div>
-                )}
+                {/* Tap-to-zoom hint — visible on touch devices, subtle on desktop */}
+                <div className="absolute bottom-2 right-2 bg-black/50 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+                  Tap to zoom
+                </div>
               </>
             ) : (
               <div className="w-full h-full flex items-center justify-center text-gray-400 text-6xl">📦</div>
             )}
           </div>
           {product.images.length > 1 && (
-            <div className="flex gap-2 overflow-x-auto pb-1">
+            <div className="flex gap-2 overflow-x-auto pb-1 snap-x snap-mandatory">
               {product.images.map((img, i) => (
                 <button key={i} onClick={() => setSelectedImage(i)}
-                  className={`w-16 h-16 rounded-lg overflow-hidden border-2 shrink-0 transition-all ${i === selectedImage ? 'border-primary-500 scale-105' : 'border-transparent opacity-60 hover:opacity-100'}`}>
+                  className={`w-16 h-16 rounded-lg overflow-hidden border-2 shrink-0 snap-start transition-all ${i === selectedImage ? 'border-primary-500 scale-105' : 'border-transparent opacity-60 hover:opacity-100'}`}>
                   <img src={img} alt="" className="w-full h-full object-cover" />
                 </button>
               ))}
             </div>
           )}
         </div>
+
+        {/* ── Lightbox overlay ── */}
+        {lightboxOpen && product.images[selectedImage] && (
+          <div
+            className="fixed inset-0 z-[80] bg-black/90 flex items-center justify-center p-4"
+            onClick={() => setLightboxOpen(false)}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Product image fullscreen"
+          >
+            {/* Close button — always in the top-right corner */}
+            <button
+              onClick={() => setLightboxOpen(false)}
+              aria-label="Close fullscreen image"
+              className="absolute top-4 right-4 w-11 h-11 flex items-center justify-center rounded-full bg-white/20 hover:bg-white/30 text-white transition-colors"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+
+            {/* Navigate previous */}
+            {product.images.length > 1 && (
+              <button
+                onClick={e => { e.stopPropagation(); setSelectedImage(i => (i - 1 + product.images.length) % product.images.length); }}
+                aria-label="Previous image"
+                className="absolute left-4 top-1/2 -translate-y-1/2 w-11 h-11 flex items-center justify-center rounded-full bg-white/20 hover:bg-white/30 text-white text-2xl transition-colors"
+              >
+                ‹
+              </button>
+            )}
+
+            {/* Full image — click on image itself stops propagation so only backdrop closes */}
+            <img
+              src={product.images[selectedImage]}
+              alt={product.name}
+              className="max-w-full max-h-full object-contain rounded-lg"
+              onClick={e => e.stopPropagation()}
+            />
+
+            {/* Navigate next */}
+            {product.images.length > 1 && (
+              <button
+                onClick={e => { e.stopPropagation(); setSelectedImage(i => (i + 1) % product.images.length); }}
+                aria-label="Next image"
+                className="absolute right-4 top-1/2 -translate-y-1/2 w-11 h-11 flex items-center justify-center rounded-full bg-white/20 hover:bg-white/30 text-white text-2xl transition-colors"
+              >
+                ›
+              </button>
+            )}
+
+            {/* Image counter */}
+            {product.images.length > 1 && (
+              <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-black/50 text-white text-xs px-3 py-1 rounded-full">
+                {selectedImage + 1} / {product.images.length}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Info */}
         <div>
