@@ -330,8 +330,11 @@ export default function ProductCard({ product, index = 0, detailPath, loginRedir
             )}
           </div>
 
-          {/* Row 3 — Compare checkbox, pinned at bottom with separator */}
-          <div className="mt-3 pt-3 border-t border-amber-100 dark:border-gray-700">
+          {/* Row 3 — Compare checkbox, pinned at bottom with separator.
+               mt-4 (instead of mt-3) adds a touch more breathing room between
+               the action buttons and the compare row on cards without size selectors,
+               giving a consistent vertical rhythm across all card heights. */}
+          <div className="mt-4 pt-3 border-t border-amber-100 dark:border-gray-700">
             <label className="flex items-center gap-2 cursor-pointer group">
               <input
                 type="checkbox"

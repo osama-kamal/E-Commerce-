@@ -40,14 +40,18 @@ function StepIndicator({ current }: { current: Step }) {
       {STEPS.map((label, i) => (
         <div key={label} className="flex items-center">
           <div className={`flex items-center gap-2 ${i <= current ? 'text-primary-600' : 'text-gray-400'}`}>
-            <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold border-2 transition-colors ${
+            <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold border-2 transition-all ${
               i < current   ? 'bg-primary-600 border-primary-600 text-white' :
-              i === current ? 'border-primary-600 text-primary-600' :
+              i === current ? 'border-primary-600 bg-primary-50 dark:bg-primary-900/20 text-primary-700 dark:text-primary-300 ring-2 ring-primary-200 dark:ring-primary-800 ring-offset-1' :
                               'border-gray-300 text-gray-400'
             }`}>
               {i < current ? '✓' : i + 1}
             </div>
-            <span className="text-sm font-medium hidden sm:block">{label}</span>
+            <span className={`text-sm hidden sm:block transition-all ${
+              i === current ? 'font-semibold text-primary-700 dark:text-primary-300' :
+              i < current   ? 'font-medium text-primary-600' :
+                              'font-normal text-gray-400'
+            }`}>{label}</span>
           </div>
           {i < STEPS.length - 1 && (
             <div className={`w-12 sm:w-20 h-0.5 mx-2 transition-colors ${i < current ? 'bg-primary-600' : 'bg-gray-200 dark:bg-gray-700'}`} />
@@ -275,7 +279,7 @@ function CheckoutForm() {
   };
 
   return (
-    <>
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
       {paymobIframeUrl && (
         <PaymobIframeModal
           iframeUrl={paymobIframeUrl}
@@ -284,7 +288,7 @@ function CheckoutForm() {
         />
       )}
 
-      <div className="max-w-xl mx-auto px-4 py-8">
+      <div className="max-w-lg mx-auto px-4 py-8">
         <h1 className="text-2xl font-bold text-gray-900 dark:text-white mb-6 text-center">Checkout</h1>
 
         {TEST_MODE && onlineProvider === 'stripe' && (
@@ -538,7 +542,7 @@ function CheckoutForm() {
           )}
         </AnimatePresence>
       </div>
-    </>
+    </div>
   );
 }
 
