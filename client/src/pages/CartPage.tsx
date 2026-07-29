@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
+import { Package, ShoppingCart } from 'lucide-react';
 import { validateCouponThunk, removeCoupon } from '../store/couponSlice';
 import { useAppDispatch, useAppSelector } from '../hooks/useAppDispatch';
 import { useCart, useUpdateCartItem, useRemoveCartItem, useClearCart } from '../hooks/useCart';
@@ -57,10 +58,16 @@ export default function CartPage() {
         animate={{ opacity: 1, scale: 1 }}
         transition={{ type: 'spring', stiffness: 200, damping: 20 }}
       >
-        <p className="text-7xl mb-5">🛒</p>
-        <h2 className="text-2xl font-bold text-gray-800 dark:text-white mb-2">Your cart is empty</h2>
-        <p className="text-gray-400 mb-8">Looks like you haven't added anything yet.</p>
-        <button onClick={() => navigate('/')} className="btn-primary px-8 py-3 text-base">
+        {/* Icon in a soft container rather than a 72px emoji: the emoji was the
+            largest element on the screen and carried none of the meaning. */}
+        <div className="mx-auto mb-6 flex h-20 w-20 items-center justify-center rounded-2xl bg-gray-100 dark:bg-gray-800">
+          <ShoppingCart className="h-9 w-9 text-gray-400" strokeWidth={1.5} aria-hidden="true" />
+        </div>
+        <h2 className="mb-2 text-2xl font-bold tracking-tight text-gray-900 dark:text-white">Your cart is empty</h2>
+        <p className="mx-auto mb-8 max-w-sm text-sm leading-relaxed text-gray-500 dark:text-gray-400">
+          Browse the catalogue and add something you like — your cart will keep it safe.
+        </p>
+        <button onClick={() => navigate('/')} className="btn btn-brand btn-lg">
           Start Shopping
         </button>
       </motion.div>
@@ -99,7 +106,9 @@ export default function CartPage() {
                 transition={{ duration: 0.2 }}
                 className="card p-4 flex items-center gap-4"
               >
-                <div className="w-16 h-16 bg-gray-100 dark:bg-gray-800 rounded-lg flex items-center justify-center text-2xl shrink-0">📦</div>
+                <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-xl bg-gray-100 text-gray-300 dark:bg-gray-800 dark:text-gray-600">
+                  <Package className="h-6 w-6" strokeWidth={1.5} aria-hidden="true" />
+                </div>
                 <div className="flex-1 min-w-0">
                   <p className="font-medium text-gray-900 dark:text-white truncate">{item.name}</p>
                   {item.selectedSize && (

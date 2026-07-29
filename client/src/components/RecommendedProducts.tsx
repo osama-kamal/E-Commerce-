@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
+import { Sparkles } from 'lucide-react';
 import { recommendationsApi } from '../api/recommendations';
 import { Product } from '../types';
 import ProductCard from './ProductCard';
@@ -8,7 +9,7 @@ interface RecommendedProductsProps {
   title?: string;
 }
 
-export default function RecommendedProducts({ productId, title = '🤖 AI Recommendations - You May Also Like' }: RecommendedProductsProps) {
+export default function RecommendedProducts({ productId, title = 'You May Also Like' }: RecommendedProductsProps) {
   const { data: recommendations = [], isLoading: loading } = useQuery({
     queryKey: ['product-recommendations', productId],
     queryFn: async () => {
@@ -46,7 +47,7 @@ export default function RecommendedProducts({ productId, title = '🤖 AI Recomm
       <div className="flex items-center gap-3 mb-6">
         <h2 className="text-2xl font-bold text-gray-900 dark:text-white">{title}</h2>
         <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-gradient-to-r from-purple-100 to-pink-100 dark:from-purple-900/30 dark:to-pink-900/30 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800">
-          <span className="mr-1">✨</span> Powered by AI
+          <Sparkles className="mr-1 inline h-3 w-3" aria-hidden="true" /> Powered by AI
         </span>
       </div>
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">

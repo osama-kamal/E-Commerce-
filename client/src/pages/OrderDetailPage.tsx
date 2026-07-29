@@ -1,16 +1,21 @@
 import { useEffect, useState } from 'react';
 import { useParams, useSearchParams, Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
+import {
+  Banknote, CheckCircle2, ClipboardList, CreditCard, type LucideIcon, Package,
+  Settings, Truck, XCircle,
+} from 'lucide-react';
 import { ordersApi } from '../api/orders';
 import { Order, OrderStatus } from '../types';
 
 // ── Tracking timeline config ──────────────────────────────────────────────────
-
-const TIMELINE_STEPS: { status: OrderStatus; label: string; icon: string; description: string }[] = [
-  { status: 'pending',    label: 'Order Placed',   icon: '📋', description: 'Your order has been received and is awaiting payment confirmation.' },
-  { status: 'processing', label: 'Processing',     icon: '⚙️', description: 'Payment confirmed. We are preparing your items for shipment.' },
-  { status: 'shipped',    label: 'Shipped',        icon: '🚚', description: 'Your order is on its way! Track your package with the carrier.' },
-  { status: 'delivered',  label: 'Delivered',      icon: '✅', description: 'Your order has been delivered. Enjoy your purchase!' },
+// `icon` is a component now. As emoji these four steps rendered at four different
+// optical weights, so the timeline rail never looked evenly spaced.
+const TIMELINE_STEPS: { status: OrderStatus; label: string; icon: LucideIcon; description: string }[] = [
+  { status: 'pending',    label: 'Order Placed',   icon: ClipboardList, description: 'Your order has been received and is awaiting payment confirmation.' },
+  { status: 'processing', label: 'Processing',     icon: Settings,      description: 'Payment confirmed. We are preparing your items for shipment.' },
+  { status: 'shipped',    label: 'Shipped',        icon: Truck,         description: 'Your order is on its way! Track your package with the carrier.' },
+  { status: 'delivered',  label: 'Delivered',      icon: CheckCircle2,  description: 'Your order has been delivered. Enjoy your purchase!' },
 ];
 
 const STATUS_ORDER: Record<OrderStatus, number> = {
@@ -29,8 +34,8 @@ function OrderTimeline({ status }: { status: OrderStatus }) {
     return (
       <div className="card p-5 mb-4">
         <h2 className="font-semibold text-gray-900 dark:text-white mb-4">Order Status</h2>
-        <div className="flex items-center gap-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl p-4">
-          <span className="text-2xl">❌</span>
+        <div className="flex items-center gap-3 rounded-xl border border-red-200 bg-red-50 p-4 dark:border-red-800 dark:bg-red-900/20">
+          <XCircle className="h-6 w-6 shrink-0 text-red-500" aria-hidden="true" />
           <div>
             <p className="font-semibold text-red-700 dark:text-red-400">Order Cancelled</p>
             <p className="text-sm text-red-600 dark:text-red-500">This order has been cancelled.</p>
@@ -71,25 +76,29 @@ function OrderTimeline({ status }: { status: OrderStatus }) {
                 className="flex items-start gap-4 relative"
               >
                 {/* Step circle */}
-                <div className={`relative z-10 w-10 h-10 rounded-full flex items-center justify-center text-lg shrink-0 border-2 transition-all ${
-                  isDone    ? 'bg-primary-600 border-primary-600 text-white' :
-                  isCurrent ? 'bg-white dark:bg-gray-900 border-primary-600 shadow-md shadow-primary-100' :
-                              'bg-white dark:bg-gray-900 border-gray-200 dark:border-gray-700'
+                {/* Completed steps go near-black rather than blue: the timeline
+                    sat next to amber order totals and the blue read as a third
+                    accent. Done/current/pending now differ by weight, not hue. */}
+                <div className={`relative z-10 flex h-10 w-10 shrink-0 items-center justify-center rounded-full border transition-all ${
+                  isDone    ? 'border-gray-900 bg-gray-900 text-white dark:border-white dark:bg-white dark:text-gray-900' :
+                  isCurrent ? 'border-gray-900 bg-white text-gray-900 shadow-elevated dark:border-white dark:bg-gray-900 dark:text-white' :
+                              'border-gray-200 bg-white text-gray-300 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-600'
                 }`}>
                   {isDone ? (
                     <motion.span
                       initial={{ scale: 0 }}
                       animate={{ scale: 1 }}
                       transition={{ type: 'spring', stiffness: 300, damping: 15 }}
+                      className="inline-flex"
                     >
-                      ✓
+                      <CheckCircle2 className="h-[18px] w-[18px]" strokeWidth={2.4} aria-hidden="true" />
                     </motion.span>
                   ) : (
-                    <span className={isPending ? 'opacity-40' : ''}>{step.icon}</span>
+                    <step.icon className={`h-[18px] w-[18px] ${isPending ? 'opacity-50' : ''}`} aria-hidden="true" />
                   )}
                   {/* Pulse ring for current step */}
                   {isCurrent && (
-                    <span className="absolute inset-0 rounded-full border-2 border-primary-400 animate-ping opacity-30" />
+                    <span className="absolute inset-0 animate-ping rounded-full border border-gray-400 opacity-30" />
                   )}
                 </div>
 
@@ -159,10 +168,15 @@ export default function OrderDetailPage() {
   );
 
   if (!order) return (
-    <div className="text-center py-20 text-gray-400">
-      <p className="text-4xl mb-3">📦</p>
-      <p>Order not found</p>
-      <Link to="/orders" className="btn-primary inline-block mt-4">Back to Orders</Link>
+    <div className="mx-auto max-w-md px-4 py-20 text-center">
+      <div className="mx-auto mb-6 flex h-20 w-20 items-center justify-center rounded-2xl bg-gray-100 dark:bg-gray-800">
+        <Package className="h-9 w-9 text-gray-400" strokeWidth={1.5} aria-hidden="true" />
+      </div>
+      <h2 className="mb-2 text-2xl font-bold tracking-tight text-gray-900 dark:text-white">Order not found</h2>
+      <p className="mb-8 text-sm leading-relaxed text-gray-500 dark:text-gray-400">
+        This order may have been removed, or the link is incorrect.
+      </p>
+      <Link to="/orders" className="btn btn-brand btn-lg inline-flex">Back to Orders</Link>
     </div>
   );
 
@@ -173,9 +187,10 @@ export default function OrderDetailPage() {
         <motion.div
           initial={{ opacity: 0, y: -10 }}
           animate={{ opacity: 1, y: 0 }}
-          className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 text-green-800 dark:text-green-400 p-4 rounded-xl mb-6 text-sm flex items-center gap-2"
+          className="mb-6 flex items-center gap-2.5 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800 dark:border-emerald-800 dark:bg-emerald-900/20 dark:text-emerald-400"
         >
-          🎉 Payment successful! Your order is being processed.
+          <CheckCircle2 className="h-4 w-4 shrink-0" aria-hidden="true" />
+          Payment successful! Your order is being processed.
         </motion.div>
       )}
 
@@ -252,16 +267,16 @@ export default function OrderDetailPage() {
       <div className="card p-5 mb-4">
         <h2 className="font-semibold text-gray-900 dark:text-white mb-2">Payment Method</h2>
         {order.paymentMethod === 'cod' ? (
-          <div className="flex items-center gap-2 text-sm">
-            <span className="text-xl">💵</span>
+          <div className="flex items-center gap-2.5 text-sm">
+            <Banknote className="h-5 w-5 shrink-0 text-gray-400" aria-hidden="true" />
             <div>
-              <p className="font-semibold text-amber-700 dark:text-amber-400">Cash on Delivery</p>
+              <p className="font-semibold text-gray-900 dark:text-white">Cash on Delivery</p>
               <p className="text-gray-500 dark:text-gray-400 text-xs">Payment will be collected at your door upon delivery.</p>
             </div>
           </div>
         ) : (
-          <div className="flex items-center gap-2 text-sm">
-            <span className="text-xl">💳</span>
+          <div className="flex items-center gap-2.5 text-sm">
+            <CreditCard className="h-5 w-5 shrink-0 text-gray-400" aria-hidden="true" />
             <div>
               <p className="font-semibold text-blue-700 dark:text-blue-400">Online Payment</p>
               <p className="text-gray-500 dark:text-gray-400 text-xs">Payment processed securely via Stripe.</p>

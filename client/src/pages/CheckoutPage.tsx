@@ -6,6 +6,9 @@ import { useForm } from 'react-hook-form';
 import { yupResolver } from '@hookform/resolvers/yup';
 import * as yup from 'yup';
 import { motion, AnimatePresence } from 'framer-motion';
+import {
+  Banknote, Check, CheckCircle2, CreditCard, FlaskConical, Info, Lock, Tag,
+} from 'lucide-react';
 import toast from 'react-hot-toast';
 import { ordersApi } from '../api/orders';
 import { paymentsApi } from '../api/payments';
@@ -139,8 +142,9 @@ function PaymobIframeModal({
           sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-modals allow-top-navigation-by-user-activation"
         />
         <div className="px-5 py-3 border-t border-gray-100 dark:border-gray-800 text-center">
-          <p className="text-xs text-gray-400 dark:text-gray-500">
-            🔒 Payments are encrypted and secured by Paymob. Vendbase never stores your card details.
+          <p className="flex items-center justify-center gap-1.5 text-xs text-gray-400 dark:text-gray-500">
+            <Lock className="h-3 w-3 shrink-0" aria-hidden="true" />
+            Payments are encrypted and secured by Paymob. Vendbase never stores your card details.
           </p>
         </div>
       </div>
@@ -164,8 +168,9 @@ function StripePaymentStep({
   return (
     <form onSubmit={e => onPay(e, stripe, elements)} className="card p-6 space-y-4">
       <h2 className="font-semibold text-gray-900 dark:text-white text-lg">Payment Details</h2>
-      <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-3 text-xs text-blue-700 dark:text-blue-400">
-        🔒 Test card: <strong>4242 4242 4242 4242</strong> · Any future date · Any CVC
+      <div className="flex items-start gap-2 rounded-xl border border-gray-200 bg-gray-50 p-3 text-xs text-gray-600 dark:border-gray-700 dark:bg-gray-800/60 dark:text-gray-300">
+        <Lock className="mt-0.5 h-3.5 w-3.5 shrink-0 text-gray-400" aria-hidden="true" />
+        <span>Test card: <strong className="font-semibold text-gray-900 dark:text-white">4242 4242 4242 4242</strong> · Any future date · Any CVC</span>
       </div>
       <div className="border border-gray-300 dark:border-gray-600 rounded-lg p-3 bg-white dark:bg-gray-800">
         <CardElement options={{ style: { base: { fontSize: '16px', color: '#111827' } } }} />
@@ -341,7 +346,7 @@ function CheckoutForm() {
         <PaymobIframeModal
           iframeUrl={paymobIframeUrl}
           onSuccess={handlePaymobSuccess}
-          onClose={() => { setPaymobIframeUrl(null); toast('Payment cancelled', { icon: '↩️' }); }}
+          onClose={() => { setPaymobIframeUrl(null); toast('Payment cancelled'); }}
         />
       )}
 
@@ -349,8 +354,9 @@ function CheckoutForm() {
         <h1 className="text-2xl font-bold text-gray-900 dark:text-white mb-6 text-center">Checkout</h1>
 
         {TEST_MODE && onlineProvider === 'stripe' && (
-          <div className="mb-4 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-300 dark:border-yellow-700 rounded-lg px-4 py-2 text-xs text-yellow-800 dark:text-yellow-400">
-            🧪 <strong>Test mode</strong> — Add <code>VITE_STRIPE_PUBLISHABLE_KEY</code> to <code>client/.env</code> for real Stripe payments.
+          <div className="mb-4 flex items-start gap-2 rounded-xl border border-amber-300 bg-amber-50 px-4 py-2.5 text-xs text-amber-800 dark:border-amber-700 dark:bg-amber-900/20 dark:text-amber-400">
+            <FlaskConical className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+            <span><strong className="font-semibold">Test mode</strong> — Add <code>VITE_STRIPE_PUBLISHABLE_KEY</code> to <code>client/.env</code> for real Stripe payments.</span>
           </div>
         )}
 
@@ -399,28 +405,36 @@ function CheckoutForm() {
                 <div className="border-t dark:border-gray-700 pt-4">
                   <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Payment Method</p>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <label className={`flex items-center gap-3 p-3 rounded-xl border-2 cursor-pointer transition-colors ${
-                      paymentMethod === 'online' ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/20' : 'border-gray-200 dark:border-gray-700 hover:border-gray-300'
+                    {/* Selected state moved from a 2px coloured border to a
+                        near-black border + tinted fill. Two side-by-side cards
+                        with 2px blue and 2px amber borders read as two different
+                        components rather than one radio group. */}
+                    <label className={`flex cursor-pointer items-center gap-3 rounded-xl border p-3.5 transition-all ${
+                      paymentMethod === 'online'
+                        ? 'border-gray-900 bg-gray-50 shadow-soft dark:border-white dark:bg-gray-800'
+                        : 'border-gray-200 hover:border-gray-300 dark:border-gray-700 dark:hover:border-gray-600'
                     }`}>
                       <input type="radio" name="paymentMethod" value="online" checked={paymentMethod === 'online'} onChange={() => setPaymentMethod('online')} className="sr-only" />
-                      <span className="text-xl">💳</span>
+                      <CreditCard className="h-5 w-5 shrink-0 text-gray-500 dark:text-gray-400" aria-hidden="true" />
                       <div>
                         <p className="text-sm font-semibold text-gray-900 dark:text-white">Online</p>
                         <p className="text-xs text-gray-500 dark:text-gray-400">Card payment</p>
                       </div>
-                      {paymentMethod === 'online' && <span className="ml-auto w-4 h-4 rounded-full bg-primary-500 flex items-center justify-center text-white text-xs">✓</span>}
+                      {paymentMethod === 'online' && <Check className="ml-auto h-4 w-4 shrink-0 text-gray-900 dark:text-white" strokeWidth={3} aria-hidden="true" />}
                     </label>
 
-                    <label className={`flex items-center gap-3 p-3 rounded-xl border-2 cursor-pointer transition-colors ${
-                      paymentMethod === 'cod' ? 'border-amber-500 bg-amber-50 dark:bg-amber-900/20' : 'border-gray-200 dark:border-gray-700 hover:border-gray-300'
+                    <label className={`flex cursor-pointer items-center gap-3 rounded-xl border p-3.5 transition-all ${
+                      paymentMethod === 'cod'
+                        ? 'border-gray-900 bg-gray-50 shadow-soft dark:border-white dark:bg-gray-800'
+                        : 'border-gray-200 hover:border-gray-300 dark:border-gray-700 dark:hover:border-gray-600'
                     }`}>
                       <input type="radio" name="paymentMethod" value="cod" checked={paymentMethod === 'cod'} onChange={() => setPaymentMethod('cod')} className="sr-only" />
-                      <span className="text-xl">💵</span>
+                      <Banknote className="h-5 w-5 shrink-0 text-gray-500 dark:text-gray-400" aria-hidden="true" />
                       <div>
                         <p className="text-sm font-semibold text-gray-900 dark:text-white">Cash on Delivery</p>
                         <p className="text-xs text-gray-500 dark:text-gray-400">Pay when delivered</p>
                       </div>
-                      {paymentMethod === 'cod' && <span className="ml-auto w-4 h-4 rounded-full bg-amber-500 flex items-center justify-center text-white text-xs">✓</span>}
+                      {paymentMethod === 'cod' && <Check className="ml-auto h-4 w-4 shrink-0 text-gray-900 dark:text-white" strokeWidth={3} aria-hidden="true" />}
                     </label>
                   </div>
 
@@ -441,7 +455,7 @@ function CheckoutForm() {
                             onChange={() => setOnlineProvider('stripe')}
                             className="sr-only"
                           />
-                          <span>💳</span>
+                          <CreditCard className="h-4 w-4 shrink-0" aria-hidden="true" />
                           <div>
                             <p className="font-semibold leading-none">Stripe</p>
                             <p className="text-xs text-gray-400 mt-0.5">
@@ -468,7 +482,7 @@ function CheckoutForm() {
 
                   {paymentMethod === 'cod' && (
                     <p className="text-xs text-amber-700 dark:text-amber-400 mt-2 flex items-center gap-1">
-                      <span>ℹ️</span> Payment will be collected by the delivery agent at your door.
+                      <Info className="h-3.5 w-3.5 shrink-0" aria-hidden="true" /> Payment will be collected by the delivery agent at your door.
                     </p>
                   )}
                 </div>
@@ -480,7 +494,7 @@ function CheckoutForm() {
                     <div className="flex items-center justify-between bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg px-4 py-3">
                       <div>
                         <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-green-700 dark:text-green-400">
-                          🏷️ {couponCode}
+                          <Tag className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />{couponCode}
                           <span className="ml-1 px-2 py-0.5 bg-green-100 dark:bg-green-800 text-green-800 dark:text-green-200 rounded-full text-xs">{couponLabel}</span>
                         </span>
                         <p className="text-xs text-green-600 dark:text-green-500 mt-0.5">−{formatCurrency(discount, currency)} discount applied</p>
@@ -565,7 +579,10 @@ function CheckoutForm() {
                 <div className="card p-6 space-y-4">
                   <h2 className="font-semibold text-gray-900 dark:text-white text-lg">Payment Details</h2>
                   <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-300 dark:border-yellow-700 rounded-lg p-4 text-sm text-yellow-800 dark:text-yellow-400">
-                    <p className="font-semibold mb-1">🧪 Test Mode Active (development build only)</p>
+                    <p className="mb-1 flex items-center gap-1.5 font-semibold">
+                      <FlaskConical className="h-4 w-4 shrink-0" aria-hidden="true" />
+                      Test Mode Active (development build only)
+                    </p>
                     <p>No Stripe key configured. Click below to simulate a successful payment.</p>
                   </div>
                   <div className="flex justify-between text-sm text-gray-600 dark:text-gray-400">
@@ -573,7 +590,7 @@ function CheckoutForm() {
                   </div>
                   <div className="flex gap-3">
                     <button type="button" onClick={() => setStep(0)} className="btn-secondary flex-1">← Back</button>
-                    <button type="button" onClick={() => { toast('Test mode: payment skipped', { icon: '🧪' }); setStep(2); }}
+                    <button type="button" onClick={() => { toast('Test mode: payment skipped'); setStep(2); }}
                       className="flex-1 py-3 bg-yellow-500 hover:bg-yellow-600 text-white font-medium rounded-lg transition-colors">
                       Skip Payment (Test)
                     </button>
@@ -595,8 +612,16 @@ function CheckoutForm() {
           {step === 2 && (
             <motion.div key="summary" variants={slideVariants} initial="enter" animate="center" exit="exit" transition={{ duration: 0.25 }}>
               <div className="card p-6 space-y-4 text-center">
-                <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ type: 'spring', stiffness: 200, damping: 15 }}>
-                  <p className="text-6xl mb-3">🎉</p>
+                {/* Order-confirmed mark. A 🎉 emoji was doing the job of a
+                    success state; a filled tick in a green disc is the pattern
+                    Stripe and Shopify both use at this moment. */}
+                <motion.div
+                  initial={{ scale: 0 }}
+                  animate={{ scale: 1 }}
+                  transition={{ type: 'spring', stiffness: 200, damping: 15 }}
+                  className="mx-auto mb-3 flex h-16 w-16 items-center justify-center rounded-full bg-emerald-100 dark:bg-emerald-900/30"
+                >
+                  <CheckCircle2 className="h-9 w-9 text-emerald-600 dark:text-emerald-400" strokeWidth={2} aria-hidden="true" />
                 </motion.div>
                 <h2 className="text-xl font-bold text-gray-900 dark:text-white">
                   {paymentMethod === 'cod' ? 'Order Placed!' : TEST_MODE && onlineProvider === 'stripe' ? 'Test Order Placed!' : 'Payment Successful!'}

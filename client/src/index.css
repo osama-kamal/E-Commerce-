@@ -42,6 +42,17 @@
 
   body {
     @apply bg-gray-50 text-gray-900 antialiased dark:bg-gray-950 dark:text-gray-100;
+    /* `cv11` gives Inter the single-storey lowercase g/l that reads better at
+       small sizes; `ss01` enables the tighter alternates used at display sizes.
+       Both are no-ops on the fallback stack. */
+    font-feature-settings: 'cv11', 'ss01';
+    font-variation-settings: normal;
+  }
+
+  /* Large text needs tighter tracking than body copy — Inter is drawn for this
+     and looks noticeably loose at 48px+ without it. */
+  h1, h2 {
+    letter-spacing: -0.02em;
   }
 
   /* ── Global keyboard focus ring ───────────────────────────────────────────
@@ -92,8 +103,54 @@
   .input {
     @apply w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent dark:bg-gray-800 dark:border-gray-600 dark:text-gray-100 dark:placeholder-gray-400;
   }
+  /* Refined in place rather than replaced. The old rule paired `shadow-xl` with
+     a translucent white border on EVERY surface, so a filter panel carried the
+     same visual weight as a modal and nothing read as elevated. The box model
+     (padding still comes from call sites) is unchanged, so no layout moves —
+     only the depth cue and the corner radius. */
   .card {
-    @apply bg-white/90 backdrop-blur-md rounded-xl shadow-xl border border-white/60 dark:bg-gray-900/80 dark:border-gray-800 dark:backdrop-blur-md;
+    @apply bg-white/95 backdrop-blur-md rounded-2xl shadow-elevated border border-gray-200/70
+           dark:bg-gray-900/85 dark:border-gray-800/80 dark:backdrop-blur-md;
+  }
+
+  /* ── Surfaces ──────────────────────────────────────────────────────────────
+     Opaque panel for content that must stay readable over a busy background.
+     Use where `.card`'s translucency fights the page behind it. */
+  .surface {
+    @apply bg-white rounded-2xl border border-gray-200 shadow-soft
+           dark:bg-gray-900 dark:border-gray-800;
+  }
+
+  /* Lifts toward the viewer on hover. Transform-based so it never reflows the
+     grid around it; paired with a shadow change to sell the height. */
+  .surface-interactive {
+    @apply transition-all duration-300 hover:shadow-float hover:-translate-y-1;
+  }
+
+  /* True glass, reserved for elements that overlay imagery — a hero stat chip,
+     a carousel control. Applying this everywhere is what made the old UI muddy. */
+  .glass {
+    @apply bg-white/10 backdrop-blur-xl border border-white/20 shadow-float;
+  }
+  .glass-dark {
+    @apply bg-black/30 backdrop-blur-xl border border-white/10;
+  }
+
+  /* ── Badges ────────────────────────────────────────────────────────────────
+     Product cards previously hand-rolled each badge with its own colour and radius. */
+  .badge {
+    @apply inline-flex items-center gap-1 rounded-full px-2.5 py-1
+           text-[11px] font-semibold leading-none tracking-wide;
+  }
+  .badge-danger  { @apply bg-red-500 text-white shadow-soft; }
+  .badge-warning { @apply bg-amber-500 text-white shadow-soft; }
+  .badge-success { @apply bg-emerald-500 text-white shadow-soft; }
+  .badge-neutral { @apply bg-gray-900/80 text-white backdrop-blur-sm; }
+
+  /* Eyebrow label above a display heading — the small uppercase line that gives
+     a hero section its editorial rhythm. */
+  .eyebrow {
+    @apply text-xs font-semibold uppercase tracking-[0.18em];
   }
 
   /* ── Button system ──────────────────────────────────────────────────────────
@@ -198,6 +255,17 @@
   .dark .shimmer {
     animation: none;
     background: #374151;
+  }
+
+  /* Entrance and ambient motion from the design system. Elements must still end
+     up visible, so the animation is cancelled rather than skipped — `both` fill
+     on a disabled animation would otherwise leave them stuck at opacity 0. */
+  .animate-rise-in,
+  .animate-scale-in,
+  .animate-drift {
+    animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
   }
 }
 

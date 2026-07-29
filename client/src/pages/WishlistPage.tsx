@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
+import { Package } from 'lucide-react';
 import { wishlistApi } from '../api/wishlist';
 import { cartApi } from '../api/cart';
 import { setCart } from '../store/cartSlice';
@@ -21,7 +22,7 @@ export default function WishlistPage() {
     try {
       await wishlistApi.remove(productId);
       dispatch(removeFromWishlist(productId));
-      toast('Removed from wishlist', { icon: '💔' });
+      toast('Removed from wishlist');
     } finally {
       setRemovingId('');
     }
@@ -72,7 +73,7 @@ export default function WishlistPage() {
                 {p.images[0] ? (
                   <img src={p.images[0]} alt={p.name} className="w-full h-full object-cover hover:scale-105 transition-transform duration-300" />
                 ) : (
-                  <div className="w-full h-full flex items-center justify-center text-3xl text-gray-400">📦</div>
+                  <div className="flex h-full w-full items-center justify-center text-gray-300 dark:text-gray-600"><Package className="h-8 w-8" strokeWidth={1.25} aria-hidden="true" /></div>
                 )}
               </div>
             </Link>

@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
+import { MessageCircle, X } from 'lucide-react';
 import { chatbotApi } from '../api/chatbot';
 import toast from 'react-hot-toast';
 
@@ -86,13 +87,17 @@ export default function Chatbot() {
       {/* Floating Chat Button */}
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="fixed bottom-4 right-4 md:bottom-6 md:right-6 z-50 bg-gradient-to-r from-primary-600 to-purple-600 text-white p-3 md:p-4 rounded-full shadow-2xl hover:shadow-3xl hover:scale-110 transition-all duration-300 flex items-center justify-center group"
-        aria-label="Open chat"
+        // primary→purple was another unrelated gradient in the chrome. Near-black
+        // matches the CTA banner and newsletter card, so the assistant reads as
+        // part of the product rather than a bolt-on widget.
+        className="group fixed bottom-4 right-4 z-50 flex items-center justify-center rounded-full bg-gray-900 p-3.5 text-white shadow-float transition-all duration-300 hover:scale-105 hover:bg-gray-800 md:bottom-6 md:right-6 md:p-4 dark:bg-white dark:text-gray-900 dark:hover:bg-gray-100"
+        aria-label={isOpen ? 'Close chat' : 'Open chat'}
+        aria-expanded={isOpen}
       >
         {isOpen ? (
-          <span className="text-xl md:text-2xl">✕</span>
+          <X className="h-5 w-5 md:h-6 md:w-6" aria-hidden="true" />
         ) : (
-          <span className="text-xl md:text-2xl">💬</span>
+          <MessageCircle className="h-5 w-5 md:h-6 md:w-6" aria-hidden="true" />
         )}
       </button>
 

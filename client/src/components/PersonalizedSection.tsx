@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
+import { Search, Sparkles } from 'lucide-react';
 import { recommendationsApi } from '../api/recommendations';
 import { Product } from '../types';
 import ProductCard from './ProductCard';
@@ -27,7 +28,7 @@ export default function PersonalizedSection() {
     return (
       <div className="mb-12">
         <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-6">
-          {isAuthenticated ? '🎯 Recommended For You' : '🔥 Trending Now'}
+          {isAuthenticated ? 'Recommended For You' : 'Trending Now'}
         </h2>
         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-4 gap-4">
           {Array.from({ length: 8 }).map((_, i) => (
@@ -47,11 +48,11 @@ export default function PersonalizedSection() {
     <div className="mb-12">
       <div className="flex items-center gap-3 mb-6">
         <h2 className="text-2xl font-bold text-gray-900 dark:text-white">
-          {isAuthenticated ? '🎯 Recommended For You' : '🔥 Trending Now'}
+          {isAuthenticated ? 'Recommended For You' : 'Trending Now'}
         </h2>
         {isAuthenticated && (
           <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-gradient-to-r from-blue-100 to-purple-100 dark:from-blue-900/30 dark:to-purple-900/30 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
-            <span className="mr-1">🤖</span> AI Powered
+            <Sparkles className="mr-1 inline h-3 w-3" aria-hidden="true" /> AI Powered
           </span>
         )}
         {isFetching && (
@@ -66,7 +67,9 @@ export default function PersonalizedSection() {
         </div>
       ) : (
         <div className="text-center py-12 text-gray-500 dark:text-gray-400">
-          <p className="text-4xl mb-2">🔍</p>
+          <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-gray-100 dark:bg-gray-800">
+            <Search className="h-6 w-6 text-gray-400" aria-hidden="true" />
+          </div>
           <p>No recommendations available at the moment</p>
         </div>
       )}

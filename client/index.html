@@ -9,6 +9,18 @@
     <!-- Preconnect to third-party image origins to reduce connection setup time -->
     <link rel="preconnect" href="https://images.unsplash.com" crossorigin />
     <link rel="preconnect" href="https://res.cloudinary.com" crossorigin />
+
+    <!-- Inter — the app previously shipped no typeface at all and fell back to
+         whatever UI font the OS provided, which is the single strongest visual
+         signal of an undesigned product. `display=swap` means text paints
+         immediately in the fallback stack, so this never blocks render or LCP;
+         if the request is blocked the system stack in tailwind.config takes over. -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap"
+      rel="stylesheet"
+    />
     <!-- Preload the first hero carousel image — it is the LCP element on the homepage.
          Moving its fetch to the earliest possible moment (HTML parse time) rather than
          waiting for JS to execute significantly reduces Largest Contentful Paint. -->

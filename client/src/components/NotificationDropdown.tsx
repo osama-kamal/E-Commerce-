@@ -1,8 +1,30 @@
 import { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
+import {
+  AlertTriangle, Bell, BellOff, CheckCircle2, Info, type LucideIcon, XCircle,
+} from 'lucide-react';
 import { useAppDispatch, useAppSelector } from '../hooks/useAppDispatch';
 import { markAsRead, markAllAsRead, removeNotification } from '../store/notificationSlice';
+
+/**
+ * Per-type notification glyph.
+ *
+ * Replaces an emoji map (✅ ℹ️ ⚠️ ❌ 🔔). Those glyphs were full-colour and
+ * fixed-hue, so the "success" tick stayed the same saturated green on a dark
+ * surface where it clashed; a stroke icon takes its tone from a class instead.
+ */
+const TYPE_ICON: Record<string, { Icon: LucideIcon; tone: string }> = {
+  success: { Icon: CheckCircle2,  tone: 'text-emerald-500' },
+  info:    { Icon: Info,          tone: 'text-blue-500' },
+  warning: { Icon: AlertTriangle, tone: 'text-amber-500' },
+  error:   { Icon: XCircle,       tone: 'text-red-500' },
+};
+
+function NotificationTypeIcon({ type }: { type: string }) {
+  const { Icon, tone } = TYPE_ICON[type] ?? { Icon: Bell, tone: 'text-gray-400' };
+  return <Icon className={`mt-0.5 h-[18px] w-[18px] shrink-0 ${tone}`} aria-hidden="true" />;
+}
 
 export default function NotificationDropdown() {
   const navigate = useNavigate();
@@ -30,15 +52,6 @@ export default function NotificationDropdown() {
     }
   };
 
-  const getNotificationIcon = (type: string) => {
-    switch (type) {
-      case 'success': return '✅';
-      case 'info': return 'ℹ️';
-      case 'warning': return '⚠️';
-      case 'error': return '❌';
-      default: return '🔔';
-    }
-  };
 
   const formatTime = (timestamp: number) => {
     const now = Date.now();
@@ -58,12 +71,13 @@ export default function NotificationDropdown() {
       {/* Bell Icon */}
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="relative p-2 text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white transition-colors"
-        aria-label="Notifications"
+        className="relative flex h-9 w-9 items-center justify-center rounded-lg text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-white"
+        aria-label={unreadCount > 0 ? `Notifications, ${unreadCount} unread` : 'Notifications'}
+        aria-expanded={isOpen}
       >
-        <span className="text-2xl">🔔</span>
+        <Bell className="h-[18px] w-[18px]" aria-hidden="true" />
         {unreadCount > 0 && (
-          <span className="absolute top-0 right-0 w-5 h-5 bg-red-500 text-white text-xs font-bold rounded-full flex items-center justify-center">
+          <span className="absolute -right-0.5 -top-0.5 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white ring-2 ring-white dark:ring-gray-900">
             {unreadCount > 9 ? '9+' : unreadCount}
           </span>
         )}
@@ -96,9 +110,14 @@ export default function NotificationDropdown() {
             {/* Notifications List */}
             <div className="max-h-96 overflow-y-auto">
               {notifications.length === 0 ? (
-                <div className="p-8 text-center text-gray-500 dark:text-gray-400">
-                  <div className="text-4xl mb-2">🔕</div>
-                  <p>No notifications yet</p>
+                <div className="px-6 py-10 text-center">
+                  <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-gray-100 dark:bg-gray-800">
+                    <BellOff className="h-5 w-5 text-gray-400" strokeWidth={1.5} aria-hidden="true" />
+                  </div>
+                  <p className="text-[13px] font-semibold text-gray-900 dark:text-white">No notifications yet</p>
+                  <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                    Order updates and offers will show up here.
+                  </p>
                 </div>
               ) : (
                 notifications.map((notification) => (
@@ -109,9 +128,7 @@ export default function NotificationDropdown() {
                     }`}
                   >
                     <div className="flex gap-3">
-                      <div className="text-2xl flex-shrink-0">
-                        {getNotificationIcon(notification.type)}
-                      </div>
+                      <NotificationTypeIcon type={notification.type} />
                       <div className="flex-1 min-w-0">
                         <div className="flex items-start justify-between gap-2">
                           <h4 className="font-medium text-gray-900 dark:text-white text-sm">

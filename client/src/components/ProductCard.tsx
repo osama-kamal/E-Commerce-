@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import { AlertTriangle, Heart, Loader2, Package, Eye, ShoppingCart } from 'lucide-react';
 import { Product } from '../types';
 import StarRating from './StarRating';
 import QuickViewModal from './QuickViewModal';
@@ -90,7 +91,7 @@ export default function ProductCard({ product, index = 0, detailPath, loginRedir
       if (isInWishlist) {
         await wishlistApi.remove(product._id);
         dispatch(removeFromWishlist(product._id));
-        toast('Removed from wishlist', { icon: '💔' });
+        toast('Removed from wishlist');
       } else {
         await wishlistApi.add(product._id);
         dispatch(addToWishlist({
@@ -117,7 +118,7 @@ export default function ProductCard({ product, index = 0, detailPath, loginRedir
   const handleToggleComparison = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (isInComparison) {
       dispatch(removeFromComparison(product._id));
-      toast('Removed from comparison', { icon: '📊' });
+      toast('Removed from comparison');
     } else {
       if (comparisonCount >= 4) {
         toast.error('Maximum 4 products can be compared');
@@ -131,9 +132,12 @@ export default function ProductCard({ product, index = 0, detailPath, loginRedir
 
   return (
     <>
-      <div
-        className="card rounded-2xl overflow-hidden cursor-pointer shadow-sm hover:shadow-md hover:shadow-amber-100 hover:bg-amber-50/30 border border-amber-100 transition-all duration-300 hover:scale-[1.02] group flex flex-col"
-      >
+      {/* Elevation replaces the old `hover:scale-[1.02]`: scaling a grid item
+          resamples its text on every frame (visibly soft) and lets the card
+          overlap its neighbours. A translate + shadow change reads as depth
+          without touching the layout. The amber tint is gone — a warm wash over
+          a warm price colour was muddying both. */}
+      <div className="surface surface-interactive group flex flex-col overflow-hidden cursor-pointer">
       <Link to={detailPath ?? `/products/${product._id}`} className="flex flex-col flex-1">
         <div className="relative aspect-square bg-gray-100 dark:bg-gray-800 overflow-hidden">
           {!imgLoaded && <div className="absolute inset-0 shimmer" />}
@@ -146,25 +150,33 @@ export default function ProductCard({ product, index = 0, detailPath, loginRedir
               width="400"
               height="400"
               onLoad={() => setImgLoaded(true)}
-              className={`w-full h-full object-cover transition-opacity duration-500 ${imgLoaded ? 'opacity-100' : 'opacity-0'}`}
+              // Slow zoom on hover — the single cue that most separates a premium
+              // product grid from a plain one. 700ms is deliberately unhurried.
+              className={`w-full h-full object-cover transition-all duration-700 ease-out group-hover:scale-[1.07] ${imgLoaded ? 'opacity-100' : 'opacity-0'}`}
             />
           ) : (
-            <div className="w-full h-full flex items-center justify-center text-gray-400 text-4xl">📦</div>
+            <div className="w-full h-full flex items-center justify-center text-gray-300 dark:text-gray-600">
+              <Package className="w-12 h-12" strokeWidth={1.25} aria-hidden="true" />
+            </div>
           )}
 
-          {/* Stock badges */}
+          {/* Bottom scrim so white badges and controls stay legible over pale product photography. */}
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-black/25 to-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-100" aria-hidden="true" />
+
+          {/* Stock badges — three hand-rolled pill styles collapsed onto the
+              shared .badge scale so weight, radius and tracking match. */}
           {isOutOfStock && (
-            <span className="absolute top-2 left-2 bg-red-500 text-white text-xs font-semibold px-2 py-0.5 rounded-full">
+            <span className="badge badge-neutral absolute top-3 left-3">
               Out of Stock
             </span>
           )}
           {!isOutOfStock && hasDiscount && (
-            <span className="absolute top-2 left-2 bg-red-500 text-white text-xs font-bold px-2 py-0.5 rounded-full shadow-lg">
-              -{product.discount}% OFF
+            <span className="badge badge-danger absolute top-3 left-3">
+              −{product.discount}% OFF
             </span>
           )}
           {!isOutOfStock && !hasDiscount && isLowStock && (
-            <span className="absolute top-2 left-2 bg-orange-400 text-white text-xs font-semibold px-2 py-0.5 rounded-full">
+            <span className="badge badge-warning absolute top-3 left-3">
               Only {product.stock} left
             </span>
           )}
@@ -173,14 +185,27 @@ export default function ProductCard({ product, index = 0, detailPath, loginRedir
           <button
             onClick={handleToggleWishlist}
             disabled={wishlistLoading}
-            className={`absolute top-2 right-2 w-8 h-8 rounded-full flex items-center justify-center text-base shadow transition-all ${
+            // 36px target (was 32) and a spring-ish pop on activation. The
+            // `active:scale-90` gives the tap physical feedback that the old
+            // instant colour swap lacked.
+            className={`absolute top-3 right-3 w-9 h-9 rounded-full flex items-center justify-center text-base
+                        shadow-elevated backdrop-blur-sm transition-all duration-300
+                        hover:scale-110 active:scale-90 ${
               isInWishlist
-                ? 'bg-red-500 text-white'
-                : 'bg-white/80 dark:bg-gray-800/80 text-gray-400 hover:text-red-500'
+                ? 'bg-red-500 text-white scale-105'
+                : 'bg-white/85 dark:bg-gray-900/80 text-gray-500 hover:text-red-500'
             }`}
             aria-label={isInWishlist ? 'Remove from wishlist' : 'Add to wishlist'}
           >
-            {isInWishlist ? '♥' : '♡'}
+            {/* One icon, filled or not — the old ♥/♡ glyph pair changed shape
+                AND weight between states because they are different characters
+                in the font. */}
+            <Heart
+              className={`h-[18px] w-[18px] transition-transform duration-300 ${isInWishlist ? 'animate-scale-in' : ''}`}
+              fill={isInWishlist ? 'currentColor' : 'none'}
+              strokeWidth={2}
+              aria-hidden="true"
+            />
           </button>
 
           {/* Quick View button */}
@@ -189,50 +214,73 @@ export default function ProductCard({ product, index = 0, detailPath, loginRedir
               e.preventDefault();
               setShowQuickView(true);
             }}
-            className="absolute bottom-2 right-2 w-8 h-8 rounded-full bg-white/80 dark:bg-gray-800/80 hover:bg-white dark:hover:bg-gray-700 flex items-center justify-center text-gray-600 dark:text-gray-300 shadow transition-all opacity-0 group-hover:opacity-100"
+            // Rises into place instead of just fading — and the emoji is now an
+            // outline icon that inherits currentColor like every other glyph.
+            className="absolute bottom-3 right-3 flex h-9 w-9 translate-y-2 items-center justify-center rounded-full
+                       bg-white/90 text-gray-700 opacity-0 shadow-elevated backdrop-blur-sm transition-all duration-300
+                       hover:scale-110 hover:bg-white group-hover:translate-y-0 group-hover:opacity-100
+                       dark:bg-gray-900/85 dark:text-gray-200"
             aria-label="Quick view"
           >
-            👁️
+            <Eye className="h-[18px] w-[18px]" strokeWidth={1.9} aria-hidden="true" />
           </button>
         </div>
 
-        <div className="p-4 flex flex-col flex-1">
-          <h3 className="font-medium text-gray-900 dark:text-white truncate">{product.name}</h3>
-          <div className="flex items-center gap-1 mt-1">
+        <div className="p-5 flex flex-col flex-1">
+          {/* Two lines with a reserved min-height instead of `truncate`: names
+              were being cut mid-word, and a fixed block keeps every card in the
+              row aligned regardless of name length. */}
+          <h3 className="min-h-[2.6rem] text-[15px] font-semibold leading-[1.3] text-gray-900 dark:text-white line-clamp-2">
+            {product.name}
+          </h3>
+
+          <div className="mt-2 flex items-center gap-1.5">
             <StarRating rating={product.averageRating} size="sm" />
-            <span className="text-xs text-gray-500">({product.reviewCount})</span>
+            <span className="text-xs font-medium text-gray-400">({product.reviewCount})</span>
           </div>
-          {/* Row 1 — Price only, full width, never competes for space */}
-          <div className="mt-3">
+
+          {/* Price. Moved off amber onto near-black: an amber price on the old
+              amber-tinted card had almost no separation. The discounted state
+              keeps the sale figure dark and de-emphasises the struck original,
+              which is the ordering shoppers actually scan. */}
+          <div className="mt-3.5">
             {hasDiscount ? (
-              <div className="flex items-baseline gap-1.5">
-                <span className="text-lg font-semibold text-amber-700 dark:text-amber-400">
+              <div className="flex items-baseline gap-2">
+                <span className="text-[22px] font-bold tracking-tight text-gray-900 dark:text-white">
                   ${discountedPrice.toFixed(2)}
                 </span>
-                <span className="text-sm text-gray-400 line-through">
+                <span className="text-sm font-medium text-gray-400 line-through">
                   ${product.price.toFixed(2)}
+                </span>
+                <span className="ml-auto text-xs font-semibold text-emerald-600 dark:text-emerald-400">
+                  Save ${(product.price - discountedPrice).toFixed(2)}
                 </span>
               </div>
             ) : (
-              <span className="text-lg font-semibold text-amber-900 dark:text-amber-300">
+              <span className="text-[22px] font-bold tracking-tight text-gray-900 dark:text-white">
                 ${product.price.toFixed(2)}
               </span>
             )}
           </div>
 
-          {/* Size selector — only shown when product has variants */}
+          {/* Size selector — only shown when product has variants.
+              Chips are now 24px tall with real hit area (were 10px text in a
+              0.5-padding box, below the 24px minimum for a touch target) and the
+              selected state is near-black rather than amber, so it reads as
+              "chosen" instead of "highlighted". */}
           {hasSizes && !isOutOfStock && (
-            <div className="mt-2">
+            <div className="mt-3.5">
               {/* flex-nowrap + overflow-hidden keeps all buttons on one line regardless of count */}
-              <div className="flex flex-nowrap gap-1 overflow-hidden">
+              <div className="flex flex-nowrap gap-1.5 overflow-hidden">
                 {product.sizes.map(size => (
                   <button
                     key={size}
                     onClick={(e) => { e.preventDefault(); setSelectedSize(s => s === size ? null : size); }}
-                    className={`shrink-0 px-1.5 py-0.5 text-[10px] font-medium rounded border transition-colors ${
+                    aria-pressed={selectedSize === size}
+                    className={`shrink-0 min-w-[30px] rounded-md px-2 py-1 text-[11px] font-semibold transition-all duration-200 ${
                       selectedSize === size
-                        ? 'border-amber-500 bg-amber-500 text-white'
-                        : 'border-amber-200 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:border-amber-400'
+                        ? 'bg-gray-900 text-white shadow-soft dark:bg-white dark:text-gray-900'
+                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700'
                     }`}
                   >
                     {size}
@@ -240,26 +288,33 @@ export default function ProductCard({ product, index = 0, detailPath, loginRedir
                 ))}
               </div>
               {needsSize && (
-                <p className="mt-0.5 text-[10px] text-amber-600 dark:text-amber-400">⚠ pick one</p>
+                <p className="mt-1.5 flex items-center gap-1 text-[11px] font-medium text-amber-600 dark:text-amber-400">
+                  <AlertTriangle className="h-3 w-3 shrink-0" aria-hidden="true" />
+                  Select a size
+                </p>
               )}
             </div>
           )}
 
           {/* Action footer — quantity stepper + Add to Cart, aligned consistently */}
-          <div className="mt-2">
+          <div className="mt-3">
             {isOutOfStock ? (
-              <div className="w-full text-center text-xs font-medium text-red-500 py-1.5 border border-red-200 dark:border-red-800 rounded-lg bg-red-50 dark:bg-red-900/20">
+              <div className="w-full rounded-xl bg-gray-100 py-2.5 text-center text-xs font-semibold text-gray-500 dark:bg-gray-800 dark:text-gray-400">
                 Out of Stock
               </div>
             ) : (
               <div className="flex items-center gap-2">
-                {/* Quantity stepper — fixed width, doesn't grow */}
-                <div className="flex items-center border border-amber-200 dark:border-gray-600 rounded-lg shrink-0 w-[88px]">
+                {/* Quantity stepper — fixed width, doesn't grow.
+                    Amber chrome removed: on a card whose price and CTA are also
+                    warm, an amber-bordered stepper competed with the actual CTA
+                    for attention. Neutral chrome lets the brand colour mean
+                    "this is the action". */}
+                <div className="flex items-center rounded-xl bg-gray-100 shrink-0 w-[92px] dark:bg-gray-800">
                   <button
                     onClick={(e) => { e.preventDefault(); setQty(q => Math.max(1, q - 1)); }}
                     disabled={qty <= 1}
                     aria-label="Decrease quantity"
-                    className="px-2 py-1.5 text-sm text-amber-700 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-gray-800 rounded-l-lg disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                    className="px-2.5 py-2 text-sm font-semibold text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white rounded-l-xl disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
                   >
                     −
                   </button>
@@ -277,14 +332,14 @@ export default function ProductCard({ product, index = 0, detailPath, loginRedir
                       const v = parseInt(e.target.value, 10);
                       if (isNaN(v) || v < 1) setQty(1);
                     }}
-                    className="flex-1 py-1.5 text-sm font-semibold text-gray-900 dark:text-white text-center bg-transparent border-none outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                    className="w-full min-w-0 flex-1 py-2 text-sm font-bold tabular-nums text-gray-900 dark:text-white text-center bg-transparent border-none outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                     aria-label="Quantity"
                   />
                   <button
                     onClick={(e) => { e.preventDefault(); setQty(q => Math.min(product.stock, q + 1)); }}
                     disabled={qty >= product.stock}
                     aria-label="Increase quantity"
-                    className="px-2 py-1.5 text-sm text-amber-700 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-gray-800 rounded-r-lg disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                    className="px-2.5 py-2 text-sm font-semibold text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white rounded-r-xl disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
                   >
                     +
                   </button>
@@ -298,33 +353,29 @@ export default function ProductCard({ product, index = 0, detailPath, loginRedir
                   title={isAdding ? 'Adding…' : needsSize ? 'Select a size first' : 'Add to Cart'}
                   // gap-1.5/py-1.5/px-2 kept: this button sits in a tight card
                   // footer and .btn's default padding would grow the card.
-                  className={`btn flex-1 gap-1.5 py-1.5 px-2 text-white shadow-sm disabled:cursor-not-allowed ${
+                  // rounded-xl matches the stepper beside it; the two controls
+                  // previously used different radii (lg vs lg-on-a-taller-box)
+                  // and read as parts from two different kits.
+                  className={`btn flex-1 gap-1.5 rounded-xl px-2 py-2 text-white disabled:cursor-not-allowed ${
                     needsSize
-                      ? 'bg-gray-400 dark:bg-gray-600 shadow-none opacity-70'
+                      ? 'bg-gray-300 text-gray-600 shadow-none dark:bg-gray-700 dark:text-gray-400'
                       : 'btn-brand'
                   }`}
                 >
                   {isAdding ? (
                     <>
-                      <svg className="w-3.5 h-3.5 animate-spin shrink-0" fill="none" viewBox="0 0 24 24">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-                      </svg>
-                      <span className="text-xs">Adding…</span>
+                      <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" aria-hidden="true" />
+                      <span className="text-xs font-semibold">Adding…</span>
                     </>
                   ) : needsSize ? (
                     <>
-                      <svg className="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" aria-hidden="true">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
-                      </svg>
-                      <span className="text-xs">Pick a size</span>
+                      <AlertTriangle className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                      <span className="text-xs font-semibold">Pick a size</span>
                     </>
                   ) : (
                     <>
-                      <svg className="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" aria-hidden="true">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13l-1.5 6h13M10 19a1 1 0 100 2 1 1 0 000-2zm7 0a1 1 0 100 2 1 1 0 000-2z" />
-                      </svg>
-                      <span className="text-xs">Add to Cart</span>
+                      <ShoppingCart className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                      <span className="text-xs font-semibold">Add to Cart</span>
                     </>
                   )}
                 </button>
@@ -333,15 +384,18 @@ export default function ProductCard({ product, index = 0, detailPath, loginRedir
           </div>
 
           {/* Compare checkbox — always pinned at the very bottom of every card */}
-          <div className="mt-auto pt-3 border-t border-amber-100 dark:border-gray-700">
-            <label className="flex items-center gap-2 cursor-pointer group">
+          {/* Hairline divider instead of the amber rule — a tinted border at
+              the foot of every card in a 4-up grid created a visible warm stripe
+              across the whole page. */}
+          <div className="mt-auto pt-3.5 border-t border-gray-100 dark:border-gray-800">
+            <label className="flex items-center gap-2 cursor-pointer group w-fit">
               <input
                 type="checkbox"
                 checked={isInComparison}
                 onChange={handleToggleComparison}
-                className="w-4 h-4 shrink-0 text-primary-600 border-gray-300 rounded focus:ring-primary-500"
+                className="w-4 h-4 shrink-0 rounded border-gray-300 text-gray-900 focus:ring-gray-900 dark:border-gray-600 dark:bg-gray-800 dark:text-white"
               />
-              <span className="text-xs text-gray-600 dark:text-gray-400 group-hover:text-primary-600 dark:group-hover:text-primary-400">
+              <span className="text-xs font-medium text-gray-500 transition-colors group-hover:text-gray-900 dark:text-gray-400 dark:group-hover:text-white">
                 Compare
               </span>
             </label>

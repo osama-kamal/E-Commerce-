@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { AlertTriangle, Heart, Package } from 'lucide-react';
 import { reviewsApi } from '../api/reviews';
 import { wishlistApi } from '../api/wishlist';
 import { categoriesApi } from '../api/categories';
@@ -125,7 +126,7 @@ export default function ProductDetailPage() {
       if (isInWishlist) {
         await wishlistApi.remove(product._id);
         dispatch(removeFromWishlist(product._id));
-        toast('Removed from wishlist', { icon: '💔' });
+        toast('Removed from wishlist');
       } else {
         await wishlistApi.add(product._id);
         dispatch(addToWishlist({
@@ -217,7 +218,7 @@ export default function ProductDetailPage() {
                 </div>
               </>
             ) : (
-              <div className="w-full h-full flex items-center justify-center text-gray-400 text-6xl">📦</div>
+              <div className="flex h-full w-full items-center justify-center text-gray-300 dark:text-gray-600"><Package className="h-16 w-16" strokeWidth={1.25} aria-hidden="true" /></div>
             )}
           </div>
           {product.images.length > 1 && (
@@ -331,7 +332,7 @@ export default function ProductDetailPage() {
 
           {!product.inStock ? (
             <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4 mb-4">
-              <p className="text-red-600 dark:text-red-400 font-medium">⚠️ This product is currently out of stock</p>
+              <p className="flex items-center gap-2 font-medium text-red-600 dark:text-red-400"><AlertTriangle className="h-4 w-4 shrink-0" aria-hidden="true" />This product is currently out of stock</p>
             </div>
           ) : (
             <>
@@ -445,7 +446,7 @@ export default function ProductDetailPage() {
                   : 'btn-secondary'
               }`}
             >
-              {isInWishlist ? '♥' : '♡'}
+              <Heart className="h-5 w-5" fill={isInWishlist ? 'currentColor' : 'none'} aria-hidden="true" />
             </button>
           </div>
         </div>

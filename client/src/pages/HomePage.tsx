@@ -2,6 +2,9 @@ import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useAppSelector } from '../hooks/useAppDispatch';
 import { newsletterApi } from '../api/newsletter';
+import {
+  DollarSign, Flame, FolderTree, Mail, RotateCcw, Search, SlidersHorizontal, Star, X,
+} from 'lucide-react';
 import { categoriesApi } from '../api/categories';
 import { Category } from '../types';
 import ProductCard from '../components/ProductCard';
@@ -108,36 +111,49 @@ export default function HomePage() {
 
   return (
     <div className="bg-amber-50/20 dark:bg-gray-900 min-h-screen">
-      <div className="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Hero Carousel */}
-        <div className="mb-8">
-          <HeroCarousel />
+      <div className="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 py-8 lg:py-12">
+        {/* Hero Carousel — stats are real counts from the loaded data, never
+            placeholder marketing numbers. Omitted entirely until they resolve. */}
+        <div className="mb-12 lg:mb-16">
+          <HeroCarousel
+            stats={[
+              ...(total > 0 ? [{ value: total, label: 'Products' }] : []),
+              ...(categories.length > 0 ? [{ value: categories.length, label: 'Categories' }] : []),
+            ]}
+          />
         </div>
 
-        {/* Vendor CTA banner — shown only to unauthenticated visitors */}
+        {/* Vendor CTA banner — shown only to unauthenticated visitors.
+
+            The single largest colour inconsistency on the page was here: an
+            indigo→violet→purple gradient sitting between an amber hero and an
+            amber product grid — a third accent system with no relationship to
+            the other two. Rebuilt on the near-black surface the newsletter card
+            uses, with the amber accent as the only colour. One identity, and
+            nothing lost: same copy, same links, same routes. */}
         {!isAuthenticated && (
-          <div className="mb-8 rounded-2xl overflow-hidden bg-gradient-to-r from-indigo-600 via-violet-600 to-purple-600 p-px shadow-xl">
-            <div className="rounded-2xl bg-gradient-to-r from-indigo-600 via-violet-600 to-purple-600 px-6 py-5 flex flex-col sm:flex-row items-center justify-between gap-4">
+          <div className="relative mb-12 overflow-hidden rounded-2xl bg-gray-900 px-6 py-6 shadow-elevated sm:px-8 dark:bg-gray-800">
+            <div
+              className="pointer-events-none absolute -right-16 -top-16 h-56 w-56 rounded-full bg-gradient-to-br from-amber-400/25 to-yellow-500/5 blur-3xl"
+              aria-hidden="true"
+            />
+            <div className="relative flex flex-col items-center justify-between gap-5 sm:flex-row">
               <div className="text-center sm:text-left">
-                <p className="text-xs font-semibold text-indigo-200 uppercase tracking-widest mb-1">For Entrepreneurs</p>
-                <h2 className="text-xl sm:text-2xl font-bold text-white leading-tight">
+                <p className="eyebrow mb-2 text-amber-400">For Entrepreneurs</p>
+                <h2 className="text-xl font-bold leading-tight text-white sm:text-2xl">
                   Launch your own online store — free
                 </h2>
-                <p className="text-sm text-indigo-200 mt-1">
+                <p className="mt-1.5 text-sm text-gray-400">
                   Set up in minutes. No credit card required. Full 7-day free trial.
                 </p>
               </div>
-              <div className="flex items-center gap-3 shrink-0">
-                <Link
-                  to="/start"
-                  className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-white text-indigo-700 font-bold text-sm hover:bg-indigo-50 transition-colors shadow-lg hover:shadow-xl hover:-translate-y-0.5 transform"
-                >
-                  <span>🚀</span>
+              <div className="flex shrink-0 items-center gap-4">
+                <Link to="/start" className="btn btn-brand btn-lg">
                   Start Free Trial
                 </Link>
                 <Link
                   to="/login"
-                  className="text-sm text-indigo-200 hover:text-white font-medium transition-colors"
+                  className="text-sm font-medium text-gray-400 transition-colors hover:text-white"
                 >
                   Sign in →
                 </Link>
@@ -149,11 +165,11 @@ export default function HomePage() {
         {/* Live search bar */}
         <div className="flex gap-2 mb-8">
           <div className="relative flex-1 max-w-2xl mx-auto">
-            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-amber-500 text-sm">🔍</span>
+            <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" aria-hidden="true" />
             <input
               type="text"
               placeholder="Search by name, description, or category…"
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 pl-9 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-400 dark:bg-gray-800 dark:border-gray-600 dark:text-gray-100 dark:placeholder-gray-400 transition-shadow"
+              className="w-full rounded-xl border border-gray-200 bg-white py-3 pl-11 pr-4 text-sm shadow-soft outline-none transition-all placeholder:text-gray-400 hover:border-gray-300 focus:border-gray-900 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100 dark:hover:border-gray-600 dark:focus:border-gray-400"
               value={searchInput}
               onChange={e => setSearchInput(e.target.value)}
             />
@@ -176,7 +192,7 @@ export default function HomePage() {
             className="lg:hidden fixed bottom-20 left-4 z-40 bg-primary-600 text-white p-3 md:p-4 rounded-full shadow-2xl hover:bg-primary-700 transition-all"
             aria-label="Open filters"
           >
-            <span className="text-xl md:text-2xl">⚙️</span>
+            <SlidersHorizontal className="h-5 w-5 md:h-6 md:w-6" aria-hidden="true" />
           </button>
 
           {/* Mobile Filters Modal */}
@@ -199,7 +215,7 @@ export default function HomePage() {
                 <div className="space-y-4">
                   {/* Categories */}
                   <div>
-                    <h3 className="font-bold text-gray-900 dark:text-white mb-2">📂 Categories</h3>
+                    <h3 className="mb-2.5 flex items-center gap-2 text-[13px] font-semibold text-gray-900 dark:text-white"><FolderTree className="h-4 w-4 text-gray-400" aria-hidden="true" />Categories</h3>
                     <div className="space-y-1">
                       <button
                         onClick={() => { handleCategoryChange(''); setShowMobileFilters(false); }}
@@ -226,7 +242,7 @@ export default function HomePage() {
 
                   {/* Price Range */}
                   <div>
-                    <h3 className="font-bold text-gray-900 dark:text-white mb-2">💰 Price Range</h3>
+                    <h3 className="mb-2.5 flex items-center gap-2 text-[13px] font-semibold text-gray-900 dark:text-white"><DollarSign className="h-4 w-4 text-gray-400" aria-hidden="true" />Price Range</h3>
                     <div className="flex gap-2">
                       <input
                         type="number"
@@ -247,7 +263,7 @@ export default function HomePage() {
 
                   {/* Filters */}
                   <div>
-                    <h3 className="font-bold text-gray-900 dark:text-white mb-2">⚙️ Filters</h3>
+                    <h3 className="mb-2.5 flex items-center gap-2 text-[13px] font-semibold text-gray-900 dark:text-white"><SlidersHorizontal className="h-4 w-4 text-gray-400" aria-hidden="true" />Refine</h3>
                     <label className="flex items-center gap-2 mb-3">
                       <input
                         type="checkbox"
@@ -263,7 +279,7 @@ export default function HomePage() {
                         onSale ? 'bg-red-500 text-white' : 'bg-red-50 dark:bg-red-900/20 text-red-600 border border-red-200'
                       }`}
                     >
-                      🔥 {onSale ? 'Hide Offers' : 'Show Offers'}
+                      <Flame className="h-4 w-4 shrink-0" aria-hidden="true" />{onSale ? 'Hide Offers' : 'Show Offers'}
                     </button>
                   </div>
 
@@ -281,110 +297,134 @@ export default function HomePage() {
             </div>
           )}
 
-          {/* LEFT SIDEBAR - Filters */}
+          {/* LEFT SIDEBAR - Filters
+              Was three stacked cards, each with its own amber tint, amber border
+              and shadow-lg. Three competing boxes for what is conceptually one
+              control panel, and the warm tint fought the product photography
+              beside it. Now a single neutral panel divided by hairlines — the
+              structure Shopify, Stripe and Linear all converge on because it
+              lets the CONTENT carry the colour. */}
           <aside className="w-64 shrink-0 hidden lg:block">
-            <div className="sticky top-20 space-y-4">
-              {/* Categories Card */}
-              <div className="card p-4 backdrop-blur-md bg-amber-50/50 dark:bg-gray-800/90 border border-amber-100 dark:border-gray-700 shadow-lg">
-                <h3 className="font-bold text-amber-800 dark:text-amber-400 mb-3 flex items-center gap-2">
-                  <span className="text-amber-600">📂</span> Categories
-                </h3>
-                <ul className="space-y-1 max-h-64 overflow-y-auto">
-                  <li>
-                    <button
-                      onClick={() => handleCategoryChange('')}
-                      className={`text-sm w-full text-left px-3 py-2 rounded-lg transition-all ${
-                        !selectedCategory
-                          ? 'bg-gradient-to-r from-amber-500 to-yellow-600 text-white font-medium shadow-sm shadow-amber-200'
-                          : 'text-gray-600 dark:text-gray-300 hover:bg-amber-50 dark:hover:bg-gray-700'
-                      }`}
-                    >
-                      All Products
-                    </button>
-                  </li>
-                  {categories.map(cat => (
-                    <li key={cat._id}>
+            <div className="sticky top-20 space-y-3">
+              <div className="surface overflow-hidden">
+
+                {/* Categories */}
+                <div className="p-4">
+                  <h3 className="mb-3 flex items-center gap-2 text-[13px] font-semibold text-gray-900 dark:text-white">
+                    <FolderTree className="h-4 w-4 text-gray-400" aria-hidden="true" />
+                    Categories
+                  </h3>
+                  <ul className="space-y-0.5 max-h-64 overflow-y-auto -mx-1 px-1">
+                    <li>
                       <button
-                        onClick={() => handleCategoryChange(cat._id)}
-                        className={`text-sm w-full text-left px-3 py-2 rounded-lg transition-all ${
-                          selectedCategory === cat._id
-                            ? 'bg-gradient-to-r from-amber-500 to-yellow-600 text-white font-medium shadow-sm shadow-amber-200'
-                            : 'text-gray-600 dark:text-gray-300 hover:bg-amber-50 dark:hover:bg-gray-700'
+                        onClick={() => handleCategoryChange('')}
+                        aria-current={!selectedCategory ? 'true' : undefined}
+                        className={`w-full rounded-lg px-3 py-2 text-left text-[13px] transition-colors ${
+                          !selectedCategory
+                            ? 'bg-gray-900 font-semibold text-white dark:bg-white dark:text-gray-900'
+                            : 'font-medium text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800'
                         }`}
                       >
-                        {cat.level > 0 && <span className="mr-1 text-gray-400">└</span>}
-                        {cat.name}
+                        All Products
                       </button>
                     </li>
-                  ))}
-                </ul>
-              </div>
-
-              {/* Price Range Card */}
-              <div className="card p-4 backdrop-blur-md bg-amber-50/50 dark:bg-gray-800/90 border border-amber-100 dark:border-gray-700 shadow-lg">
-                <h3 className="font-bold text-amber-800 dark:text-amber-400 mb-3 flex items-center gap-2">
-                  <span className="text-amber-600">💰</span> Price Range
-                </h3>
-                <div className="flex gap-2">
-                  <input
-                    type="number"
-                    placeholder="Min"
-                    className="input text-sm"
-                    value={minPrice}
-                    onChange={e => { setMinPrice(e.target.value); setPage(1); }}
-                  />
-                  <input
-                    type="number"
-                    placeholder="Max"
-                    className="input text-sm"
-                    value={maxPrice}
-                    onChange={e => { setMaxPrice(e.target.value); setPage(1); }}
-                  />
+                    {categories.map(cat => (
+                      <li key={cat._id}>
+                        <button
+                          onClick={() => handleCategoryChange(cat._id)}
+                          aria-current={selectedCategory === cat._id ? 'true' : undefined}
+                          // Nesting is now real indentation instead of a `└`
+                          // character, which sat on the text baseline and made
+                          // child rows look vertically misaligned.
+                          style={cat.level > 0 ? { paddingLeft: `${0.75 + cat.level * 0.75}rem` } : undefined}
+                          className={`w-full rounded-lg px-3 py-2 text-left text-[13px] transition-colors ${
+                            selectedCategory === cat._id
+                              ? 'bg-gray-900 font-semibold text-white dark:bg-white dark:text-gray-900'
+                              : 'font-medium text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800'
+                          }`}
+                        >
+                          {cat.name}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
                 </div>
-              </div>
 
-              {/* Filters Card */}
-              <div className="card p-4 backdrop-blur-md bg-amber-50/50 dark:bg-gray-800/90 border border-amber-100 dark:border-gray-700 shadow-lg">
-                <h3 className="font-bold text-amber-800 dark:text-amber-400 mb-3 flex items-center gap-2">
-                  <span className="text-amber-600">⚙️</span> Filters
-                </h3>
-                <div className="space-y-3">
-                  <label className="flex items-center gap-2 cursor-pointer group">
+                {/* Price */}
+                <div className="border-t border-gray-100 p-4 dark:border-gray-800">
+                  <h3 className="mb-3 flex items-center gap-2 text-[13px] font-semibold text-gray-900 dark:text-white">
+                    <DollarSign className="h-4 w-4 text-gray-400" aria-hidden="true" />
+                    Price Range
+                  </h3>
+                  <div className="flex items-center gap-2">
                     <input
-                      type="checkbox"
-                      checked={inStock}
-                      onChange={e => { setInStock(e.target.checked); setPage(1); }}
-                      className="rounded text-primary-600"
+                      type="number"
+                      placeholder="Min"
+                      aria-label="Minimum price"
+                      className="input text-sm"
+                      value={minPrice}
+                      onChange={e => { setMinPrice(e.target.value); setPage(1); }}
                     />
-                    <span className="text-sm text-gray-700 dark:text-gray-300 group-hover:text-primary-600">
-                      In stock only
-                    </span>
-                  </label>
+                    <span className="text-gray-300 dark:text-gray-600" aria-hidden="true">–</span>
+                    <input
+                      type="number"
+                      placeholder="Max"
+                      aria-label="Maximum price"
+                      className="input text-sm"
+                      value={maxPrice}
+                      onChange={e => { setMaxPrice(e.target.value); setPage(1); }}
+                    />
+                  </div>
+                </div>
 
-                  <button
-                    onClick={() => {
-                      setOnSale(!onSale);
-                      setSelectedCategory('');
-                      setPage(1);
-                    }}
-                    className={`w-full text-sm px-4 py-2.5 rounded-lg font-semibold transition-all flex items-center justify-center gap-2 ${
-                      onSale
-                        ? 'bg-red-500 text-white shadow-lg hover:bg-red-600'
-                        : 'bg-gradient-to-r from-red-50 to-orange-50 dark:from-red-900/20 dark:to-orange-900/20 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-800 hover:from-red-100 hover:to-orange-100'
-                    }`}
-                  >
-                    <span className="text-lg">🔥</span>
-                    <span>{onSale ? 'Hide Offers' : 'Show Offers'}</span>
-                  </button>
+                {/* Availability + offers */}
+                <div className="border-t border-gray-100 p-4 dark:border-gray-800">
+                  <h3 className="mb-3 flex items-center gap-2 text-[13px] font-semibold text-gray-900 dark:text-white">
+                    <SlidersHorizontal className="h-4 w-4 text-gray-400" aria-hidden="true" />
+                    Refine
+                  </h3>
+                  <div className="space-y-3">
+                    <label className="flex cursor-pointer items-center gap-2.5 group w-fit">
+                      <input
+                        type="checkbox"
+                        checked={inStock}
+                        onChange={e => { setInStock(e.target.checked); setPage(1); }}
+                        className="h-4 w-4 rounded border-gray-300 text-gray-900 focus:ring-gray-900 dark:border-gray-600 dark:bg-gray-800 dark:text-white"
+                      />
+                      <span className="text-[13px] font-medium text-gray-600 transition-colors group-hover:text-gray-900 dark:text-gray-300 dark:group-hover:text-white">
+                        In stock only
+                      </span>
+                    </label>
+
+                    {/* Toggle, so it now looks like one — an outlined chip that
+                        fills when active, rather than a red gradient panel that
+                        read as a permanent alert. */}
+                    <button
+                      onClick={() => {
+                        setOnSale(!onSale);
+                        setSelectedCategory('');
+                        setPage(1);
+                      }}
+                      aria-pressed={onSale}
+                      className={`flex w-full items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-[13px] font-semibold transition-all ${
+                        onSale
+                          ? 'bg-red-600 text-white shadow-soft hover:bg-red-700'
+                          : 'border border-gray-200 text-gray-600 hover:border-red-300 hover:text-red-600 dark:border-gray-700 dark:text-gray-300 dark:hover:border-red-800 dark:hover:text-red-400'
+                      }`}
+                    >
+                      <Flame className="h-4 w-4 shrink-0" aria-hidden="true" />
+                      {onSale ? 'Hide Offers' : 'Show Offers'}
+                    </button>
+                  </div>
                 </div>
               </div>
 
-              {/* Reset Button */}
               <button
                 onClick={handleReset}
-                className="btn-secondary w-full text-sm shadow-md hover:shadow-lg transition-shadow"
+                className="btn btn-ghost w-full gap-2 text-[13px] text-gray-500 dark:text-gray-400"
               >
-                🔄 Reset All Filters
+                <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" />
+                Reset all filters
               </button>
             </div>
           </aside>
@@ -417,12 +457,12 @@ export default function HomePage() {
             </div>
 
             {loading ? (
-              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+              <div className="grid grid-cols-2 gap-4 sm:gap-5 md:grid-cols-3 lg:gap-6 xl:grid-cols-4">
                 {Array.from({ length: 8 }).map((_, i) => <ProductCardSkeleton key={i} />)}
               </div>
             ) : products.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-24 text-center card">
-                <p className="text-5xl mb-4">🔍</p>
+                <div className="mb-5 flex h-14 w-14 items-center justify-center rounded-2xl bg-gray-100 dark:bg-gray-800"><Search className="h-6 w-6 text-gray-400" aria-hidden="true" /></div>
                 <h3 className="text-lg font-semibold text-gray-700 dark:text-gray-300 mb-1">
                   No products found
                 </h3>
@@ -434,7 +474,7 @@ export default function HomePage() {
                 </button>
               </div>
             ) : (
-              <div className={`grid grid-cols-2 md:grid-cols-3 lg:grid-cols-3 xl:grid-cols-4 gap-4 transition-opacity duration-200 ${isPlaceholderData ? 'opacity-60' : 'opacity-100'}`}>
+              <div className={`grid grid-cols-2 gap-4 sm:gap-5 md:grid-cols-3 lg:gap-6 xl:grid-cols-4 transition-opacity duration-200 ${isPlaceholderData ? 'opacity-60' : 'opacity-100'}`}>
                 {products.map((p, i) => (
                   <ProductCard key={p._id} product={p} index={i} />
                 ))}
@@ -469,9 +509,14 @@ export default function HomePage() {
           <aside className="w-72 shrink-0 hidden xl:block">
             <div className="sticky top-20 space-y-4">
               {/* Hot Deals Card */}
-              <div className="card p-4 backdrop-blur-md bg-gradient-to-br from-red-50 to-orange-50 dark:from-red-900/20 dark:to-orange-900/20 border border-red-200 dark:border-red-800 shadow-lg">
-                <h3 className="font-bold text-red-600 dark:text-red-400 mb-3 flex items-center gap-2">
-                  <span className="text-xl">🔥</span> Hot Deals
+              {/* Neutral surface with a coloured ICON rather than a coloured
+                  panel. A red-to-orange gradient card next to an amber one next
+                  to the amber hero meant three warm blocks stacked down the
+                  right rail with no hierarchy between them. */}
+              <div className="surface p-4">
+                <h3 className="mb-3.5 flex items-center gap-2 text-[13px] font-semibold text-gray-900 dark:text-white">
+                  <Flame className="h-4 w-4 text-red-500" aria-hidden="true" />
+                  Hot Deals
                 </h3>
                 <div className="space-y-3">
                   {products
@@ -512,15 +557,22 @@ export default function HomePage() {
                       </a>
                     ))}
                   {products.filter(p => p.discount > 0).length === 0 && (
-                    <p className="text-sm text-gray-500 text-center py-4">No deals available</p>
+                    // Was the bare string "No deals available". An empty state
+                    // needs a mark, a reason and a way forward.
+                    <div className="py-5 text-center">
+                      <Flame className="mx-auto mb-2 h-6 w-6 text-gray-300 dark:text-gray-600" aria-hidden="true" />
+                      <p className="text-xs font-medium text-gray-500 dark:text-gray-400">No active deals</p>
+                      <p className="mt-0.5 text-[11px] text-gray-400">Check back soon for new offers.</p>
+                    </div>
                   )}
                 </div>
               </div>
 
               {/* Top Rated Card */}
-              <div className="card p-4 backdrop-blur-md bg-gradient-to-br from-amber-50 to-yellow-50 dark:from-yellow-900/20 dark:to-amber-900/20 border border-amber-100 dark:border-yellow-800 shadow-lg">
-                <h3 className="font-bold text-amber-700 dark:text-amber-400 mb-3 flex items-center gap-2">
-                  <span className="text-xl text-amber-600">⭐</span> Top Rated
+              <div className="surface p-4">
+                <h3 className="mb-3.5 flex items-center gap-2 text-[13px] font-semibold text-gray-900 dark:text-white">
+                  <Star className="h-4 w-4 text-amber-500" fill="currentColor" aria-hidden="true" />
+                  Top Rated
                 </h3>
                 <div className="space-y-3">
                   {products
@@ -548,7 +600,7 @@ export default function HomePage() {
                             {product.name}
                           </h4>
                           <div className="flex items-center gap-1 mt-1">
-                            <span className="text-yellow-500">⭐</span>
+                            <Star className="h-3 w-3 text-amber-500" fill="currentColor" aria-hidden="true" />
                             <span className="text-sm font-bold text-gray-900 dark:text-white">
                               {product.averageRating.toFixed(1)}
                             </span>
@@ -563,32 +615,46 @@ export default function HomePage() {
                       </a>
                     ))}
                   {products.filter(p => p.averageRating >= 4).length === 0 && (
-                    <p className="text-sm text-gray-500 text-center py-4">No top rated products</p>
+                    <div className="py-5 text-center">
+                      <Star className="mx-auto mb-2 h-6 w-6 text-gray-300 dark:text-gray-600" aria-hidden="true" />
+                      <p className="text-xs font-medium text-gray-500 dark:text-gray-400">No rated products yet</p>
+                      <p className="mt-0.5 text-[11px] text-gray-400">Reviews will appear here.</p>
+                    </div>
                   )}
                 </div>
               </div>
 
-              {/* Newsletter Card */}
-              <div className="card p-4 backdrop-blur-md bg-gradient-to-br from-amber-50 to-yellow-50 dark:from-amber-900/20 dark:to-yellow-900/20 border border-amber-100 dark:border-amber-800 shadow-lg">
-                <h3 className="font-bold text-amber-700 dark:text-amber-400 mb-2 flex items-center gap-2">
-                  <span className="text-xl text-amber-600">📧</span> Newsletter
+              {/* Newsletter — the one card in the rail that SHOULD carry brand
+                  colour, because it is the only one asking for an action. Now it
+                  is the sole warm surface here instead of the third in a row,
+                  so the eye lands on it. */}
+              <div className="relative overflow-hidden rounded-2xl bg-gray-900 p-5 text-white shadow-elevated dark:bg-gray-800">
+                <div
+                  className="pointer-events-none absolute -right-8 -top-8 h-28 w-28 rounded-full bg-gradient-to-br from-amber-400/30 to-yellow-500/10 blur-2xl"
+                  aria-hidden="true"
+                />
+                <h3 className="relative mb-1.5 flex items-center gap-2 text-[13px] font-semibold">
+                  <Mail className="h-4 w-4 text-amber-400" aria-hidden="true" />
+                  Newsletter
                 </h3>
-                <p className="text-xs text-gray-600 dark:text-gray-400 mb-3">
-                  Subscribe to get special offers and updates!
+                <p className="relative mb-3.5 text-xs leading-relaxed text-gray-300">
+                  Subscribe to get special offers and updates.
                 </p>
                 <input
                   type="email"
                   placeholder="Your email"
-                  className="input text-sm mb-2 w-full"
+                  aria-label="Email address for newsletter"
+                  className="relative mb-2 w-full rounded-lg border border-white/15 bg-white/10 px-3 py-2 text-sm text-white placeholder-gray-400 outline-none transition-colors focus:border-amber-400/60"
                   value={newsletterEmail}
                   onChange={(e) => setNewsletterEmail(e.target.value)}
                 />
                 <button
                   onClick={handleNewsletterSubscribe}
                   disabled={subscribing}
-                  className="w-full text-sm py-2 px-4 rounded-lg font-medium text-white bg-gradient-to-r from-amber-500 to-yellow-600 hover:from-amber-600 hover:to-yellow-700 shadow-sm shadow-amber-200 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                  aria-busy={subscribing}
+                  className={`btn btn-brand relative w-full text-sm ${subscribing ? 'btn-loading' : ''}`}
                 >
-                  {subscribing ? 'Subscribing...' : 'Subscribe'}
+                  {subscribing ? 'Subscribing…' : 'Subscribe'}
                 </button>
               </div>
             </div>

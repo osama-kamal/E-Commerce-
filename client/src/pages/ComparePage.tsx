@@ -1,4 +1,5 @@
 import { useNavigate } from 'react-router-dom';
+import { Scale } from 'lucide-react';
 import { useAppSelector, useAppDispatch } from '../hooks/useAppDispatch';
 import { removeFromComparison, clearComparison } from '../store/comparisonSlice';
 import StarRating from '../components/StarRating';
@@ -13,12 +14,14 @@ export default function ComparePage() {
     return (
       <div className="container mx-auto px-4 py-16 text-center">
         <div className="max-w-md mx-auto">
-          <div className="text-6xl mb-4">📊</div>
-          <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">
-            No Products to Compare
+          <div className="mx-auto mb-6 flex h-20 w-20 items-center justify-center rounded-2xl bg-gray-100 dark:bg-gray-800">
+            <Scale className="h-9 w-9 text-gray-400" strokeWidth={1.5} aria-hidden="true" />
+          </div>
+          <h2 className="mb-2 text-2xl font-bold tracking-tight text-gray-900 dark:text-white">
+            Nothing to compare yet
           </h2>
-          <p className="text-gray-600 dark:text-gray-400 mb-6">
-            Add products from the shop to compare their features
+          <p className="mx-auto mb-6 max-w-sm text-sm leading-relaxed text-gray-500 dark:text-gray-400">
+            Tick “Compare” on any product card to line up specs and prices side by side.
           </p>
           <button
             onClick={() => navigate('/')}
@@ -33,7 +36,7 @@ export default function ComparePage() {
 
   const handleRemove = (productId: string) => {
     dispatch(removeFromComparison(productId));
-    toast('Product removed from comparison', { icon: '📊' });
+    toast('Product removed from comparison');
   };
 
   const handleClearAll = () => {

@@ -11,11 +11,41 @@
  *  - Copyright line
  */
 
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
+import { Mail } from 'lucide-react';
+import { newsletterApi } from '../api/newsletter';
+import toast from 'react-hot-toast';
 
 const YEAR = new Date().getFullYear();
 
+// NOTE: no social icons here on purpose. Lucide v1 dropped brand marks, and more
+// importantly the real Vendbase handles are unknown — linking "Vendbase on X" to
+// x.com's homepage would be a fabricated profile. The support address below is
+// the one contact route that actually exists in this codebase. Drop real profile
+// URLs in and a social row can be added in a minute.
+const SUPPORT_EMAIL = 'vendbase019@gmail.com';
+
 export default function Footer() {
+  // Same newsletter client the sidebar card uses — no new endpoint.
+  const [email, setEmail] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const handleSubscribe = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!email) return;
+    setBusy(true);
+    try {
+      const res = await newsletterApi.subscribe(email);
+      toast.success(res.data.message || 'Thanks for subscribing!');
+      setEmail('');
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || 'Failed to subscribe');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <footer className="bg-gray-950 text-gray-400 mt-16">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
@@ -73,12 +103,56 @@ export default function Footer() {
           </div>
         </div>
 
+        {/* Newsletter strip.
+            A premium storefront footer earns its height by doing something; this
+            one only listed links. The field posts to the same /?search-free
+            newsletter route the sidebar card already uses — no new API surface,
+            it simply reuses the existing subscribe endpoint via the same client. */}
+        <div className="mb-10 rounded-2xl border border-gray-800 bg-gray-900/60 p-6 sm:p-8">
+          <div className="flex flex-col items-start justify-between gap-5 lg:flex-row lg:items-center">
+            <div>
+              <h4 className="text-lg font-semibold tracking-tight text-white">Stay in the loop</h4>
+              <p className="mt-1 text-sm text-gray-400">
+                New arrivals and offers, straight to your inbox.
+              </p>
+            </div>
+            <form onSubmit={handleSubscribe} className="flex w-full max-w-md gap-2">
+              <input
+                type="email"
+                required
+                value={email}
+                onChange={e => setEmail(e.target.value)}
+                placeholder="you@example.com"
+                aria-label="Email address"
+                className="min-w-0 flex-1 rounded-lg border border-gray-700 bg-gray-950 px-4 py-2.5 text-sm text-white outline-none transition-colors placeholder:text-gray-500 focus:border-amber-400/60"
+              />
+              <button
+                type="submit"
+                disabled={busy}
+                aria-busy={busy}
+                className={`btn btn-brand shrink-0 ${busy ? 'btn-loading' : ''}`}
+              >
+                {busy ? 'Joining…' : 'Subscribe'}
+              </button>
+            </form>
+          </div>
+        </div>
+
         {/* Bottom bar */}
-        <div className="border-t border-gray-800 pt-6 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
+        <div className="flex flex-col items-center justify-between gap-4 border-t border-gray-800 pt-6 text-xs sm:flex-row">
           <p>© {YEAR} Vendbase. All rights reserved.</p>
-          <p className="text-gray-600">
-            Built for modern e-commerce.
-          </p>
+
+          <a
+            href={`https://mail.google.com/mail/?view=cm&fs=1&to=${SUPPORT_EMAIL}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-2 rounded-lg px-3 py-1.5 text-gray-500 transition-colors hover:bg-gray-800 hover:text-white"
+          >
+            <Mail className="h-4 w-4" aria-hidden="true" />
+            {SUPPORT_EMAIL}
+          </a>
+
+          <p className="text-gray-600">Built for modern e-commerce.</p>
         </div>
       </div>
     </footer>

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
+import { Package } from 'lucide-react';
 import { ordersApi } from '../api/orders';
 import { useAppSelector } from '../hooks/useAppDispatch';
 import { Order } from '../types';
@@ -149,10 +150,15 @@ export default function ProfilePage() {
           ))}
         </div>
       ) : orders.length === 0 ? (
-        <div className="card p-10 text-center">
-          <p className="text-4xl mb-3">📦</p>
-          <p className="text-gray-500 dark:text-gray-400">No orders yet.</p>
-          <button onClick={() => navigate('/')} className="btn-primary mt-4 px-6">Start Shopping</button>
+        <div className="surface p-10 text-center">
+          <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-2xl bg-gray-100 dark:bg-gray-800">
+            <Package className="h-7 w-7 text-gray-400" strokeWidth={1.5} aria-hidden="true" />
+          </div>
+          <h3 className="mb-1.5 text-lg font-semibold tracking-tight text-gray-900 dark:text-white">No orders yet</h3>
+          <p className="mx-auto mb-6 max-w-xs text-sm leading-relaxed text-gray-500 dark:text-gray-400">
+            Your order history will appear here after your first purchase.
+          </p>
+          <button onClick={() => navigate('/')} className="btn btn-brand">Start Shopping</button>
         </div>
       ) : (
         <div className="space-y-3">
