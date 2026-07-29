@@ -1,6 +1,20 @@
 # Render Blueprint — deploys the Express backend as a Web Service
 # Docs: https://render.com/docs/blueprint-spec
 #
+# ⚠️  THIS IS AN ALTERNATIVE BACKEND HOST, NOT THE ACTIVE ONE.
+#
+# The frontend currently proxies /api to Railway — see the `rewrites` block in
+# client/vercel.json. Vercel does not support environment interpolation in
+# rewrite destinations, so that URL is necessarily hardcoded.
+#
+# If you deploy the backend here instead of Railway you MUST also:
+#   1. update the rewrite destination in client/vercel.json to the Render URL,
+#   2. set CORS_ORIGINS below to the actual Vercel domain,
+#   3. re-point any Stripe/Paymob webhook URLs at the new host.
+#
+# Running both at once is fine, but only the host named in vercel.json receives
+# frontend traffic.
+#
 # How to use:
 #   1. Go to https://dashboard.render.com/select-repo
 #   2. Select your GitHub repo (osama-kamal/E-Commerce-)

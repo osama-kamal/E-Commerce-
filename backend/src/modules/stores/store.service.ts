@@ -1,6 +1,8 @@
 import { Types } from 'mongoose';
 import { Store, IStore, SubscriptionPlan, SubscriptionStatus } from './store.model';
 import { createError } from '../../middleware/errorHandler';
+import { escapeHtml } from '../../utils/escapeHtml';
+import { getPlanLimits } from '../../config/planLimits';
 
 export interface CreateStoreInput {
   name: string;
@@ -18,11 +20,81 @@ export interface UpdateStoreInput {
   isActive?: boolean;
 }
 
+// ── Plan capability helpers ───────────────────────────────────────────────────
+
+/**
+ * Capabilities a plan grants, for the client to gate UI against.
+ *
+ * PLAN_LIMITS declared six limits and only `maxProducts` was ever read, so every
+ * paid differentiator was free. This exposes the boolean capabilities so the
+ * storefront can hide platform branding on plans that paid to remove it, without
+ * duplicating the plan table in the frontend (which would drift).
+ */
+export function getPlanCapabilities(plan: string) {
+  const limits = getPlanLimits(plan);
+  return {
+    customDomain: limits.customDomain,
+    removeBranding: limits.removeBranding,
+    // NOTE: apiAccess is reported but NOT enforced anywhere — this codebase has
+    // no API-key mechanism or separate API surface to gate. Enforcing it against
+    // ordinary JWT traffic would break the app. It needs that feature first.
+    apiAccess: limits.apiAccess,
+    maxProducts: limits.maxProducts,
+    maxOrdersPerMonth: limits.maxOrdersPerMonth,
+    maxStores: limits.maxStores,
+  };
+}
+
+/**
+ * Throws when the owner already holds as many stores as their plan allows.
+ *
+ * An owner's allowance is taken from the most permissive plan among the stores
+ * they already own — upgrading any one store lifts the cap, which matches how
+ * the pricing page presents it. A first store is always permitted.
+ */
+async function assertCanCreateStore(ownerId: string): Promise<void> {
+  const owned = await Store.find({ ownerId: new Types.ObjectId(ownerId) })
+    .select('subscriptionPlan')
+    .lean();
+
+  if (owned.length === 0) return; // first store is always allowed
+
+  const allowance = owned.reduce((best, s) => {
+    const max = getPlanLimits(s.subscriptionPlan).maxStores;
+    if (max === -1 || best === -1) return -1; // unlimited wins
+    return Math.max(best, max);
+  }, 0);
+
+  if (allowance === -1) return;
+
+  if (owned.length >= allowance) {
+    throw createError(
+      `Your plan allows a maximum of ${allowance} store${allowance === 1 ? '' : 's'}. ` +
+      `Upgrade to create more.`,
+      403,
+      'PLAN_LIMIT_EXCEEDED'
+    );
+  }
+}
+
+/** Throws when the store's plan does not include custom domains. */
+function assertCanUseCustomDomain(plan: string): void {
+  if (!getPlanLimits(plan).customDomain) {
+    throw createError(
+      'Custom domains are not available on your current plan. Upgrade to connect your own domain.',
+      403,
+      'PLAN_LIMIT_EXCEEDED'
+    );
+  }
+}
+
 // ── Create a new store ────────────────────────────────────────────────────────
 
 export async function createStore(input: CreateStoreInput): Promise<IStore> {
   const existing = await Store.findOne({ slug: input.slug.toLowerCase() });
   if (existing) throw createError('Store slug is already taken', 409, 'CONFLICT');
+
+  await assertCanCreateStore(input.ownerId);
 
   const store = await Store.create({
     name: input.name,
@@ -70,6 +142,14 @@ export async function getStoresByOwner(ownerId: string): Promise<IStore[]> {
 
 export async function updateStore(storeId: string, ownerId: string, input: UpdateStoreInput): Promise<IStore> {
   if (!Types.ObjectId.isValid(storeId)) throw createError('Invalid store ID', 400, 'BAD_REQUEST');
+
+  // Custom domains are a paid capability. The owner-facing update path used to
+  // accept one on any plan, including free.
+  if (input.customDomain) {
+    const current = await Store.findById(storeId).select('subscriptionPlan').lean();
+    if (!current) throw createError('Store not found or access denied', 404, 'NOT_FOUND');
+    assertCanUseCustomDomain(current.subscriptionPlan);
+  }
 
   if (input.slug) {
     const conflict = await Store.findOne({ slug: input.slug.toLowerCase(), _id: { $ne: storeId } });
@@ -206,11 +286,57 @@ export async function requestPlanUpgrade(
     requestedPlan,
   });
 
-  // Fire-and-forget email to the platform admin
-  const adminEmail = process.env.ADMIN_NOTIFY_EMAIL ?? 'vendbase019@gmail.com';
+  // Notify the platform operator. No hardcoded fallback address — see
+  // config.ADMIN_NOTIFY_EMAIL. The upgrade request is already persisted on the
+  // store above (requestedPlan / subscriptionStatus), so a missing address
+  // delays the notification rather than losing the request.
+  const { config } = await import('../../config/index');
+  const adminEmail = config.ADMIN_NOTIFY_EMAIL;
+
+  if (!adminEmail) {
+    const { logger } = await import('../../utils/logger');
+    logger.warn('requestPlanUpgrade: ADMIN_NOTIFY_EMAIL not configured — notification not sent', {
+      storeId, storeName, ownerEmail, requestedPlan,
+    });
+    return;
+  }
 
   const { emailService } = await import('../../services/email.service');
-  const subject = `[Plan Upgrade Request] ${storeName} → ${requestedPlan}`;
+  const { subject, html, text } = buildPlanUpgradeRequestEmail({
+    storeId,
+    storeName,
+    ownerEmail,
+    requestedPlan,
+  });
+
+  await emailService.sendEmail({ to: adminEmail, subject, html, text });
+}
+
+/**
+ * Builds the plan-upgrade notification sent to the PLATFORM operator.
+ *
+ * Extracted from requestPlanUpgrade so the escaping is directly testable.
+ *
+ * `storeName` and `ownerEmail` are tenant-controlled and were previously
+ * interpolated raw into the HTML, letting any store owner inject markup —
+ * a working phishing link or a tracking pixel — into the platform owner's inbox.
+ * `storeId` is an ObjectId and `requestedPlan` is validated against a fixed list
+ * before reaching here, but both are escaped anyway rather than relying on that.
+ */
+export function buildPlanUpgradeRequestEmail(input: {
+  storeId: string;
+  storeName: string;
+  ownerEmail: string;
+  requestedPlan: string;
+}): { subject: string; html: string; text: string } {
+  const storeName = escapeHtml(input.storeName);
+  const ownerEmail = escapeHtml(input.ownerEmail);
+  const storeId = escapeHtml(input.storeId);
+  const plan = escapeHtml(input.requestedPlan.toUpperCase());
+
+  // Subject and text bodies are not HTML, so they use the raw values.
+  const subject = `[Plan Upgrade Request] ${input.storeName} → ${input.requestedPlan}`;
+
   const html = `
     <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:24px;">
       <h2 style="color:#4f46e5;">Plan Upgrade Request</h2>
@@ -218,7 +344,7 @@ export async function requestPlanUpgrade(
         <tr><td style="padding:8px;color:#666;">Store</td><td style="padding:8px;font-weight:bold;">${storeName}</td></tr>
         <tr><td style="padding:8px;color:#666;">Store ID</td><td style="padding:8px;font-family:monospace;">${storeId}</td></tr>
         <tr><td style="padding:8px;color:#666;">Owner Email</td><td style="padding:8px;">${ownerEmail}</td></tr>
-        <tr><td style="padding:8px;color:#666;">Requested Plan</td><td style="padding:8px;font-weight:bold;color:#4f46e5;">${requestedPlan.toUpperCase()}</td></tr>
+        <tr><td style="padding:8px;color:#666;">Requested Plan</td><td style="padding:8px;font-weight:bold;color:#4f46e5;">${plan}</td></tr>
       </table>
       <p style="margin-top:16px;color:#444;">
         To activate this plan, use the admin panel or run:<br/>
@@ -228,7 +354,8 @@ export async function requestPlanUpgrade(
       </p>
     </div>
   `;
-  const text = `Plan Upgrade Request\nStore: ${storeName} (${storeId})\nOwner: ${ownerEmail}\nRequested: ${requestedPlan}`;
 
-  await emailService.sendEmail({ to: adminEmail, subject, html, text });
+  const text = `Plan Upgrade Request\nStore: ${input.storeName} (${input.storeId})\nOwner: ${input.ownerEmail}\nRequested: ${input.requestedPlan}`;
+
+  return { subject, html, text };
 }

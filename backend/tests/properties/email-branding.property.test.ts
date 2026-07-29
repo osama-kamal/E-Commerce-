@@ -20,12 +20,9 @@ import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 const mockSendMail = jest.fn<() => Promise<{ messageId: string }>>().mockResolvedValue({ messageId: 'test-id' });
 const mockVerify = jest.fn<() => Promise<boolean>>().mockResolvedValue(true);
 
-jest.mock('nodemailer', () => ({
-  createTransport: jest.fn(() => ({
-    sendMail: mockSendMail,
-    verify: mockVerify,
-  })),
-}));
+// NOTE: no `jest.mock('nodemailer', ...)` — EmailService uses the Resend SDK
+// and never imported nodemailer, so the mock was inert. The dependency has been
+// removed from package.json (unused, high-severity advisory).
 
 // Mock Store.findById to return "Acme Shop" store data
 jest.mock('../../src/modules/stores/store.model', () => ({

@@ -157,6 +157,20 @@ export async function attachPaymentIntentId(orderId: string, paymentIntentId: st
 }
 
 /**
+ * Orders a store has taken in the current calendar month, for plan-quota checks.
+ *
+ * Cancelled orders are excluded so an abandoned or auto-expired checkout does
+ * not consume the merchant's allowance.
+ */
+export async function countOrdersSince(storeId: Types.ObjectId, since: Date): Promise<number> {
+  return Order.countDocuments({
+    storeId,
+    createdAt: { $gte: since },
+    status: { $ne: 'cancelled' },
+  });
+}
+
+/**
  * Online orders left pending past the reservation window.
  *
  * Deliberately excludes paymentMethod 'cod' — those sit pending by design until

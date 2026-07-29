@@ -1,8 +1,8 @@
 import { Request, Response, NextFunction } from 'express';
 import { emailService } from '../../services/email.service';
 import { logger } from '../../utils/logger';
-
-const SALES_RECIPIENT = 'vendbase019@gmail.com';
+import { config } from '../../config/index';
+import { escapeHtml } from '../../utils/escapeHtml';
 
 export async function contactSales(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
@@ -54,27 +54,28 @@ export async function contactSales(req: Request, res: Response, next: NextFuncti
       `Requirements: ${requirements ?? '—'}`,
     ].join('\n');
 
-    await emailService.sendEmail({
-      to: SALES_RECIPIENT,
-      subject: `Enterprise Inquiry — ${name} (${storeName})`,
-      html,
-      text,
-    });
+    const recipient = config.ADMIN_NOTIFY_EMAIL;
 
-    logger.info('contactSales: inquiry forwarded', { name, storeName });
+    if (!recipient) {
+      // No hardcoded fallback: emailing a personal address baked into the source
+      // would leak this deployment's sales leads to a third party. Record the
+      // enquiry at WARN so the operator can still recover it from the logs.
+      logger.warn('contactSales: ADMIN_NOTIFY_EMAIL is not configured — enquiry NOT emailed', {
+        name, storeName, phone, requirements: requirements ?? '',
+      });
+    } else {
+      await emailService.sendEmail({
+        to: recipient,
+        subject: `Enterprise Inquiry — ${name} (${storeName})`,
+        html,
+        text,
+      });
+      logger.info('contactSales: inquiry forwarded', { name, storeName });
+    }
 
     res.status(200).json({ success: true, message: 'Request sent. We\'ll reach out within 24 hours.' });
   } catch (err) {
     logger.error('contactSales: failed to send inquiry email', { error: err });
     next(err);
   }
-}
-
-// Minimal HTML-escape to prevent injected markup in the email body
-function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
 }

@@ -24,6 +24,7 @@ export interface IOrder extends Document {
   customerId: Types.ObjectId;
   items: IOrderItem[];
   totalAmount: number;
+  currency: string;
   status: OrderStatus;
   paymentMethod: PaymentMethod;
   paymentIntentId?: string;
@@ -72,6 +73,16 @@ const orderSchema = new Schema<IOrder>(
     customerId: { type: Schema.Types.ObjectId, ref: 'User', required: true, index: true },
     items: { type: [orderItemSchema], required: true },
     totalAmount: { type: Number, required: true, min: 0 },
+    // Snapshot of the store's currency at the time of purchase. Recorded on the
+    // order (not read live from the store) so changing the store's currency
+    // later cannot retroactively reinterpret historical amounts.
+    currency: {
+      type: String,
+      required: true,
+      default: 'USD',
+      uppercase: true,
+      match: [/^[A-Z]{3}$/, 'currency must be a 3-letter ISO 4217 code'],
+    },
     status: {
       type: String,
       enum: ['pending', 'processing', 'shipped', 'delivered', 'cancelled'],
@@ -102,6 +113,11 @@ orderSchema.index({ storeId: 1, customerId: 1, createdAt: -1 });
 orderSchema.index({ storeId: 1, status: 1, createdAt: -1 });
 // analytics: date-range aggregations across statuses
 orderSchema.index({ storeId: 1, createdAt: -1 });
+// Reservation-expiry job (expireStalePendingOrders) — deliberately NOT
+// tenant-scoped: it sweeps abandoned online checkouts across every store, so it
+// filters on { status, paymentMethod, createdAt } with no storeId. Without this
+// it was a full collection scan every 5 minutes.
+orderSchema.index({ status: 1, paymentMethod: 1, createdAt: 1 });
 // Idempotency: unique per-store per-customer key.
 //
 // MUST use partialFilterExpression, NOT sparse. A compound sparse index includes

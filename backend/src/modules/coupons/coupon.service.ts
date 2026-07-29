@@ -108,17 +108,6 @@ export const couponService = {
   },
 
   /**
-   * @deprecated Use validateAndApplyCoupon which is atomic.
-   * Kept for any callers that only need to increment without re-validating.
-   */
-  async applyCoupon(storeId: string, code: string): Promise<void> {
-    await Coupon.findOneAndUpdate(
-      { storeId: new Types.ObjectId(storeId), code: code.toUpperCase().trim() },
-      { $inc: { usedCount: 1 } }
-    );
-  },
-
-  /**
    * Read-only validation — does NOT increment usedCount.
    * Use this only for preview/UI purposes. Use validateAndApplyCoupon at checkout.
    */

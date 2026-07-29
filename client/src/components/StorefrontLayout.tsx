@@ -67,14 +67,19 @@ function StorefrontNavbar({ store, slug }: { store: Store; slug: string }) {
                 >
                   Login
                 </Link>
-                <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.97 }}>
-                  <Link
-                    to="/start"
-                    className="text-sm font-semibold px-4 py-2 rounded-lg bg-gradient-to-r from-amber-500 to-yellow-600 hover:from-amber-600 hover:to-yellow-700 text-white transition-all inline-block shadow-sm shadow-amber-200 dark:shadow-amber-900/40"
-                  >
-                    Sell on Vendbase
-                  </Link>
-                </motion.div>
+                {/* Platform branding is hidden on plans that include
+                    removeBranding — the flag was declared in PLAN_LIMITS but
+                    never enforced, so paying customers still advertised us. */}
+                {!store.planCapabilities?.removeBranding && (
+                  <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.97 }}>
+                    <Link
+                      to="/start"
+                      className="text-sm font-semibold px-4 py-2 rounded-lg bg-gradient-to-r from-amber-500 to-yellow-600 hover:from-amber-600 hover:to-yellow-700 text-white transition-all inline-block shadow-sm shadow-amber-200 dark:shadow-amber-900/40"
+                    >
+                      Sell on Vendbase
+                    </Link>
+                  </motion.div>
+                )}
               </>
             )}
 

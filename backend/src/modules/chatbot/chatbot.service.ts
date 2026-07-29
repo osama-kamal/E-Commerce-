@@ -1,7 +1,7 @@
 import { Types } from 'mongoose';
 import { Product } from '../products/product.model';
 import { Order } from '../orders/order.model';
-import { OPENAI_API_KEY } from '../../config';
+import { OPENAI_API_KEY, OPENAI_MODEL } from '../../config';
 import { logger } from '../../utils/logger';
 
 // ── Tool definitions sent to OpenAI ──────────────────────────────────────────
@@ -271,7 +271,7 @@ Guidelines:
    */
   async callOpenAI(messages: OpenAIMessage[], includeTools = true): Promise<OpenAIResponse> {
     const body: Record<string, unknown> = {
-      model: 'gpt-3.5-turbo',
+      model: OPENAI_MODEL,
       messages,
       max_tokens: 400,
       temperature: 0.7,

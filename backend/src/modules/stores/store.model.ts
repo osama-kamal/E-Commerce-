@@ -20,6 +20,7 @@ export interface IStore extends Document {
   ownerId: Types.ObjectId;
   subscriptionPlan: SubscriptionPlan;
   subscriptionStatus: SubscriptionStatus;
+  currency: string;                   // ISO 4217, e.g. 'USD' / 'EGP'
   requestedPlan?: SubscriptionPlan;
   subscriptionEndsAt?: Date;          // when the current paid plan cycle expires
   stripeCustomerId?: string;          // cus_xxx — sparse unique index
@@ -68,6 +69,17 @@ const storeSchema = new Schema<IStore>(
       type: String,
       enum: ['active', 'trialing', 'past_due', 'cancelled', 'suspended', 'pending_upgrade'],
       default: 'trialing',
+    },
+    // ISO 4217 code the store prices and charges in.
+    // Payment providers previously hardcoded their own currency ('usd' for
+    // Stripe, 'egp' for Paymob) while the UI always rendered "$", so a Paymob
+    // customer saw dollars and was billed pounds.
+    currency: {
+      type: String,
+      default: 'USD',
+      uppercase: true,
+      trim: true,
+      match: [/^[A-Z]{3}$/, 'currency must be a 3-letter ISO 4217 code'],
     },
     customDomain: { type: String, trim: true, lowercase: true, sparse: true, unique: true },
     requestedPlan: {

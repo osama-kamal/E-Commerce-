@@ -116,7 +116,10 @@ export async function adminUpdateStore(req: Request, res: Response, next: NextFu
 export async function getStoreBySlug(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     const store = await storeService.getStoreBySlug(req.params.slug);
-    sendSuccess(res, store);
+    sendSuccess(res, {
+      ...(store as unknown as Record<string, unknown>),
+      planCapabilities: storeService.getPlanCapabilities(store.subscriptionPlan),
+    });
   } catch (err) { next(err); }
 }
 
@@ -174,7 +177,13 @@ export async function getCurrentStore(req: Request, res: Response, next: NextFun
     if (!req.store) {
       return next(createError('Store not found', 404, 'NOT_FOUND'));
     }
-    sendSuccess(res, req.store);
+    // planCapabilities is derived server-side so the client never has to mirror
+    // the plan table (which would drift). It gates UI such as whether platform
+    // branding is shown on the storefront.
+    sendSuccess(res, {
+      ...(req.store as unknown as Record<string, unknown>),
+      planCapabilities: storeService.getPlanCapabilities(req.store.subscriptionPlan),
+    });
   } catch (err) { next(err); }
 }
 

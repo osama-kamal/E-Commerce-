@@ -52,7 +52,9 @@ export async function createPaymentIntent(
   const paymentIntent = await stripe.paymentIntents.create(
     {
       amount: amountInCents,
-      currency: 'usd',
+      // Charge in the currency the order was actually placed in. This was
+      // hardcoded 'usd' regardless of the store's currency.
+      currency: (order.currency ?? 'USD').toLowerCase(),
       metadata: {
         orderId: orderId,
         customerId: customerId,

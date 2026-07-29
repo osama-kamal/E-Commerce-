@@ -1,5 +1,6 @@
-import { createSlice, PayloadAction } from '@reduxjs/toolkit';
+import { createSlice, createAsyncThunk, PayloadAction } from '@reduxjs/toolkit';
 import { User } from '../types';
+import { authApi } from '../api/auth';
 
 // ── Security note ─────────────────────────────────────────────────────────────
 // The refresh token is now stored exclusively in an httpOnly cookie set by the
@@ -71,4 +72,34 @@ const authSlice = createSlice({
 });
 
 export const { setCredentials, setTokens, logout } = authSlice.actions;
+
+/**
+ * Full sign-out: revoke the session on the server, then clear local state.
+ *
+ * Use this for every user-initiated logout. The bare `logout` reducer only
+ * clears the client, which is correct for the axios interceptor (where a
+ * refresh has already failed) but NOT for a logout button.
+ *
+ * Previously Navbar guarded the API call on
+ * `localStorage.getItem('refreshToken')`, which is always null because the token
+ * lives in an httpOnly cookie — so the request never fired, the server-side
+ * token was never revoked, and the backend never cleared the cookie. The 7-day
+ * session survived "logging out".
+ *
+ * The server call needs no argument: the cookie is sent automatically via
+ * `withCredentials`.
+ */
+export const logoutThunk = createAsyncThunk(
+  'auth/logoutThunk',
+  async (_: void, { dispatch }) => {
+    try {
+      await authApi.logout();
+    } catch {
+      // Never block sign-out on a network failure — the user still expects the
+      // local session to end. The server token expires on its own TTL.
+    }
+    dispatch(logout());
+  }
+);
+
 export default authSlice.reducer;

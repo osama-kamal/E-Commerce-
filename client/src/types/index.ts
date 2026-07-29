@@ -293,6 +293,21 @@ export interface Store {
   subscriptionPlan: string;
   subscriptionStatus: string;
   requestedPlan?: string;
+  /** ISO 4217 code the store prices and charges in (e.g. 'USD', 'EGP'). */
+  currency?: string;
+  /**
+   * Capabilities granted by the store's plan, derived server-side so the client
+   * never mirrors the plan table. Absent on older API responses — treat a
+   * missing value as "not granted".
+   */
+  planCapabilities?: {
+    customDomain: boolean;
+    removeBranding: boolean;
+    apiAccess: boolean;
+    maxProducts: number;
+    maxOrdersPerMonth: number;
+    maxStores: number;
+  };
   customDomain?: string;
   isActive: boolean;
   settings: StoreSettings;

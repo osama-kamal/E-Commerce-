@@ -18,13 +18,37 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
-// ── Config ─────────────────────────────────────────────────────────────────
-const TARGET_EMAIL = 'osamahamroush9@gmail.com';
-const NEW_PASSWORD  = 'Admin123';
+// ── Input ──────────────────────────────────────────────────────────────────
+// Supplied at run time, NEVER hardcoded. This file previously contained a real
+// administrator's email and their plaintext password as source constants, which
+// were then committed to the repository — a live credential in version control.
+//
+//   npx ts-node src/scripts/reset-password.ts <email> <newPassword>
+//
+// or via environment:
+//   RESET_EMAIL=... RESET_PASSWORD=... npx ts-node src/scripts/reset-password.ts
 const BCRYPT_ROUNDS = 12;
+const MIN_PASSWORD_LENGTH = 8;
+
+const TARGET_EMAIL = process.argv[2] ?? process.env.RESET_EMAIL ?? '';
+const NEW_PASSWORD = process.argv[3] ?? process.env.RESET_PASSWORD ?? '';
 // ───────────────────────────────────────────────────────────────────────────
 
+function usage(message: string): never {
+  console.error(`❌ ${message}\n`);
+  console.error('Usage:');
+  console.error('  npx ts-node src/scripts/reset-password.ts <email> <newPassword>');
+  console.error('  RESET_EMAIL=<email> RESET_PASSWORD=<pw> npx ts-node src/scripts/reset-password.ts\n');
+  process.exit(1);
+}
+
 async function run() {
+  if (!TARGET_EMAIL) usage('No target email supplied.');
+  if (!NEW_PASSWORD) usage('No new password supplied.');
+  if (NEW_PASSWORD.length < MIN_PASSWORD_LENGTH) {
+    usage(`Password must be at least ${MIN_PASSWORD_LENGTH} characters.`);
+  }
+
   const uri = process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/ecommerce';
   console.log(`Connecting to ${uri} …`);
   await mongoose.connect(uri);

@@ -64,6 +64,20 @@ export async function initiatePaymobPayment(
       return next(createError('Order not found', 404, 'NOT_FOUND'));
     }
 
+    // Paymob settles in EGP. Previously this charged 'egp' for ANY order while
+    // the UI rendered "$", so a USD-priced order was billed as pounds. Refuse
+    // rather than silently charge in a different currency than the one quoted.
+    const orderCurrency = (order.currency ?? 'USD').toUpperCase();
+    if (orderCurrency !== 'EGP') {
+      return next(
+        createError(
+          `Paymob can only process EGP orders; this order is in ${orderCurrency}. Please choose another payment method.`,
+          400,
+          'CURRENCY_NOT_SUPPORTED'
+        )
+      );
+    }
+
     const adapter = paymentProviderFactory.get('paymob');
 
     const result = await adapter.initiatePayment({
@@ -113,16 +127,15 @@ export async function paymobWebhook(
       'x-paymob-hmac': typeof req.query.hmac === 'string' ? req.query.hmac : undefined,
     };
 
-    // ── DEBUG: log incoming request details to diagnose body-parsing issues ──
-    // Remove this block once webhook is confirmed working.
+    // Structured entry log. Deliberately records only non-sensitive shape
+    // metadata — the previous version logged `bodyPreview`, the first 200 bytes
+    // of the raw payload, which carries transaction and customer detail into
+    // whatever aggregates the logs. Payment payloads must not be echoed.
     logger.info('Paymob webhook received', {
-      method: req.method,
       contentType: req.headers['content-type'],
-      bodyType: typeof rawBody,
       isBuffer: Buffer.isBuffer(rawBody),
       bodyLength: Buffer.isBuffer(rawBody) ? rawBody.length : String(rawBody).length,
-      bodyPreview: Buffer.isBuffer(rawBody) ? rawBody.toString('utf-8').slice(0, 200) : String(rawBody).slice(0, 200),
-      queryKeys: Object.keys(req.query),
+      hasHmac: typeof req.query.hmac === 'string',
     });
 
     let event;

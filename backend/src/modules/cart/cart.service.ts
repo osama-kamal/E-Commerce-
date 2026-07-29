@@ -78,6 +78,47 @@ export async function getCart(storeId: string, customerId: string): Promise<Cart
   return buildCartView(storeId, customerId);
 }
 
+/**
+ * Ensures the requested size is one the product actually offers.
+ *
+ * `selectedSize` was previously accepted verbatim and carried all the way into
+ * the order, so a client could order a size the product does not sell.
+ *
+ * NOTE: this validates the size against the product's declared options only.
+ * Stock is still a single scalar on the product, so it cannot express "M is
+ * sold out but L is not" — that needs a variants schema.
+ */
+function assertValidSize(
+  productSizes: string[] | undefined,
+  selectedSize: string | undefined,
+  productName: string
+): void {
+  const offered = productSizes ?? [];
+
+  if (offered.length === 0) {
+    if (selectedSize) {
+      throw createError(`"${productName}" does not come in sizes`, 400, 'BAD_REQUEST');
+    }
+    return;
+  }
+
+  if (!selectedSize) {
+    throw createError(
+      `Please choose a size for "${productName}" (available: ${offered.join(', ')})`,
+      400,
+      'BAD_REQUEST'
+    );
+  }
+
+  if (!offered.includes(selectedSize)) {
+    throw createError(
+      `"${selectedSize}" is not an available size for "${productName}" (available: ${offered.join(', ')})`,
+      400,
+      'BAD_REQUEST'
+    );
+  }
+}
+
 export async function addItem(
   storeId: string,
   customerId: string,
@@ -96,6 +137,8 @@ export async function addItem(
   const product = await productRepo.findProductById(productId, storeObjId);
   if (!product) throw createError('Product not found', 404, 'NOT_FOUND');
   if (product.stock <= 0) throw createError('Product is out of stock', 400, 'BAD_REQUEST');
+
+  assertValidSize(product.sizes, selectedSize, product.name);
 
   const cart = await cartRepo.findCart(storeObjId, customerObjId);
 
@@ -163,6 +206,8 @@ export async function updateItemQuantity(
 
   const product = await productRepo.findProductById(productId, storeObjId);
   if (!product) throw createError('Product not found', 404, 'NOT_FOUND');
+
+  assertValidSize(product.sizes, selectedSize, product.name);
 
   if (quantity > product.stock) {
     throw createError(`Only ${product.stock} unit(s) available`, 400, 'BAD_REQUEST');

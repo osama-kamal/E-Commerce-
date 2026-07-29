@@ -12,6 +12,8 @@ import { paymentsApi } from '../api/payments';
 import { useAppSelector, useAppDispatch } from '../hooks/useAppDispatch';
 import { validateCouponThunk, removeCoupon } from '../store/couponSlice';
 import { resolveCheckoutMode } from '../utils/checkoutMode';
+import { isTrustedPaymobOrigin } from '../utils/paymobOrigin';
+import { formatCurrency } from '../utils/format';
 import { ShippingAddress } from '../types';
 
 // ── Provider type ─────────────────────────────────────────────────────────────
@@ -93,7 +95,9 @@ function PaymobIframeModal({
 
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
-      if (!event.origin.includes('paymob.com')) return;
+      // Hostname match over HTTPS — a substring test on the origin also matched
+      // attacker hosts like https://paymob.com.evil.io.
+      if (!isTrustedPaymobOrigin(event.origin)) return;
       const data = event.data as Record<string, unknown>;
       if (data?.type === 'TRANSACTION' || data?.success === true) {
         onSuccess();
@@ -125,7 +129,14 @@ function PaymobIframeModal({
           title="Paymob Payment"
           className="w-full"
           style={{ height: '520px', border: 'none', display: 'block', pointerEvents: 'auto' }}
-          sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-modals allow-top-navigation allow-top-navigation-by-user-activation"
+          // `allow-top-navigation` is deliberately absent: it let the framed
+          // page redirect the whole tab without any user gesture, which is a
+          // ready-made phishing primitive. The by-user-activation variant below
+          // still covers legitimate 3-D Secure redirects.
+          // `allow-same-origin` is retained on purpose — the frame loads
+          // Paymob's own origin and needs its cookies/storage to function;
+          // dropping it would break card payments, not harden them.
+          sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-modals allow-top-navigation-by-user-activation"
         />
         <div className="px-5 py-3 border-t border-gray-100 dark:border-gray-800 text-center">
           <p className="text-xs text-gray-400 dark:text-gray-500">
@@ -140,9 +151,10 @@ function PaymobIframeModal({
 // ── Stripe payment step ───────────────────────────────────────────────────────
 
 function StripePaymentStep({
-  finalTotal, payLoading, onBack, onPay,
+  finalTotal, currency, payLoading, onBack, onPay,
 }: {
   finalTotal: number;
+  currency: string;
   payLoading: boolean;
   onBack: () => void;
   onPay: (e: FormEvent, stripe: ReturnType<typeof useStripe>, elements: ReturnType<typeof useElements>) => void;
@@ -160,12 +172,12 @@ function StripePaymentStep({
       </div>
       <div className="flex justify-between text-sm text-gray-600 dark:text-gray-400 pt-1">
         <span>Total to charge</span>
-        <span className="font-bold text-gray-900 dark:text-white">${finalTotal.toFixed(2)}</span>
+        <span className="font-bold text-gray-900 dark:text-white">{formatCurrency(finalTotal, currency)}</span>
       </div>
       <div className="flex gap-3">
         <button type="button" onClick={onBack} className="btn-secondary flex-1">← Back</button>
         <button type="submit" className="btn-primary flex-1 py-3" disabled={payLoading || !stripe}>
-          {payLoading ? 'Processing…' : `Pay $${finalTotal.toFixed(2)}`}
+          {payLoading ? 'Processing…' : `Pay ${formatCurrency(finalTotal, currency)}`}
         </button>
       </div>
     </form>
@@ -178,6 +190,9 @@ function CheckoutForm() {
   const navigate = useNavigate();
   const dispatch = useAppDispatch();
   const cart = useAppSelector(s => s.cart.cart);
+  // Amounts must be rendered in the store's currency. The UI previously printed
+  // a literal "$" regardless, so an EGP store quoted dollars and billed pounds.
+  const currency = useAppSelector(s => s.currentStore.current?.currency) ?? 'USD';
   const { discount, code: couponCode, label: couponLabel, loading: couponLoading, error: couponError } = useAppSelector(s => s.coupon);
 
   const [step, setStep] = useState<Step>(0);
@@ -459,7 +474,7 @@ function CheckoutForm() {
                           🏷️ {couponCode}
                           <span className="ml-1 px-2 py-0.5 bg-green-100 dark:bg-green-800 text-green-800 dark:text-green-200 rounded-full text-xs">{couponLabel}</span>
                         </span>
-                        <p className="text-xs text-green-600 dark:text-green-500 mt-0.5">−${discount.toFixed(2)} discount applied</p>
+                        <p className="text-xs text-green-600 dark:text-green-500 mt-0.5">−{formatCurrency(discount, currency)} discount applied</p>
                       </div>
                       <button type="button" onClick={handleRemoveCoupon} className="text-xs text-red-500 hover:text-red-700 font-medium transition-colors">Remove</button>
                     </div>
@@ -478,12 +493,12 @@ function CheckoutForm() {
                   )}
 
                   <div className="text-sm space-y-1 text-gray-600 dark:text-gray-400">
-                    <div className="flex justify-between"><span>Subtotal</span><span>${(cart?.subtotal ?? 0).toFixed(2)}</span></div>
+                    <div className="flex justify-between"><span>Subtotal</span><span>{formatCurrency(cart?.subtotal ?? 0, currency)}</span></div>
                     {discount > 0 && (
-                      <div className="flex justify-between text-green-600 dark:text-green-400"><span>Discount</span><span>−${discount.toFixed(2)}</span></div>
+                      <div className="flex justify-between text-green-600 dark:text-green-400"><span>Discount</span><span>−{formatCurrency(discount, currency)}</span></div>
                     )}
                     <div className="flex justify-between font-semibold text-gray-900 dark:text-white border-t dark:border-gray-700 pt-1">
-                      <span>Total</span><span>${Math.max(0, (cart?.subtotal ?? 0) - discount).toFixed(2)}</span>
+                      <span>Total</span><span>{formatCurrency(Math.max(0, (cart?.subtotal ?? 0) - discount), currency)}</span>
                     </div>
                   </div>
                 </div>
@@ -505,7 +520,7 @@ function CheckoutForm() {
                   </div>
                   <div className="flex justify-between text-sm text-gray-600 dark:text-gray-400">
                     <span>Total</span>
-                    <span className="font-bold text-gray-900 dark:text-white">${finalTotal.toFixed(2)}</span>
+                    <span className="font-bold text-gray-900 dark:text-white">{formatCurrency(finalTotal, currency)}</span>
                   </div>
                   <div className="flex gap-3">
                     <button type="button" onClick={() => setStep(0)} className="btn-secondary flex-1">← Back</button>
@@ -536,7 +551,7 @@ function CheckoutForm() {
                     <p>No Stripe key configured. Click below to simulate a successful payment.</p>
                   </div>
                   <div className="flex justify-between text-sm text-gray-600 dark:text-gray-400">
-                    <span>Total</span><span className="font-bold text-gray-900 dark:text-white">${finalTotal.toFixed(2)}</span>
+                    <span>Total</span><span className="font-bold text-gray-900 dark:text-white">{formatCurrency(finalTotal, currency)}</span>
                   </div>
                   <div className="flex gap-3">
                     <button type="button" onClick={() => setStep(0)} className="btn-secondary flex-1">← Back</button>
@@ -549,6 +564,7 @@ function CheckoutForm() {
               ) : (
                 <StripePaymentStep
                   finalTotal={finalTotal}
+                  currency={currency}
                   payLoading={payLoading}
                   onBack={() => setStep(0)}
                   onPay={(e, stripe, elements) => handleRealPayment(e, stripe, elements)}
@@ -587,17 +603,17 @@ function CheckoutForm() {
                         {item.name} × {item.quantity}
                         {item.selectedSize && <span className="ml-1 text-xs text-primary-600 dark:text-primary-400">(Size: {item.selectedSize})</span>}
                       </span>
-                      <span>${item.lineTotal.toFixed(2)}</span>
+                      <span>{formatCurrency(item.lineTotal, currency)}</span>
                     </div>
                   ))}
                   {discount > 0 && (
                     <div className="flex justify-between text-green-600 dark:text-green-400">
-                      <span>Coupon discount</span><span>−${discount.toFixed(2)}</span>
+                      <span>Coupon discount</span><span>−{formatCurrency(discount, currency)}</span>
                     </div>
                   )}
                   <div className="border-t dark:border-gray-700 pt-2 flex justify-between font-bold text-gray-900 dark:text-white">
                     <span>Total {paymentMethod === 'cod' ? '(pay on delivery)' : 'paid'}</span>
-                    <span>${finalTotal.toFixed(2)}</span>
+                    <span>{formatCurrency(finalTotal, currency)}</span>
                   </div>
                 </div>
 

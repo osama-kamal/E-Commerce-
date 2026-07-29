@@ -119,6 +119,11 @@ const envSchema = z.object({
   // ── AI / Chatbot (OPTIONAL) ─────────────────────────────────────────────────
   OPENAI_API_KEY: z.string().optional(),
 
+  // Chat completion model. Was hardcoded to 'gpt-3.5-turbo', which OpenAI has
+  // deprecated; it is also slower and more expensive than the current small
+  // model. Overridable so the model can be changed without a code deploy.
+  OPENAI_MODEL: z.string().default('gpt-4o-mini'),
+
   // ── Email (OPTIONAL — email features silently disabled without these) ────────
   EMAIL_HOST: z.string().optional(),                          // SMTP host (default: smtp.gmail.com)
   EMAIL_PORT: z.string().default('587').transform((v) => parseInt(v, 10)),
@@ -134,6 +139,12 @@ const envSchema = z.object({
   EMAIL_FROM_ADDRESS: z.string().optional(),
   // Optional — BCC every order confirmation to this address for admin visibility.
   ADMIN_BCC_EMAIL: z.string().optional(),
+
+  // Where platform-operator notifications go: enterprise sales enquiries and
+  // plan-upgrade requests. Previously a personal Gmail address was hardcoded as
+  // the fallback in two files, so a new deployment silently forwarded its own
+  // sales leads to the original author's inbox.
+  ADMIN_NOTIFY_EMAIL: z.string().email().optional(),
 
   // ── Frontend ────────────────────────────────────────────────────────────────
   FRONTEND_URL: z.string().default('http://localhost:5173'),
@@ -219,6 +230,7 @@ export const {
   STRIPE_PRICE_PRO,
   STRIPE_PRICE_ENTERPRISE,
   OPENAI_API_KEY,
+  OPENAI_MODEL,
   EMAIL_HOST,
   EMAIL_PORT,
   EMAIL_SECURE,

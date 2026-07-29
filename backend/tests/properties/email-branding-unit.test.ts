@@ -6,18 +6,20 @@
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import * as fc from 'fast-check';
+import { escapeHtml } from '../../src/utils/escapeHtml';
 
 // ── Mocks ─────────────────────────────────────────────────────────────────────
 
 const mockSendMail = jest.fn<() => Promise<{ messageId: string }>>().mockResolvedValue({ messageId: 'test-id' });
 const mockVerify = jest.fn<() => Promise<boolean>>().mockResolvedValue(true);
 
-jest.mock('nodemailer', () => ({
-  createTransport: jest.fn(() => ({
-    sendMail: mockSendMail,
-    verify: mockVerify,
-  })),
-}));
+// NOTE: there is deliberately no `jest.mock('nodemailer', ...)` here.
+// EmailService migrated to the Resend SDK and no longer imports nodemailer at
+// all, so the mock was inert — and the dependency has since been removed from
+// package.json (it carried a high-severity advisory while being entirely
+// unused). mockSendMail/mockVerify are retained because the subject-line tests
+// below still reference them; those tests were already failing for this same
+// reason (they assert on a transport the service no longer uses).
 
 // Store mock — controlled per test
 const mockFindById = jest.fn();
@@ -227,8 +229,15 @@ describe('baseHtml — dynamic branding rendering', () => {
         (storeName) => {
           const branding: StoreBranding = { storeName };
           const { html } = welcomeTemplate({ email: 'u@test.com', frontendUrl }, branding);
-          expect(html).toContain(`<h1>${storeName}</h1>`);
-          expect(html).toContain(storeName);
+          // Compared against the escaped form: storeName is set by the store
+          // owner and lands in every email that store sends, so it is escaped
+          // before interpolation. The name is still fully present — a store
+          // called `Tom & Jerry` renders as `Tom &amp; Jerry`, not injectable
+          // markup. (The generator already excludes < and >, but & and quotes
+          // still occur.)
+          const escaped = escapeHtml(storeName);
+          expect(html).toContain(`<h1>${escaped}</h1>`);
+          expect(html).toContain(escaped);
         }
       ),
       { numRuns: 100 }

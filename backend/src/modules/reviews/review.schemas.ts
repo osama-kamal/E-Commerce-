@@ -10,6 +10,12 @@ export const submitReviewSchema = z.object({
 
 export const productIdParamSchema = z.object({
   params: z.object({ productId: z.string().min(1, 'Product ID is required') }),
+  // Reviews are paginated. The service also hard-caps the page size, so an
+  // oversized limit is clamped rather than shipping the whole review set.
+  query: z.object({
+    page: z.coerce.number().int().min(1).default(1),
+    limit: z.coerce.number().int().min(1).max(100).default(20),
+  }),
 });
 
 export const reviewIdParamSchema = z.object({

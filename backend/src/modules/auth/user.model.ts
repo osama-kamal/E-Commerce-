@@ -8,6 +8,7 @@ export interface IRefreshToken {
 export interface IUser extends Document {
   storeId: Types.ObjectId;
   email: string;
+  fullName?: string;
   passwordHash: string;
   role: 'super-admin' | 'admin' | 'customer';
   isActive: boolean;
@@ -38,6 +39,14 @@ const userSchema = new Schema<IUser>(
     passwordHash: {
       type: String,
       required: true,
+    },
+    // Collected during onboarding. This was previously passed to User.create but
+    // absent from the schema, so Mongoose discarded it — which is why
+    // listPendingUpgrades could only ever report ownerName: null.
+    fullName: {
+      type: String,
+      trim: true,
+      maxlength: 100,
     },
     role: {
       type: String,

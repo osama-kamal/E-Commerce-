@@ -2,8 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAppDispatch, useAppSelector } from '../hooks/useAppDispatch';
-import { logout } from '../store/authSlice';
-import { authApi } from '../api/auth';
+import { logoutThunk } from '../store/authSlice';
 import { useDarkMode } from '../hooks/useDarkMode';
 import NotificationDropdown from './NotificationDropdown';
 
@@ -67,11 +66,8 @@ export default function Navbar() {
   const handleLogout = async () => {
     setMenuOpen(false);
     setDrawerOpen(false);
-    const refreshToken = localStorage.getItem('refreshToken');
-    if (refreshToken) {
-      try { await authApi.logout(refreshToken); } catch { /* ignore */ }
-    }
-    dispatch(logout());
+    // logoutThunk revokes the session server-side and clears local state.
+    await dispatch(logoutThunk());
     navigate('/');
   };
 

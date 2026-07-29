@@ -20,6 +20,8 @@ export interface ReviewsResponse {
   reviews: ReviewDoc[];
   averageRating: number;
   total: number;
+  page: number;
+  totalPages: number;
 }
 
 async function recalculateProductRating(storeId: Types.ObjectId, productId: Types.ObjectId): Promise<void> {
@@ -40,26 +42,54 @@ async function recalculateProductRating(storeId: Types.ObjectId, productId: Type
   );
 }
 
-export async function getProductReviews(storeId: string, productId: string): Promise<ReviewsResponse> {
+/** Hard ceiling on reviews returned per request. */
+const MAX_REVIEW_PAGE_SIZE = 100;
+const DEFAULT_REVIEW_PAGE_SIZE = 20;
+
+export async function getProductReviews(
+  storeId: string,
+  productId: string,
+  page = 1,
+  limit = DEFAULT_REVIEW_PAGE_SIZE
+): Promise<ReviewsResponse> {
   if (!Types.ObjectId.isValid(productId)) {
     throw createError('Invalid product ID', 400, 'BAD_REQUEST');
   }
 
-  const reviews = await Review.find({
-    storeId: new Types.ObjectId(storeId),
-    productId: new Types.ObjectId(productId),
-    isDeleted: false,
-  })
-    .sort({ createdAt: -1 })
-    .lean();
+  const storeObjId = new Types.ObjectId(storeId);
+  const productObjId = new Types.ObjectId(productId);
 
-  const total = reviews.length;
-  const averageRating =
-    total > 0
-      ? Math.round((reviews.reduce((sum, r) => sum + r.rating, 0) / total) * 100) / 100
-      : 0;
+  const safeLimit = Math.min(Math.max(1, Math.floor(limit) || DEFAULT_REVIEW_PAGE_SIZE), MAX_REVIEW_PAGE_SIZE);
+  const safePage = Math.max(1, Math.floor(page) || 1);
+  const skip = (safePage - 1) * safeLimit;
 
-  return { reviews: reviews as unknown as ReviewDoc[], averageRating, total };
+  const filter = { storeId: storeObjId, productId: productObjId, isDeleted: false };
+
+  // The rating summary is computed in the database over the WHOLE set, so it
+  // stays correct regardless of which page is being returned. Previously the
+  // endpoint loaded every review for the product and averaged them in JS.
+  const [reviews, summary] = await Promise.all([
+    // `_id` is the tiebreaker: sorting on createdAt alone is unstable when
+    // several reviews share a timestamp (bulk import, or simply the same
+    // millisecond), which lets the same review appear on two pages while
+    // another is skipped entirely.
+    Review.find(filter).sort({ createdAt: -1, _id: -1 }).skip(skip).limit(safeLimit).lean(),
+    Review.aggregate<{ avg: number; count: number }>([
+      { $match: filter },
+      { $group: { _id: null, avg: { $avg: '$rating' }, count: { $sum: 1 } } },
+    ]),
+  ]);
+
+  const total = summary[0]?.count ?? 0;
+  const averageRating = total > 0 ? Math.round((summary[0]!.avg) * 100) / 100 : 0;
+
+  return {
+    reviews: reviews as unknown as ReviewDoc[],
+    averageRating,
+    total,
+    page: safePage,
+    totalPages: Math.ceil(total / safeLimit),
+  };
 }
 
 export async function submitReview(

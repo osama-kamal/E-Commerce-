@@ -184,4 +184,26 @@ describe('expireStalePendingOrders', () => {
   it('returns 0 when there is nothing to release', async () => {
     expect(await expireStalePendingOrders(30)).toBe(0);
   });
+
+  it('uses an index rather than scanning the whole orders collection', async () => {
+    // The sweep is deliberately cross-tenant (no storeId), so none of the
+    // tenant-scoped compounds could serve it — it was a COLLSCAN every 5
+    // minutes. Verified against the real planner rather than by inspection.
+    await Order.syncIndexes();
+
+    const plan = await Order.collection
+      .find({
+        status: 'pending',
+        paymentMethod: 'online',
+        createdAt: { $lt: new Date() },
+      })
+      .explain('queryPlanner');
+
+    const winning = JSON.stringify(
+      (plan as { queryPlanner?: { winningPlan?: unknown } }).queryPlanner?.winningPlan ?? {}
+    );
+
+    expect(winning).toContain('IXSCAN');
+    expect(winning).not.toContain('COLLSCAN');
+  });
 });

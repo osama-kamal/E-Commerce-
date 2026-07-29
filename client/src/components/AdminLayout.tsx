@@ -1,6 +1,6 @@
 import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useAppDispatch, useAppSelector } from '../hooks/useAppDispatch';
-import { logout } from '../store/authSlice';
+import { logoutThunk } from '../store/authSlice';
 import { setTokens } from '../store/authSlice';
 import { clearCart } from '../store/cartSlice';
 import { removeCoupon } from '../store/couponSlice';
@@ -434,8 +434,9 @@ export default function AdminLayout() {
     dispatch(fetchMyStores());
   }, [dispatch, currentStore?._id, isPlatformAdmin]);
 
-  const handleLogout = () => {
-    dispatch(logout());
+  const handleLogout = async () => {
+    // logoutThunk revokes the session server-side, then clears local state.
+    await dispatch(logoutThunk());
     navigate('/login');
   };
 
@@ -472,7 +473,7 @@ export default function AdminLayout() {
                 Retry
               </button>
               <button
-                onClick={() => { dispatch(logout()); navigate('/login'); }}
+                onClick={async () => { await dispatch(logoutThunk()); navigate('/login'); }}
                 className="btn-secondary text-sm px-4 py-2"
               >
                 Log out

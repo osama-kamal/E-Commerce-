@@ -68,9 +68,18 @@ export async function listProducts(filters: ProductFilters): Promise<PaginatedPr
   else if (filters.inStock === 'false') inStock = false;
 
   // ── Build search regex ─────────────────────────────────────────────────────
+  // Substring match, case-insensitive. The pattern used to be ^-anchored, so a
+  // search for "shirt" only matched products whose name or description BEGAN
+  // with it — "Blue Shirt" was invisible. Metacharacters are still escaped so a
+  // query like ".*" is treated literally rather than as a wildcard.
+  //
+  // NOTE: an unanchored case-insensitive regex cannot use a btree index, so this
+  // is a collection scan per search. Correct, but it will not scale — a MongoDB
+  // text index is the long-term answer and changes matching semantics
+  // (whole-word, stemmed), so it is deliberately not swapped in here.
   let searchPattern: RegExp | undefined;
   if (filters.search) {
-    searchPattern = new RegExp('^' + filters.search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+    searchPattern = new RegExp(filters.search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
   }
 
   const skip = (filters.page - 1) * filters.limit;

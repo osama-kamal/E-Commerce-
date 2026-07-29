@@ -18,6 +18,7 @@
  */
 
 import { describe, it, expect } from '@jest/globals';
+import { escapeHtml } from '../../src/utils/escapeHtml';
 import * as fc from 'fast-check';
 import {
   orderConfirmationTemplate,
@@ -112,7 +113,11 @@ describe('Property 2a: orderConfirmationTemplate — order content preserved in 
       fc.property(orderEmailDataArb, (data) => {
         const { html } = orderConfirmationTemplate(data);
         for (const item of data.items) {
-          expect(html).toContain(item.name);
+          // Compared against the HTML-escaped form: item names are attacker-
+          // influenced and are now escaped before interpolation, so a name
+          // containing < > & " ' appears encoded. The content is still fully
+          // preserved — it just is not injectable.
+          expect(html).toContain(escapeHtml(item.name));
         }
       }),
       { numRuns: 100 }
@@ -136,11 +141,12 @@ describe('Property 2a: orderConfirmationTemplate — order content preserved in 
       fc.property(orderEmailDataArb, (data) => {
         const { html } = orderConfirmationTemplate(data);
         const addr = data.shippingAddress;
-        expect(html).toContain(addr.line1);
-        expect(html).toContain(addr.city);
-        expect(html).toContain(addr.state);
-        expect(html).toContain(addr.postalCode);
-        expect(html).toContain(addr.country);
+        // Escaped form — see the item-name test above.
+        expect(html).toContain(escapeHtml(addr.line1));
+        expect(html).toContain(escapeHtml(addr.city));
+        expect(html).toContain(escapeHtml(addr.state));
+        expect(html).toContain(escapeHtml(addr.postalCode));
+        expect(html).toContain(escapeHtml(addr.country));
       }),
       { numRuns: 100 }
     );

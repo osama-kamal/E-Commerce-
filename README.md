@@ -28,7 +28,7 @@ If you are a new owner or developer taking over this project, start with these t
 | Media | Cloudinary (image hosting & optimization) |
 | Email | Resend (transactional email) |
 | AI | OpenAI GPT (chatbot & product recommendations) |
-| Deployment | Vercel (frontend), Railway (backend) |
+| Deployment | Vercel (frontend), Railway (backend). `render.yaml` is an **alternative** backend blueprint — see the note at the top of that file before switching. |
 
 ---
 
@@ -61,10 +61,45 @@ E-Commerce/
 
 ## Local Development Setup
 
-### Prerequisites
+### Option A — Docker (recommended)
+
+Brings up MongoDB, Redis, the API, and the web client with one command. No local
+MongoDB or Redis install needed.
+
+```bash
+docker compose up --build
+```
+
+- Web client → http://localhost:8080
+- API → http://localhost:5000
+- Readiness probe → http://localhost:5000/api/v1/health/ready
+
+Real secrets go in `backend/.env` (gitignored); Compose picks it up automatically
+and it overrides the development defaults in `docker-compose.yml`.
+
+> **Why the Mongo container runs as a replica set:** checkout uses
+> `session.withTransaction()`, which requires one. A standalone `mongod` would
+> silently fall through to the non-transactional code path locally and hide
+> concurrency bugs that would then only surface in production.
+
+To test Stripe card payments, pass a real publishable key at build time — Vite
+inlines `VITE_*` during the build, not at runtime:
+
+```bash
+VITE_STRIPE_PUBLISHABLE_KEY=pk_test_xxx docker compose up --build client
+```
+
+Without a valid key the checkout disables card payment rather than offering a
+bypass (see `client/src/utils/checkoutMode.ts`).
+
+### Option B — Run directly on the host
+
+#### Prerequisites
 
 - Node.js 18+
 - MongoDB (local) or a MongoDB Atlas connection string
+  — must be a replica set for checkout transactions; a standalone works but
+  exercises the non-transactional fallback
 - Redis (optional — the server degrades gracefully without it)
 
 ### 1. Clone and install dependencies

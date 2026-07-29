@@ -1,3 +1,5 @@
+import { escapeHtml } from '../utils/escapeHtml';
+
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 export interface EmailBody {
@@ -81,13 +83,23 @@ function formatAmount(cents: number, currency: string): string {
 }
 
 function baseHtml(title: string, body: string, branding: StoreBranding = { storeName: PLATFORM_NAME }): string {
+  // Branding fields are set by the store owner and land in every email that
+  // store sends to its customers, so they must be escaped. `safe()` above is a
+  // null/undefined fallback, not an escaper — it does not do this.
+  // `body` is intentionally NOT escaped: callers pass already-composed markup
+  // and are responsible for escaping the values they interpolate.
+  const storeName = escapeHtml(branding.storeName);
+  const logoUrl = escapeHtml(branding.logoUrl);
+  const contactEmail = escapeHtml(branding.contactEmail);
+  const contactPhone = escapeHtml(branding.contactPhone);
+
   const logoHtml = branding.logoUrl
-    ? `<img src="${branding.logoUrl}" alt="${branding.storeName} logo" style="max-height:48px;margin-bottom:8px;" /><br/>`
+    ? `<img src="${logoUrl}" alt="${storeName} logo" style="max-height:48px;margin-bottom:8px;" /><br/>`
     : '';
 
   const contactHtml =
     branding.contactEmail || branding.contactPhone
-      ? `<br/>${branding.contactEmail ? `<a href="mailto:${branding.contactEmail}" style="color:#888;">${branding.contactEmail}</a>` : ''}${branding.contactEmail && branding.contactPhone ? ' &nbsp;|&nbsp; ' : ''}${branding.contactPhone ? `<span>${branding.contactPhone}</span>` : ''}`
+      ? `<br/>${branding.contactEmail ? `<a href="mailto:${contactEmail}" style="color:#888;">${contactEmail}</a>` : ''}${branding.contactEmail && branding.contactPhone ? ' &nbsp;|&nbsp; ' : ''}${branding.contactPhone ? `<span>${contactPhone}</span>` : ''}`
       : '';
 
   return `<!DOCTYPE html>
@@ -95,7 +107,7 @@ function baseHtml(title: string, body: string, branding: StoreBranding = { store
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>${title}</title>
+  <title>${escapeHtml(title)}</title>
   <style>
     body { margin: 0; padding: 0; background: #f4f4f4; font-family: Arial, sans-serif; color: #333; }
     .wrapper { max-width: 600px; margin: 30px auto; background: #fff; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
@@ -112,10 +124,10 @@ function baseHtml(title: string, body: string, branding: StoreBranding = { store
 </head>
 <body>
   <div class="wrapper">
-    <div class="header">${logoHtml}<h1>${branding.storeName}</h1></div>
+    <div class="header">${logoHtml}<h1>${storeName}</h1></div>
     <div class="content">${body}</div>
     <div class="footer">
-      &copy; ${new Date().getFullYear()} ${branding.storeName}. All rights reserved.<br/>
+      &copy; ${new Date().getFullYear()} ${storeName}. All rights reserved.<br/>
       You received this email because you have an account with us.
       If you no longer wish to receive these emails, you may <a href="#" style="color:#888;">unsubscribe</a>.${contactHtml}
     </div>
@@ -133,7 +145,7 @@ export function welcomeTemplate(data: { email: string; frontendUrl: string }, br
   const html = baseHtml(
     `Welcome to ${branding.storeName}`,
     `<h2>Welcome aboard! 🎉</h2>
-    <p>Hi <strong>${email}</strong>,</p>
+    <p>Hi <strong>${escapeHtml(email)}</strong>,</p>
     <p>Your account has been created successfully. We're thrilled to have you with us!</p>
     <p>Start exploring our products and find something you love.</p>
     <a href="${shopUrl}" class="btn">Shop Now</a>
@@ -188,7 +200,7 @@ export function orderConfirmationTemplate(data: OrderEmailData & { frontendUrl: 
     .map(
       (item) =>
         `<tr>
-          <td>${safe(item.name)}</td>
+          <td>${escapeHtml(safe(item.name))}</td>
           <td>${safe(String(item.quantity))}</td>
           <td>$${typeof item.price === 'number' ? item.price.toFixed(2) : 'N/A'}</td>
         </tr>`
@@ -210,7 +222,7 @@ export function orderConfirmationTemplate(data: OrderEmailData & { frontendUrl: 
       <tbody>${itemRows}</tbody>
       <tfoot><tr class="total-row"><td colspan="2">Total</td><td>${totalAmount}</td></tr></tfoot>
     </table>
-    <p><strong>Shipping Address:</strong><br/>${addressStr}</p>
+    <p><strong>Shipping Address:</strong><br/>${escapeHtml(addressStr)}</p>
     <p style="color:#888;font-size:13px;">You will receive another email when your order ships.</p>`,
     branding
   );

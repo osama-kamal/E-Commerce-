@@ -1,10 +1,11 @@
 import bcrypt from 'bcryptjs';
-import { Types } from 'mongoose';
+import mongoose, { Types } from 'mongoose';
 import { Store } from '../stores/store.model';
 import { User } from '../auth/user.model';
 import { signAccessToken } from '../../utils/jwt';
 import { issueRefreshToken } from '../auth/auth.service';
 import { createError } from '../../middleware/errorHandler';
+import { logger } from '../../utils/logger';
 import { emailService } from '../../services/email.service';
 
 const BCRYPT_ROUNDS = 12;
@@ -87,31 +88,69 @@ export async function onboardStore(input: OnboardingInput): Promise<OnboardingRe
     }
   }
 
-  // ── Create store first (so we have the storeId for the user) ──────────────
-  const store = await Store.create({
-    name: storeName,
-    slug,
-    ownerId: new Types.ObjectId(), // placeholder — updated after user creation
-    subscriptionPlan: 'free',
-    subscriptionStatus: 'trialing',
-    isActive: true,
-    metadata: { category: storeCategory },
-  });
-
-  // ── Create owner user scoped to this store ────────────────────────────────
+  // ── Create store + owner atomically ───────────────────────────────────────
+  // Both _ids are generated up front so each document can reference the other
+  // on insert. This removes the placeholder ownerId entirely — there is no
+  // longer an intermediate state where a store points at a non-existent user,
+  // and no follow-up update that could fail and strand it.
+  const storeObjId = new Types.ObjectId();
+  const userObjId = new Types.ObjectId();
   const passwordHash = await bcrypt.hash(password, BCRYPT_ROUNDS);
 
-  const user = await User.create({
-    storeId: store._id,
-    email: email.toLowerCase(),
-    passwordHash,
-    role: 'admin',
+  const storeDoc = {
+    _id: storeObjId,
+    name: storeName,
+    slug,
+    ownerId: userObjId,
+    subscriptionPlan: 'free' as const,
+    subscriptionStatus: 'trialing' as const,
     isActive: true,
-    fullName, // stored as a virtual/extra field — harmless if schema ignores it
-  });
+  };
 
-  // ── Update store with real ownerId ────────────────────────────────────────
-  await Store.updateOne({ _id: store._id }, { ownerId: user._id });
+  const userDoc = {
+    _id: userObjId,
+    storeId: storeObjId,
+    email: email.toLowerCase(),
+    fullName,
+    passwordHash,
+    role: 'admin' as const,
+    isActive: true,
+  };
+
+  let store: Awaited<ReturnType<typeof Store.create>>[number] | null = null;
+  let user: Awaited<ReturnType<typeof User.create>>[number] | null = null;
+
+  const session = await mongoose.startSession();
+  try {
+    await session.withTransaction(async () => {
+      [store] = await Store.create([storeDoc], { session });
+      [user] = await User.create([userDoc], { session });
+    });
+  } catch (txErr) {
+    const message = (txErr as Error)?.message ?? '';
+    const transactionsUnsupported =
+      message.includes('Transaction numbers are only allowed on a replica set') ||
+      message.includes('Transactions are not supported');
+
+    if (!transactionsUnsupported) throw txErr;
+
+    // Standalone MongoDB (e.g. Atlas M0): emulate atomicity with a compensating
+    // delete so a failed user insert cannot leave an orphaned store behind.
+    logger.warn('[onboardStore] Transactions unsupported — using compensating write');
+    [store] = await Store.create([storeDoc]);
+    try {
+      [user] = await User.create([userDoc]);
+    } catch (userErr) {
+      await Store.deleteOne({ _id: storeObjId });
+      throw userErr;
+    }
+  } finally {
+    await session.endSession();
+  }
+
+  if (!store || !user) {
+    throw createError('Onboarding failed — please try again', 500, 'INTERNAL_ERROR');
+  }
 
   // ── Issue tokens ──────────────────────────────────────────────────────────
   const userId = (user._id as Types.ObjectId).toString();

@@ -11,7 +11,12 @@ function getStoreId(req: Request): string {
 
 export async function getProductReviews(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const result = await reviewService.getProductReviews(getStoreId(req), req.params.productId);
+    const result = await reviewService.getProductReviews(
+      getStoreId(req),
+      req.params.productId,
+      Number(req.query.page) || 1,
+      Number(req.query.limit) || 20
+    );
     sendSuccess(res, result);
   } catch (err) { next(err); }
 }

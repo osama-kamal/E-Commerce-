@@ -38,7 +38,11 @@ export const authApi = {
       }
     ),
 
-  logout: (refreshToken: string) => api.post('/auth/logout', { refreshToken }),
+  // No argument: the refresh token travels in the httpOnly cookie, which axios
+  // sends automatically (withCredentials). The old signature took a token read
+  // from localStorage — a key that is never written, so callers guarded on a
+  // value that was always null and the request never went out.
+  logout: () => api.post('/auth/logout'),
   forgotPassword: (email: string) => api.post('/auth/forgot-password', { email }),
   resetPassword: (token: string, password: string) =>
     api.post(`/auth/reset-password/${token}`, { password }),

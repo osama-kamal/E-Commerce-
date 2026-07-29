@@ -57,6 +57,34 @@ export async function placeOrder(
   const storeObjId    = new Types.ObjectId(storeId);
   const customerObjId = new Types.ObjectId(customerId);
 
+  // Currency is snapshotted onto the order so historical amounts stay
+  // interpretable if the store later switches currency.
+  const { Store } = await import('../stores/store.model');
+  const storeConfig = await Store.findById(storeObjId).select('currency subscriptionPlan').lean();
+  const orderCurrency = (storeConfig?.currency ?? 'USD').toUpperCase();
+
+  // ── Plan quota ─────────────────────────────────────────────────────────────
+  // maxOrdersPerMonth was declared on every plan and never read, so a free store
+  // could take unlimited orders. Checked before any write so a store over quota
+  // does not decrement stock or clear the cart.
+  const { getPlanLimits } = await import('../../config/planLimits');
+  const orderLimit = getPlanLimits(storeConfig?.subscriptionPlan ?? 'free').maxOrdersPerMonth;
+
+  if (orderLimit !== -1) {
+    const now = new Date();
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const used = await orderRepo.countOrdersSince(storeObjId, startOfMonth);
+
+    if (used >= orderLimit) {
+      throw createError(
+        `This store has reached its monthly order limit (${orderLimit}). ` +
+        `Please contact the store owner — they need to upgrade their plan to accept more orders.`,
+        403,
+        'PLAN_LIMIT_EXCEEDED'
+      );
+    }
+  }
+
   // ── Idempotency guard ──────────────────────────────────────────────────────
   if (idempotencyKey) {
     const existing = await orderRepo.findOrderByIdempotencyKey(storeObjId, customerObjId, idempotencyKey);
@@ -205,6 +233,7 @@ export async function placeOrder(
           customerId: customerObjId,
           items: orderItems,
           totalAmount: finalAmount,
+          currency: orderCurrency,
           discountAmount,
           couponCode,
           shippingAddress,
@@ -259,6 +288,7 @@ export async function placeOrder(
       customerId: customerObjId,
       items: orderItems,
       totalAmount: finalAmount,
+      currency: orderCurrency,
       discountAmount,
       couponCode,
       shippingAddress,
