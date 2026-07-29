@@ -1,7 +1,9 @@
 import { useEffect, useState, FormEvent } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { AnimatePresence } from 'framer-motion';
 import { categoriesApi } from '../../api/categories';
+import { TableRowsSkeleton, TableSkeleton } from '../../components/Skeleton';
 import { Category } from '../../types';
+import Modal from '../../components/Modal';
 import toast from 'react-hot-toast';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -99,68 +101,65 @@ function CategoryModal({
   const rootCategories = categories.filter(c => c.level === 0 && c._id !== category?._id);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-        className="absolute inset-0 bg-black/50 backdrop-blur-sm"
-        onClick={onClose}
-      />
-      <motion.div
-        initial={{ opacity: 0, scale: 0.95, y: 20 }}
-        animate={{ opacity: 1, scale: 1, y: 0 }}
-        exit={{ opacity: 0, scale: 0.95, y: 20 }}
-        transition={{ duration: 0.2 }}
-        className="relative bg-white dark:bg-gray-900 rounded-2xl shadow-2xl w-full max-w-md"
-        onClick={e => e.stopPropagation()}
-      >
+    <Modal
+      onClose={onClose}
+      labelledBy="category-modal-title"
+      panelClassName="relative bg-white dark:bg-gray-900 rounded-2xl shadow-2xl w-full max-w-md"
+    >
+      <>
         <div className="flex items-center justify-between p-6 border-b dark:border-gray-800">
-          <h2 className="text-lg font-bold text-gray-900 dark:text-white">
+          <h2 id="category-modal-title" className="text-lg font-bold text-gray-900 dark:text-white">
             {isEdit ? 'Edit Category' : 'New Category'}
           </h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 text-xl leading-none">✕</button>
+          <button onClick={onClose} aria-label="Close" className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 text-xl leading-none">✕</button>
         </div>
 
         <form onSubmit={handleSubmit} className="p-6 space-y-4" noValidate>
           {/* Name */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+            <label htmlFor="category-name" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               Category Name
             </label>
             <input
+              id="category-name"
               className="input"
               value={form.name}
               onChange={handleNameChange}
               placeholder="e.g. Men's Clothing"
+              aria-invalid={errors.name ? true : undefined}
+              aria-describedby={errors.name ? 'category-name-error' : undefined}
               autoFocus
             />
-            {errors.name && <p className="text-red-500 text-xs mt-1">{errors.name}</p>}
+            {errors.name && <p id="category-name-error" role="alert" className="text-red-500 text-xs mt-1">{errors.name}</p>}
           </div>
 
           {/* Slug */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+            <label htmlFor="category-slug" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               Slug <span className="text-gray-400 font-normal">(URL-friendly identifier)</span>
             </label>
             <div className="flex items-center gap-2">
-              <span className="text-gray-400 text-sm shrink-0">/categories/</span>
+              <span className="text-gray-400 text-sm shrink-0" aria-hidden="true">/categories/</span>
               <input
+                id="category-slug"
                 className="input flex-1"
                 value={form.slug}
                 onChange={handleSlugChange}
                 placeholder="mens-clothing"
+                aria-invalid={errors.slug ? true : undefined}
+                aria-describedby={errors.slug ? 'category-slug-error' : undefined}
               />
             </div>
-            {errors.slug && <p className="text-red-500 text-xs mt-1">{errors.slug}</p>}
+            {errors.slug && <p id="category-slug-error" role="alert" className="text-red-500 text-xs mt-1">{errors.slug}</p>}
           </div>
 
           {/* Parent category */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+            <label htmlFor="category-parent" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               Parent Category <span className="text-gray-400 font-normal">(optional — leave empty for root)</span>
             </label>
             <select
+              id="category-parent"
               className="input"
               value={form.parentId}
               onChange={e => setForm(f => ({ ...f, parentId: e.target.value }))}
@@ -187,8 +186,8 @@ function CategoryModal({
             </button>
           </div>
         </form>
-      </motion.div>
-    </div>
+      </>
+    </Modal>
   );
 }
 
@@ -283,13 +282,7 @@ export default function AdminCategories() {
             </thead>
             <tbody>
               {loading
-                ? Array.from({ length: 4 }).map((_, i) => (
-                    <tr key={i} className="border-b dark:border-gray-800 animate-pulse">
-                      {Array.from({ length: 5 }).map((_, j) => (
-                        <td key={j} className="px-4 py-3"><div className="h-4 bg-gray-200 dark:bg-gray-700 rounded" /></td>
-                      ))}
-                    </tr>
-                  ))
+                ? <TableRowsSkeleton rows={4} columns={5} />
                 : roots.map(root => {
                     const children = childrenOf(root._id);
                     return [
@@ -383,24 +376,12 @@ export default function AdminCategories() {
       {/* Loading skeleton */}
       {loading && (
         <div className="card overflow-hidden">
-          <table className="w-full text-sm">
-            <thead className="bg-gray-50 dark:bg-gray-800 border-b dark:border-gray-700">
-              <tr>
-                {['Category', 'Slug', 'Level', 'Sub-categories', 'Actions'].map(h => (
-                  <th key={h} className="text-left px-4 py-3 text-gray-500 dark:text-gray-400 font-medium">{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {Array.from({ length: 5 }).map((_, i) => (
-                <tr key={i} className="border-b dark:border-gray-800 animate-pulse">
-                  {Array.from({ length: 5 }).map((_, j) => (
-                    <td key={j} className="px-4 py-3"><div className="h-4 bg-gray-200 dark:bg-gray-700 rounded" /></td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <TableSkeleton
+            headers={['Category', 'Slug', 'Level', 'Sub-categories', 'Actions']}
+            rows={5}
+            label="Loading categories…"
+            headerClassName="text-left px-4 py-3 text-gray-500 dark:text-gray-400 font-medium"
+          />
         </div>
       )}
 

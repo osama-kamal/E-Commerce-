@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
 import { couponsApi, CouponData } from '../../api/coupons';
+import Modal from '../../components/Modal';
+import { TableSkeleton } from '../../components/Skeleton';
 import toast from 'react-hot-toast';
 
 interface Coupon {
@@ -152,10 +154,11 @@ export default function AdminCoupons() {
       {/* Table */}
       <div className="card overflow-hidden">
         {loading ? (
-          <div className="p-10 text-center">
-            <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600" />
-            <p className="mt-2 text-gray-500 text-sm">Loading coupons…</p>
-          </div>
+          <TableSkeleton
+            headers={['Code', 'Type', 'Discount', 'Min Order', 'Uses', 'Status', 'Expires', 'Actions']}
+            rows={5}
+            label="Loading coupons…"
+          />
         ) : coupons.length === 0 ? (
           <div className="p-10 text-center">
             <p className="text-5xl mb-3">🏷️</p>
@@ -239,25 +242,27 @@ export default function AdminCoupons() {
 
       {/* Create / Edit Modal */}
       {showModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          {/* Backdrop */}
-          <div
-            className="absolute inset-0 bg-black/50"
-            onClick={() => setShowModal(false)}
-          />
-
-          {/* Modal */}
-          <div className="relative bg-white dark:bg-gray-900 rounded-xl shadow-2xl w-full max-w-md p-6 space-y-4">
-            <h2 className="text-lg font-bold text-gray-900 dark:text-white">
+        <Modal
+          onClose={() => setShowModal(false)}
+          labelledBy="coupon-modal-title"
+          panelClassName="relative bg-white dark:bg-gray-900 rounded-xl shadow-2xl w-full max-w-md p-6 space-y-4"
+          // This dialog never had an entrance transition; keep it that way so the
+          // migration changes behaviour only, not appearance.
+          animate={false}
+          backdropClassName="absolute inset-0 bg-black/50"
+        >
+          <>
+            <h2 id="coupon-modal-title" className="text-lg font-bold text-gray-900 dark:text-white">
               {editingId ? 'Edit Coupon' : 'Create Coupon'}
             </h2>
 
             {/* Code */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              <label htmlFor="coupon-code" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                 Code <span className="text-red-500">*</span>
               </label>
               <input
+                id="coupon-code"
                 type="text"
                 value={form.code}
                 onChange={e => setForm(f => ({ ...f, code: e.target.value.toUpperCase() }))}
@@ -272,10 +277,11 @@ export default function AdminCoupons() {
 
             {/* Type */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              <label htmlFor="coupon-type" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                 Discount Type <span className="text-red-500">*</span>
               </label>
               <select
+                id="coupon-type"
                 value={form.type}
                 onChange={e => setForm(f => ({ ...f, type: e.target.value as 'percent' | 'fixed' }))}
                 className="input w-full"
@@ -287,7 +293,7 @@ export default function AdminCoupons() {
 
             {/* Discount value */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              <label htmlFor="coupon-discount" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                 Discount Value <span className="text-red-500">*</span>
               </label>
               <div className="relative">
@@ -295,6 +301,7 @@ export default function AdminCoupons() {
                   {form.type === 'percent' ? '%' : '$'}
                 </span>
                 <input
+                  id="coupon-discount"
                   type="number"
                   min={1}
                   max={form.type === 'percent' ? 100 : undefined}
@@ -307,10 +314,11 @@ export default function AdminCoupons() {
 
             {/* Min order */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              <label htmlFor="coupon-min-order" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                 Minimum Order Amount ($)
               </label>
               <input
+                id="coupon-min-order"
                 type="number"
                 min={0}
                 value={form.minOrderAmount}
@@ -322,33 +330,37 @@ export default function AdminCoupons() {
 
             {/* Max uses */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              <label htmlFor="coupon-max-uses" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                 Max Uses
               </label>
               <input
+                id="coupon-max-uses"
                 type="number"
                 min={0}
                 value={form.maxUses}
                 onChange={e => setForm(f => ({ ...f, maxUses: Number(e.target.value) }))}
                 className="input w-full"
                 placeholder="0 = unlimited"
+                aria-describedby="coupon-max-uses-hint"
               />
-              <p className="text-xs text-gray-400 mt-1">0 = unlimited uses</p>
+              <p id="coupon-max-uses-hint" className="text-xs text-gray-400 mt-1">0 = unlimited uses</p>
             </div>
 
             {/* Expires at */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              <label htmlFor="coupon-expires" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                 Expiry Date
               </label>
               <input
+                id="coupon-expires"
                 type="date"
                 value={form.expiresAt ?? ''}
                 onChange={e => setForm(f => ({ ...f, expiresAt: e.target.value || null }))}
                 className="input w-full"
                 min={new Date().toISOString().split('T')[0]}
+                aria-describedby="coupon-expires-hint"
               />
-              <p className="text-xs text-gray-400 mt-1">Leave blank for no expiry</p>
+              <p id="coupon-expires-hint" className="text-xs text-gray-400 mt-1">Leave blank for no expiry</p>
             </div>
 
             {/* Active toggle */}
@@ -383,8 +395,8 @@ export default function AdminCoupons() {
                 {saving ? 'Saving…' : editingId ? 'Save Changes' : 'Create Coupon'}
               </button>
             </div>
-          </div>
-        </div>
+          </>
+        </Modal>
       )}
     </div>
   );

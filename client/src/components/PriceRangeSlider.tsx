@@ -100,6 +100,8 @@ export default function PriceRangeSlider({
             [&::-webkit-slider-runnable-track]:bg-transparent
             [&::-moz-range-track]:bg-transparent
             focus:outline-none
+            [&:focus-visible::-webkit-slider-thumb]:shadow-[0_0_0_3px_rgba(37,99,235,0.7)]
+            [&:focus-visible::-moz-range-thumb]:shadow-[0_0_0_3px_rgba(37,99,235,0.7)]
           "
           style={{ pointerEvents: low === high ? 'none' : 'auto', zIndex: low > max - step ? 5 : 3 }}
         />
@@ -137,6 +139,8 @@ export default function PriceRangeSlider({
             [&::-webkit-slider-runnable-track]:bg-transparent
             [&::-moz-range-track]:bg-transparent
             focus:outline-none
+            [&:focus-visible::-webkit-slider-thumb]:shadow-[0_0_0_3px_rgba(37,99,235,0.7)]
+            [&:focus-visible::-moz-range-thumb]:shadow-[0_0_0_3px_rgba(37,99,235,0.7)]
           "
           style={{ zIndex: 4 }}
         />

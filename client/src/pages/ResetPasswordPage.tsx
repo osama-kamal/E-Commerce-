@@ -75,41 +75,52 @@ export default function ResetPasswordPage() {
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label htmlFor="reset-password" className="block text-sm font-medium text-gray-700 mb-1">
               New Password
             </label>
             <input
+              id="reset-password"
               type="password"
+              autoComplete="new-password"
+              aria-invalid={errors.password ? true : undefined}
+              aria-describedby={errors.password ? 'reset-password-error' : undefined}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="Min 8 characters"
               className="w-full border border-gray-300 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
             />
             {errors.password && (
-              <p className="text-red-500 text-xs mt-1">{errors.password}</p>
+              <p id="reset-password-error" role="alert" className="text-red-500 text-xs mt-1">{errors.password}</p>
             )}
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label htmlFor="reset-confirm-password" className="block text-sm font-medium text-gray-700 mb-1">
               Confirm Password
             </label>
             <input
+              id="reset-confirm-password"
               type="password"
+              autoComplete="new-password"
+              aria-invalid={errors.confirmPassword ? true : undefined}
+              aria-describedby={errors.confirmPassword ? 'reset-confirm-password-error' : undefined}
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
               placeholder="Repeat your new password"
               className="w-full border border-gray-300 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
             />
             {errors.confirmPassword && (
-              <p className="text-red-500 text-xs mt-1">{errors.confirmPassword}</p>
+              <p id="reset-confirm-password-error" role="alert" className="text-red-500 text-xs mt-1">{errors.confirmPassword}</p>
             )}
           </div>
 
           <button
             type="submit"
             disabled={loading}
-            className="w-full bg-primary-600 text-white py-2.5 rounded-lg font-medium hover:bg-primary-700 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
+            aria-busy={loading}
+            // py-2.5 kept explicitly: the utilities layer wins over the component
+            // layer, so this preserves the original button height exactly.
+            className={`btn-primary w-full py-2.5 ${loading ? 'btn-loading' : ''}`}
           >
             {loading ? 'Resetting...' : 'Reset Password'}
           </button>

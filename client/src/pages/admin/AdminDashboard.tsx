@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { DashboardContainer } from '../../components/dashboard/DashboardContainer';
+import { CardGridSkeleton, Skeleton, StatCardsSkeleton } from '../../components/Skeleton';
 import { adminApi } from '../../api/admin';
 import { Store } from '../../types';
 import { Link } from 'react-router-dom';
@@ -72,12 +73,18 @@ function PlatformDashboard() {
     .slice(0, 5);
 
   if (loading) {
+    // Mirrors the loaded layout below (header → KPI row → two-column panels) so
+    // the page does not jump when the real numbers arrive.
     return (
-      <div className="flex items-center justify-center py-32">
-        <div className="text-center space-y-3">
-          <div className="w-10 h-10 border-4 border-primary-600 border-t-transparent rounded-full animate-spin mx-auto" />
-          <p className="text-sm text-gray-500 dark:text-gray-400">Loading platform data…</p>
+      <div className="p-6 max-w-7xl">
+        <div className="mb-6 space-y-2" aria-hidden="true">
+          <Skeleton className="h-7 w-56" />
+          <Skeleton className="h-4 w-80" />
         </div>
+        <div className="mb-8">
+          <StatCardsSkeleton count={4} label="Loading platform data…" />
+        </div>
+        <CardGridSkeleton count={2} lines={5} className="grid lg:grid-cols-2 gap-6" label="" />
       </div>
     );
   }

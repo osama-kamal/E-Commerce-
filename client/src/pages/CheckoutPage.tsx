@@ -362,17 +362,26 @@ function CheckoutForm() {
             <motion.div key="shipping" variants={slideVariants} initial="enter" animate="center" exit="exit" transition={{ duration: 0.25 }}>
               <form onSubmit={handleSubmit(handleShippingSubmit)} className="card p-6 space-y-4" noValidate>
                 <h2 className="font-semibold text-gray-900 dark:text-white text-lg">Shipping Address</h2>
+                {/* `autoComplete` uses the WHATWG shipping-address tokens so
+                    browsers and password managers can fill the whole address. */}
                 {([
-                  { name: 'line1' as const,      label: 'Address line 1' },
-                  { name: 'city' as const,       label: 'City' },
-                  { name: 'state' as const,      label: 'State / Province' },
-                  { name: 'postalCode' as const, label: 'Postal code' },
-                  { name: 'country' as const,    label: 'Country' },
-                ]).map(({ name, label }) => (
+                  { name: 'line1' as const,      label: 'Address line 1',   autoComplete: 'address-line1' },
+                  { name: 'city' as const,       label: 'City',             autoComplete: 'address-level2' },
+                  { name: 'state' as const,      label: 'State / Province', autoComplete: 'address-level1' },
+                  { name: 'postalCode' as const, label: 'Postal code',      autoComplete: 'postal-code' },
+                  { name: 'country' as const,    label: 'Country',          autoComplete: 'country-name' },
+                ]).map(({ name, label, autoComplete }) => (
                   <div key={name}>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{label}</label>
-                    <input className="input" {...register(name)} />
-                    {errors[name] && <p className="text-red-500 text-xs mt-1">{errors[name]?.message}</p>}
+                    <label htmlFor={`shipping-${name}`} className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{label}</label>
+                    <input
+                      id={`shipping-${name}`}
+                      className="input"
+                      autoComplete={autoComplete}
+                      aria-invalid={errors[name] ? true : undefined}
+                      aria-describedby={errors[name] ? `shipping-${name}-error` : undefined}
+                      {...register(name)}
+                    />
+                    {errors[name] && <p id={`shipping-${name}-error`} role="alert" className="text-red-500 text-xs mt-1">{errors[name]?.message}</p>}
                   </div>
                 ))}
                 <button type="submit" className="btn-primary w-full py-3" disabled={isSubmitting || orderLoading}>
@@ -466,7 +475,7 @@ function CheckoutForm() {
 
                 {/* ── Coupon ── */}
                 <div className="border-t dark:border-gray-700 pt-4 space-y-3">
-                  <p className="text-sm font-medium text-gray-700 dark:text-gray-300">Promo Code</p>
+                  <label htmlFor="checkout-coupon" className="block text-sm font-medium text-gray-700 dark:text-gray-300">Promo Code</label>
                   {couponCode ? (
                     <div className="flex items-center justify-between bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg px-4 py-3">
                       <div>
@@ -481,14 +490,23 @@ function CheckoutForm() {
                   ) : (
                     <div className="space-y-1">
                       <div className="flex gap-2">
-                        <input type="text" value={couponInput} onChange={e => setCouponInput(e.target.value.toUpperCase())}
+                        <input
+                          id="checkout-coupon"
+                          type="text"
+                          value={couponInput}
+                          onChange={e => setCouponInput(e.target.value.toUpperCase())}
                           onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), handleApplyCoupon())}
-                          placeholder="Enter promo code" className="input flex-1 uppercase placeholder:normal-case" disabled={couponLoading} />
+                          placeholder="Enter promo code"
+                          className="input flex-1 uppercase placeholder:normal-case"
+                          disabled={couponLoading}
+                          aria-invalid={couponError ? true : undefined}
+                          aria-describedby={couponError ? 'checkout-coupon-error' : undefined}
+                        />
                         <button type="button" onClick={handleApplyCoupon} disabled={couponLoading || !couponInput.trim()} className="btn-primary px-4 disabled:opacity-50 whitespace-nowrap">
                           {couponLoading ? '…' : 'Apply'}
                         </button>
                       </div>
-                      {couponError && <p className="text-xs text-red-500">{couponError}</p>}
+                      {couponError && <p id="checkout-coupon-error" role="alert" className="text-xs text-red-500">{couponError}</p>}
                     </div>
                   )}
 
@@ -525,7 +543,7 @@ function CheckoutForm() {
                   <div className="flex gap-3">
                     <button type="button" onClick={() => setStep(0)} className="btn-secondary flex-1">← Back</button>
                     <button type="button" onClick={() => paymobIframeUrl && setPaymobIframeUrl(paymobIframeUrl)} disabled={!paymobIframeUrl}
-                      className="flex-1 py-3 rounded-lg font-medium text-white bg-gradient-to-r from-amber-500 to-yellow-600 hover:from-amber-600 hover:to-yellow-700 shadow-sm shadow-amber-200 transition-all disabled:opacity-50">
+                      className="btn btn-brand flex-1 py-3">
                       Open Payment Window
                     </button>
                   </div>

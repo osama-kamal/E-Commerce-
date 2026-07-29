@@ -44,19 +44,43 @@ export default function RegisterPage() {
         <h1 className="text-2xl font-bold text-gray-900 dark:text-white mb-6">Create account</h1>
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4" noValidate>
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Email</label>
-            <input type="email" className="input" {...register('email')} />
-            {errors.email && <p className="text-red-500 text-xs mt-1">{errors.email.message}</p>}
+            <label htmlFor="register-email" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Email</label>
+            <input
+              id="register-email"
+              type="email"
+              className="input"
+              autoComplete="email"
+              aria-invalid={errors.email ? true : undefined}
+              aria-describedby={errors.email ? 'register-email-error' : undefined}
+              {...register('email')}
+            />
+            {errors.email && <p id="register-email-error" role="alert" className="text-red-500 text-xs mt-1">{errors.email.message}</p>}
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Password</label>
-            <input type="password" className="input" {...register('password')} />
-            {errors.password && <p className="text-red-500 text-xs mt-1">{errors.password.message}</p>}
+            <label htmlFor="register-password" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Password</label>
+            <input
+              id="register-password"
+              type="password"
+              className="input"
+              autoComplete="new-password"
+              aria-invalid={errors.password ? true : undefined}
+              aria-describedby={errors.password ? 'register-password-error' : undefined}
+              {...register('password')}
+            />
+            {errors.password && <p id="register-password-error" role="alert" className="text-red-500 text-xs mt-1">{errors.password.message}</p>}
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Confirm password</label>
-            <input type="password" className="input" {...register('confirm')} />
-            {errors.confirm && <p className="text-red-500 text-xs mt-1">{errors.confirm.message}</p>}
+            <label htmlFor="register-confirm" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Confirm password</label>
+            <input
+              id="register-confirm"
+              type="password"
+              className="input"
+              autoComplete="new-password"
+              aria-invalid={errors.confirm ? true : undefined}
+              aria-describedby={errors.confirm ? 'register-confirm-error' : undefined}
+              {...register('confirm')}
+            />
+            {errors.confirm && <p id="register-confirm-error" role="alert" className="text-red-500 text-xs mt-1">{errors.confirm.message}</p>}
           </div>
           <button type="submit" className="btn-primary w-full" disabled={isSubmitting}>
             {isSubmitting ? 'Creating account…' : 'Create account'}

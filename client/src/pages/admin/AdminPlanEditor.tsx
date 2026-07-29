@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import api from '../../api/axios';
+import { CardGridSkeleton } from '../../components/Skeleton';
 import toast from 'react-hot-toast';
 import type { PlanDisplay } from './AdminPricing';
 
@@ -268,16 +269,7 @@ export default function AdminPlanEditor() {
       </div>
 
       {loading ? (
-        <div className="space-y-3">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <div key={i} className="card p-5 animate-pulse">
-              <div className="flex items-center gap-4">
-                <div className="h-5 bg-gray-200 dark:bg-gray-700 rounded w-24" />
-                <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-16" />
-              </div>
-            </div>
-          ))}
-        </div>
+        <CardGridSkeleton count={4} lines={1} className="space-y-3" label="Loading plans…" />
       ) : plans.length === 0 ? (
         <div className="card p-8 text-center text-gray-400">
           <p className="text-2xl mb-2">📋</p>

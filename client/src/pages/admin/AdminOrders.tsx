@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ordersApi } from '../../api/orders';
+import { TableRowsSkeleton } from '../../components/Skeleton';
 import { Order, OrderStatus } from '../../types';
+import Modal from '../../components/Modal';
 import toast from 'react-hot-toast';
 
 const STATUSES: OrderStatus[] = ['pending', 'processing', 'shipped', 'delivered', 'cancelled'];
@@ -30,32 +32,24 @@ function PaymentBadge({ method }: { method?: string }) {
 
 function OrderDetailsModal({ order, onClose }: { order: Order; onClose: () => void }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-        className="absolute inset-0 bg-black/50 backdrop-blur-sm"
-        onClick={onClose}
-      />
-      <motion.div
-        initial={{ opacity: 0, scale: 0.95, y: 20 }}
-        animate={{ opacity: 1, scale: 1, y: 0 }}
-        exit={{ opacity: 0, scale: 0.95, y: 20 }}
-        className="relative bg-white dark:bg-gray-900 rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto"
-        onClick={e => e.stopPropagation()}
-      >
+    <Modal
+      onClose={onClose}
+      labelledBy="order-details-title"
+      describedBy="order-details-ref"
+      panelClassName="relative bg-white dark:bg-gray-900 rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto"
+    >
+      <>
         {/* Header */}
         <div className="flex items-center justify-between p-6 border-b dark:border-gray-800">
           <div>
-            <h2 className="text-lg font-bold text-gray-900 dark:text-white">Order Details</h2>
-            <p className="text-sm text-gray-500 font-mono">#{order._id.slice(-8).toUpperCase()}</p>
+            <h2 id="order-details-title" className="text-lg font-bold text-gray-900 dark:text-white">Order Details</h2>
+            <p id="order-details-ref" className="text-sm text-gray-500 font-mono">#{order._id.slice(-8).toUpperCase()}</p>
           </div>
           <div className="flex items-center gap-3">
             <span className={`text-xs px-2 py-1 rounded-full capitalize font-medium ${STATUS_COLORS[order.status]}`}>
               {order.status}
             </span>
-            <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 text-xl">✕</button>
+            <button onClick={onClose} aria-label="Close" className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 text-xl">✕</button>
           </div>
         </div>
 
@@ -113,8 +107,8 @@ function OrderDetailsModal({ order, onClose }: { order: Order; onClose: () => vo
             </div>
           </div>
         </div>
-      </motion.div>
-    </div>
+      </>
+    </Modal>
   );
 }
 
@@ -251,7 +245,7 @@ export default function AdminOrders() {
               <button
                 onClick={handleBulkDelete}
                 disabled={bulkLoading}
-                className="bg-red-500 hover:bg-red-600 text-white text-sm py-1.5 px-3 rounded-lg font-medium transition-colors disabled:opacity-50"
+                className="btn btn-danger py-1.5 px-3 text-sm"
               >
                 {bulkLoading ? '⏳...' : '🗑️ Delete'}
               </button>
@@ -281,13 +275,7 @@ export default function AdminOrders() {
             </thead>
             <tbody>
               {loading ? (
-                Array.from({ length: 5 }).map((_, i) => (
-                  <tr key={i} className="border-b dark:border-gray-800 animate-pulse">
-                    {Array.from({ length: 8 }).map((_, j) => (
-                      <td key={j} className="px-4 py-3"><div className="h-4 bg-gray-200 dark:bg-gray-700 rounded" /></td>
-                    ))}
-                  </tr>
-                ))
+                <TableRowsSkeleton rows={5} columns={8} />
               ) : orders.map(order => (
                 <tr
                   key={order._id}

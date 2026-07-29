@@ -77,7 +77,9 @@ export default function CartPage() {
         <button
           onClick={() => clearCart.mutate()}
           disabled={clearCart.isPending}
-          className="text-sm text-red-500 hover:underline disabled:opacity-50"
+          // btn-link supplies the shape; the red is layered on top because the
+          // utilities layer outranks the components layer.
+          className="btn btn-link text-sm text-red-500 dark:text-red-400"
         >
           Clear cart
         </button>
@@ -112,7 +114,9 @@ export default function CartPage() {
                     onClick={() => updateItem.mutate({ productId: item.productId, quantity: item.quantity - 1 })}
                     disabled={updateItem.isPending}
                     aria-label="Decrease quantity"
-                    className="min-w-[44px] min-h-[44px] flex items-center justify-center px-3 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-l-lg disabled:opacity-50 transition-colors"
+                    // btn-ghost carries colour only — the explicit corner rounding
+                    // stays because this is a segmented control, not a lone button.
+                    className="btn-ghost min-w-[44px] min-h-[44px] flex items-center justify-center px-3 rounded-l-lg disabled:opacity-50 transition-colors"
                   >
                     −
                   </button>
@@ -123,7 +127,7 @@ export default function CartPage() {
                     onClick={() => updateItem.mutate({ productId: item.productId, quantity: item.quantity + 1 })}
                     disabled={updateItem.isPending}
                     aria-label="Increase quantity"
-                    className="min-w-[44px] min-h-[44px] flex items-center justify-center px-3 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-r-lg disabled:opacity-50 transition-colors"
+                    className="btn-ghost min-w-[44px] min-h-[44px] flex items-center justify-center px-3 rounded-r-lg disabled:opacity-50 transition-colors"
                   >
                     +
                   </button>
@@ -136,6 +140,9 @@ export default function CartPage() {
                 <button
                   onClick={() => removeItem.mutate({ productId: item.productId })}
                   disabled={removeItem.isPending}
+                  // Glyph-only control: without a label a screen reader announces
+                  // it as "✕, button".
+                  aria-label="Remove item from cart"
                   className="text-gray-400 hover:text-red-500 ml-2 transition-colors disabled:opacity-50"
                 >
                   ✕

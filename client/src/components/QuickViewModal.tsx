@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { motion, AnimatePresence } from 'framer-motion';
+import { AnimatePresence } from 'framer-motion';
+import Modal from './Modal';
 import { Product } from '../types';
 import StarRating from './StarRating';
 import { cartApi } from '../api/cart';
@@ -92,23 +93,14 @@ export default function QuickViewModal({ product, isOpen, onClose }: Props) {
 
   return (
     <AnimatePresence>
-      <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-        {/* Backdrop */}
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          onClick={onClose}
-          className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-        />
-
-        {/* Modal */}
-        <motion.div
-          initial={{ opacity: 0, scale: 0.95, y: 20 }}
-          animate={{ opacity: 1, scale: 1, y: 0 }}
-          exit={{ opacity: 0, scale: 0.95, y: 20 }}
-          className="relative bg-white dark:bg-gray-800 rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-y-auto"
-        >
+      <Modal
+        onClose={onClose}
+        labelledBy="quickview-title"
+        describedBy="quickview-description"
+        panelClassName="relative bg-white dark:bg-gray-800 rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-y-auto"
+        backdropClassName="absolute inset-0 bg-black/60 backdrop-blur-sm"
+      >
+        <>
           {/* Close button */}
           <button
             onClick={onClose}
@@ -156,7 +148,7 @@ export default function QuickViewModal({ product, isOpen, onClose }: Props) {
 
             {/* Right: Details */}
             <div className="flex flex-col">
-              <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">
+              <h2 id="quickview-title" className="text-2xl font-bold text-gray-900 dark:text-white mb-2">
                 {product.name}
               </h2>
 
@@ -203,7 +195,7 @@ export default function QuickViewModal({ product, isOpen, onClose }: Props) {
                 )}
               </div>
 
-              <p className="text-gray-600 dark:text-gray-300 mb-6 line-clamp-4">
+              <p id="quickview-description" className="text-gray-600 dark:text-gray-300 mb-6 line-clamp-4">
                 {product.description}
               </p>
 
@@ -264,8 +256,8 @@ export default function QuickViewModal({ product, isOpen, onClose }: Props) {
               </button>
             </div>
           </div>
-        </motion.div>
-      </div>
+        </>
+      </Modal>
     </AnimatePresence>
   );
 }

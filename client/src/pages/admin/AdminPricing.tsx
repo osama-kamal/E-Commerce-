@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react';
 import { useAppSelector } from '../../hooks/useAppDispatch';
 import { storesApi } from '../../api/stores';
+import { CardGridSkeleton } from '../../components/Skeleton';
+import Modal from '../../components/Modal';
 import toast from 'react-hot-toast';
-import { motion, AnimatePresence } from 'framer-motion';
+import { AnimatePresence } from 'framer-motion';
 import api from '../../api/axios';
 
 // ── Plan display type (mirrors PlanConfig on the backend) ────────────────────
@@ -96,23 +98,19 @@ function UpgradeModal({
   requesting: boolean;
 }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-        className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
-      <motion.div
-        initial={{ opacity: 0, scale: 0.95, y: 20 }}
-        animate={{ opacity: 1, scale: 1, y: 0 }}
-        exit={{ opacity: 0, scale: 0.95, y: 20 }}
-        transition={{ duration: 0.2 }}
-        className="relative bg-white dark:bg-gray-900 rounded-2xl shadow-2xl w-full max-w-md p-6"
-        onClick={e => e.stopPropagation()}
-      >
-        <button onClick={onClose} className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 text-xl">✕</button>
+    <Modal
+      onClose={onClose}
+      labelledBy="upgrade-modal-title"
+      describedBy="upgrade-modal-desc"
+      panelClassName="relative bg-white dark:bg-gray-900 rounded-2xl shadow-2xl w-full max-w-md p-6"
+    >
+      <>
+        <button onClick={onClose} aria-label="Close" className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 text-xl">✕</button>
 
         <div className="text-center mb-6">
-          <div className="text-4xl mb-3">🚀</div>
-          <h2 className="text-xl font-bold text-gray-900 dark:text-white">Upgrade to {plan.displayName}</h2>
-          <p className="text-gray-500 dark:text-gray-400 text-sm mt-2">Online payment is coming soon. For now, contact us to activate your plan manually.</p>
+          <div className="text-4xl mb-3" aria-hidden="true">🚀</div>
+          <h2 id="upgrade-modal-title" className="text-xl font-bold text-gray-900 dark:text-white">Upgrade to {plan.displayName}</h2>
+          <p id="upgrade-modal-desc" className="text-gray-500 dark:text-gray-400 text-sm mt-2">Online payment is coming soon. For now, contact us to activate your plan manually.</p>
         </div>
 
         <div className="bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-800 rounded-xl p-4 mb-5 text-sm text-indigo-800 dark:text-indigo-300 space-y-1">
@@ -132,8 +130,8 @@ function UpgradeModal({
             {requesting ? <><span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />Sending…</> : '📩 Request Activation'}
           </button>
         </div>
-      </motion.div>
-    </div>
+      </>
+    </Modal>
   );
 }
 
@@ -190,20 +188,15 @@ export default function AdminPricing() {
 
       {/* Plan cards */}
       {plansLoading ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 mb-10">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <div key={i} className="card p-6 animate-pulse space-y-4">
-              <div className="h-5 bg-gray-200 dark:bg-gray-700 rounded w-1/2" />
-              <div className="h-8 bg-gray-200 dark:bg-gray-700 rounded w-2/3" />
-              <div className="space-y-2">
-                {Array.from({ length: 5 }).map((__, j) => (
-                  <div key={j} className="h-3 bg-gray-200 dark:bg-gray-700 rounded" />
-                ))}
-              </div>
-              <div className="h-10 bg-gray-200 dark:bg-gray-700 rounded-xl" />
-            </div>
-          ))}
-        </div>
+        <CardGridSkeleton
+          count={4}
+          lines={5}
+          padding="p-6"
+          headline
+          footer
+          className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 mb-10"
+          label="Loading plans…"
+        />
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 mb-10">
           {plans.map(plan => {

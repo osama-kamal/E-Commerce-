@@ -112,31 +112,38 @@ export default function AdminNewStore() {
       <div className="card p-6 space-y-5">
         {/* Store Name */}
         <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
+          <label htmlFor="newstore-name" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
             Store Name
           </label>
           <input
+            id="newstore-name"
             className="input"
             value={name}
             onChange={e => handleNameChange(e.target.value)}
             placeholder="e.g. My Fashion Store"
+            autoComplete="organization"
+            aria-invalid={errors.name ? true : undefined}
+            aria-describedby={errors.name ? 'newstore-name-error' : undefined}
             autoFocus
           />
-          {errors.name && <p className="text-red-500 text-xs mt-1">{errors.name}</p>}
+          {errors.name && <p id="newstore-name-error" role="alert" className="text-red-500 text-xs mt-1">{errors.name}</p>}
         </div>
 
         {/* Slug */}
         <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
+          <label htmlFor="newstore-slug" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
             Store Slug <span className="text-gray-400 font-normal">(URL identifier)</span>
           </label>
           <div className="flex items-center gap-2">
-            <span className="text-gray-400 text-sm shrink-0">shophub.com/</span>
+            <span className="text-gray-400 text-sm shrink-0" aria-hidden="true">shophub.com/</span>
             <input
+              id="newstore-slug"
               className="input flex-1 font-mono"
               value={slug}
               onChange={e => handleSlugChange(e.target.value)}
               placeholder="my-fashion-store"
+              aria-invalid={errors.slug ? true : undefined}
+              aria-describedby={errors.slug ? 'newstore-slug-error' : undefined}
             />
           </div>
           {slug && !errors.slug && (
@@ -144,7 +151,7 @@ export default function AdminNewStore() {
               Your store URL: <span className="text-primary-600 dark:text-primary-400 font-mono">{slug}.shophub.com</span>
             </p>
           )}
-          {errors.slug && <p className="text-red-500 text-xs mt-1">{errors.slug}</p>}
+          {errors.slug && <p id="newstore-slug-error" role="alert" className="text-red-500 text-xs mt-1">{errors.slug}</p>}
         </div>
 
         {/* Info box */}

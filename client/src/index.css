@@ -6,17 +6,79 @@
   html {
     scroll-behavior: smooth;
   }
-  /* Dark mode color transitions — scoped to only color-related properties so
-     Framer Motion's opacity/transform animations are never overridden by this
-     blanket CSS transition rule. The transition-property list intentionally
-     omits 'opacity' and 'transform'. */
-  *, *::before, *::after {
-    transition-property: background-color, border-color, color;
-    transition-duration: 500ms;
+
+  /* Theme-change fade.
+     This transition used to be applied unconditionally to *, *::before and
+     *::after at 500ms, which meant EVERY colour change on the page — button
+     hovers, focus rings, link states, table row highlights — took half a second
+     to settle. Interaction felt unresponsive across the whole app.
+
+     It is now applied only while the theme is actually switching: useDarkMode
+     adds `.theme-transition` to <html> for the duration of the change and then
+     removes it. Ordinary interaction is governed by each component's own
+     Tailwind `transition-colors` (150ms), which the global rule was previously
+     overriding.
+
+     As before, the property list deliberately omits 'opacity' and 'transform'
+     so Framer Motion animations are never affected. */
+  .theme-transition,
+  .theme-transition *,
+  .theme-transition *::before,
+  .theme-transition *::after {
+    transition-property: background-color, border-color, color, fill, stroke;
+    transition-duration: 300ms;
     transition-timing-function: ease;
   }
+
+  /* Respect users who have asked the OS to reduce motion. */
+  @media (prefers-reduced-motion: reduce) {
+    .theme-transition,
+    .theme-transition *,
+    .theme-transition *::before,
+    .theme-transition *::after {
+      transition-duration: 0ms;
+    }
+  }
+
   body {
     @apply bg-gray-50 text-gray-900 antialiased dark:bg-gray-950 dark:text-gray-100;
+  }
+
+  /* ── Global keyboard focus ring ───────────────────────────────────────────
+     Most interactive elements in the app had no focus style at all: .btn-primary
+     and .btn-secondary define none, and the majority of raw <button> elements
+     rely on the UA default, which several resets suppress. Tabbing through a
+     page left no indication of where you were.
+
+     :focus-visible is the whole point of this rule — the browser matches it for
+     keyboard and assistive-tech navigation but NOT for a mouse click on a
+     button, so pointer users see no change whatsoever. Text inputs are the
+     documented exception (they match on click too), which is why .input opts
+     out below: it already draws its own ring.
+
+     Deliberately an `outline` rather than a box-shadow ring: outline is painted
+     outside the element and is never clipped by an ancestor's overflow, and it
+     survives on elements that already use box-shadow for elevation. */
+  :focus-visible {
+    outline: 2px solid #2563eb; /* primary-600 */
+    outline-offset: 2px;
+  }
+
+  .dark :focus-visible {
+    outline-color: #60a5fa; /* primary-400 — readable on dark surfaces */
+  }
+
+  /* Some browsers still paint a default outline on mouse focus. Suppress it
+     without touching the :focus-visible case above. */
+  :focus:not(:focus-visible) {
+    outline: none;
+  }
+
+  /* Elements that already draw their own focus indicator opt out, so keyboard
+     focus shows one ring rather than a ring plus an outline. */
+  .input:focus-visible,
+  .input:focus {
+    outline: none;
   }
 }
 
@@ -33,6 +95,81 @@
   .card {
     @apply bg-white/90 backdrop-blur-md rounded-xl shadow-xl border border-white/60 dark:bg-gray-900/80 dark:border-gray-800 dark:backdrop-blur-md;
   }
+
+  /* ── Button system ──────────────────────────────────────────────────────────
+     Audit found 236 buttons: 83 on .btn-primary/.btn-secondary, 112 styled
+     entirely inline, 41 unstyled. The inline ones had grown four border radii
+     (lg/md/xl/full) and eight vertical paddings, and 16 of them hardcoded
+     `bg-blue-600` — the exact same hex as the `primary-600` token.
+
+     The two existing classes above are deliberately NOT redefined: changing them
+     would restyle 83 buttons across the app in one commit with no way to verify
+     the result page by page. Everything below is additive, so migration is opt-in.
+
+     Keyboard focus is intentionally absent here — the global :focus-visible rule
+     in @layer base already covers every button, and repeating it per variant
+     would double the indicator.
+
+     `.btn` carries the shared shape; variants carry colour only. Usage is
+     `className="btn btn-danger"`. The two legacy classes stay self-contained so
+     existing markup keeps working unchanged. */
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 font-medium rounded-lg
+           px-4 py-2 text-sm transition-colors duration-150
+           disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  /* Sizes — the audit's eight ad-hoc paddings collapse to three steps. */
+  .btn-sm { @apply px-3 py-1.5 text-xs; }
+  .btn-lg { @apply px-5 py-3 text-base; }
+
+  /* Brand CTA. `from-amber-500 to-yellow-600` appears seven times as a button
+     gradient (login, checkout, add-to-cart, storefront header) — it is the
+     storefront's accent, distinct from the blue primary used by admin. */
+  .btn-brand {
+    @apply text-white bg-gradient-to-r from-amber-500 to-yellow-600
+           hover:from-amber-600 hover:to-yellow-700
+           shadow-sm shadow-amber-200 dark:shadow-amber-900/40
+           transition-all;
+  }
+
+  .btn-outline {
+    @apply bg-transparent text-primary-700 border border-primary-600
+           hover:bg-primary-50
+           dark:text-primary-300 dark:border-primary-400 dark:hover:bg-primary-900/30;
+  }
+
+  .btn-danger {
+    @apply bg-red-600 hover:bg-red-700 text-white;
+  }
+
+  .btn-success {
+    @apply bg-emerald-600 hover:bg-emerald-700 text-white;
+  }
+
+  .btn-ghost {
+    @apply bg-transparent text-gray-700 hover:bg-gray-100
+           dark:text-gray-300 dark:hover:bg-gray-800;
+  }
+
+  /* Inline text action. Resets the padding/height inherited from .btn so it can
+     sit inside a sentence without disturbing line height. */
+  .btn-link {
+    @apply bg-transparent p-0 h-auto font-medium text-primary-600 hover:underline
+           dark:text-primary-400;
+  }
+
+  /* Square control for a lone glyph. Pair with an aria-label — an icon button
+     with no text has no accessible name. */
+  .btn-icon {
+    @apply p-0 w-10 h-10 shrink-0 rounded-full;
+  }
+
+  /* Busy state. Pair with `disabled` and `aria-busy="true"`; this only handles
+     the visuals so each call site keeps whatever spinner it already renders. */
+  .btn-loading {
+    @apply opacity-70 cursor-wait pointer-events-none;
+  }
 }
 
 /* Shimmer skeleton animation */
@@ -48,6 +185,20 @@
 .dark .shimmer {
   background: linear-gradient(90deg, #374151 25%, #4b5563 50%, #374151 75%);
   background-size: 800px 100%;
+}
+
+/* A skeleton that never stops sliding is exactly the kind of perpetual motion
+   users enable this setting to escape. Keep the placeholder shape and tint —
+   only the animation stops. */
+@media (prefers-reduced-motion: reduce) {
+  .shimmer {
+    animation: none;
+    background: #e5e7eb;
+  }
+  .dark .shimmer {
+    animation: none;
+    background: #374151;
+  }
 }
 
 /* Hero Carousel Animations */

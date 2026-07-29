@@ -70,21 +70,38 @@ export default function LoginPage() {
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white mb-6">Sign in</h1>
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4" noValidate>
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Email</label>
-              <input type="email" className="input" {...register('email')} />
-              {errors.email && <p className="text-red-500 text-xs mt-1">{errors.email.message}</p>}
+              <label htmlFor="login-email" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Email</label>
+              <input
+                id="login-email"
+                type="email"
+                className="input"
+                autoComplete="email"
+                aria-invalid={errors.email ? true : undefined}
+                aria-describedby={errors.email ? 'login-email-error' : undefined}
+                {...register('email')}
+              />
+              {errors.email && <p id="login-email-error" role="alert" className="text-red-500 text-xs mt-1">{errors.email.message}</p>}
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Password</label>
-              <input type="password" className="input" {...register('password')} />
-              {errors.password && <p className="text-red-500 text-xs mt-1">{errors.password.message}</p>}
+              <label htmlFor="login-password" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Password</label>
+              <input
+                id="login-password"
+                type="password"
+                className="input"
+                autoComplete="current-password"
+                aria-invalid={errors.password ? true : undefined}
+                aria-describedby={errors.password ? 'login-password-error' : undefined}
+                {...register('password')}
+              />
+              {errors.password && <p id="login-password-error" role="alert" className="text-red-500 text-xs mt-1">{errors.password.message}</p>}
             </div>
 
             {/* Sign in button — amber/gold, overrides btn-primary locally */}
             <button
               type="submit"
               disabled={isSubmitting}
-              className="w-full py-2 px-4 rounded-lg font-medium text-white bg-gradient-to-r from-amber-500 to-yellow-600 hover:from-amber-600 hover:to-yellow-700 shadow-md shadow-amber-200 dark:shadow-amber-900/40 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+              aria-busy={isSubmitting}
+              className={`btn btn-brand w-full ${isSubmitting ? 'btn-loading' : ''}`}
             >
               {isSubmitting ? 'Signing in…' : 'Sign in'}
             </button>

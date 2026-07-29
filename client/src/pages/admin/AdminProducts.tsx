@@ -5,6 +5,8 @@ import { productsApi } from '../../api/products';
 import { categoriesApi } from '../../api/categories';
 import { adminApi } from '../../api/admin';
 import { useAppSelector } from '../../hooks/useAppDispatch';
+import Modal from '../../components/Modal';
+import { TableRowsSkeleton } from '../../components/Skeleton';
 import { Product, Category } from '../../types';
 import toast from 'react-hot-toast';
 import axios from 'axios';
@@ -27,43 +29,34 @@ function getProductLimit(plan: string): number {
 function PlanLimitModal({ plan, limit, onClose }: { plan: string; limit: number; onClose: () => void }) {
   const navigate = useNavigate();
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <motion.div
-        initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-        className="absolute inset-0 bg-black/50 backdrop-blur-sm"
-        onClick={onClose}
-      />
-      <motion.div
-        initial={{ opacity: 0, scale: 0.95, y: 20 }}
-        animate={{ opacity: 1, scale: 1, y: 0 }}
-        exit={{ opacity: 0, scale: 0.95, y: 20 }}
-        transition={{ duration: 0.2 }}
-        className="relative bg-white dark:bg-gray-900 rounded-2xl shadow-2xl w-full max-w-md p-6 text-center"
-        onClick={e => e.stopPropagation()}
-      >
-        <div className="text-5xl mb-4">🚀</div>
-        <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-2">
-          Product Limit Reached
-        </h2>
-        <p className="text-gray-500 dark:text-gray-400 text-sm mb-4">
-          Your <strong className="text-gray-700 dark:text-gray-300 capitalize">{plan}</strong> plan
-          allows up to <strong>{limit}</strong> products.
-          Upgrade to add unlimited products.
-        </p>
-        <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl p-3 mb-5 text-sm text-amber-800 dark:text-amber-300">
-          💡 You currently have <strong>{limit}</strong> active products — the maximum for your plan.
-        </div>
-        <div className="flex gap-3">
-          <button onClick={onClose} className="btn-secondary flex-1">Cancel</button>
-          <button
-            onClick={() => { onClose(); navigate('/admin/pricing'); }}
-            className="btn-primary flex-1 bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500"
-          >
-            ⭐ Upgrade Plan
-          </button>
-        </div>
-      </motion.div>
-    </div>
+    <Modal
+      onClose={onClose}
+      labelledBy="plan-limit-title"
+      describedBy="plan-limit-desc"
+      panelClassName="relative bg-white dark:bg-gray-900 rounded-2xl shadow-2xl w-full max-w-md p-6 text-center"
+    >
+      <div className="text-5xl mb-4" aria-hidden="true">🚀</div>
+      <h2 id="plan-limit-title" className="text-xl font-bold text-gray-900 dark:text-white mb-2">
+        Product Limit Reached
+      </h2>
+      <p id="plan-limit-desc" className="text-gray-500 dark:text-gray-400 text-sm mb-4">
+        Your <strong className="text-gray-700 dark:text-gray-300 capitalize">{plan}</strong> plan
+        allows up to <strong>{limit}</strong> products.
+        Upgrade to add unlimited products.
+      </p>
+      <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl p-3 mb-5 text-sm text-amber-800 dark:text-amber-300">
+        💡 You currently have <strong>{limit}</strong> active products — the maximum for your plan.
+      </div>
+      <div className="flex gap-3">
+        <button onClick={onClose} className="btn-secondary flex-1">Cancel</button>
+        <button
+          onClick={() => { onClose(); navigate('/admin/pricing'); }}
+          className="btn-primary flex-1 bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500"
+        >
+          ⭐ Upgrade Plan
+        </button>
+      </div>
+    </Modal>
   );
 }
 
@@ -167,31 +160,19 @@ function ImageUploadModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      {/* Backdrop */}
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-        className="absolute inset-0 bg-black/50 backdrop-blur-sm"
-        onClick={onClose}
-      />
-
-      {/* Modal */}
-      <motion.div
-        initial={{ opacity: 0, scale: 0.95, y: 20 }}
-        animate={{ opacity: 1, scale: 1, y: 0 }}
-        exit={{ opacity: 0, scale: 0.95, y: 20 }}
-        transition={{ duration: 0.2 }}
-        className="relative bg-white dark:bg-gray-900 rounded-2xl shadow-2xl w-full max-w-md"
-        onClick={e => e.stopPropagation()}
-      >
+    <Modal
+      onClose={onClose}
+      labelledBy="image-upload-title"
+      describedBy="image-upload-product"
+      panelClassName="relative bg-white dark:bg-gray-900 rounded-2xl shadow-2xl w-full max-w-md"
+    >
+      <>
         <div className="flex items-center justify-between p-6 border-b dark:border-gray-800">
           <div>
-            <h2 className="text-lg font-bold text-gray-900 dark:text-white">Upload Product Image</h2>
-            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{product.name}</p>
+            <h2 id="image-upload-title" className="text-lg font-bold text-gray-900 dark:text-white">Upload Product Image</h2>
+            <p id="image-upload-product" className="text-sm text-gray-500 dark:text-gray-400 mt-1">{product.name}</p>
           </div>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 text-xl leading-none">✕</button>
+          <button onClick={onClose} aria-label="Close" className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 text-xl leading-none">✕</button>
         </div>
 
         <div className="p-6 space-y-4">
@@ -246,7 +227,7 @@ function ImageUploadModal({
                       setSelectedFile(null);
                       setPreview(null);
                     }}
-                    className="absolute top-2 right-2 bg-red-500 text-white rounded-full w-8 h-8 flex items-center justify-center hover:bg-red-600"
+                    className="btn btn-icon btn-danger absolute top-2 right-2 w-8 h-8"
                   >
                     ✕
                   </button>
@@ -281,8 +262,8 @@ function ImageUploadModal({
             </button>
           </div>
         </div>
-      </motion.div>
-    </div>
+      </>
+    </Modal>
   );
 }
 
@@ -379,64 +360,51 @@ function ProductModal({
   });
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      {/* Backdrop */}
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-        className="absolute inset-0 bg-black/50 backdrop-blur-sm"
-        onClick={onClose}
-      />
-
-      {/* Modal */}
-      <motion.div
-        initial={{ opacity: 0, scale: 0.95, y: 20 }}
-        animate={{ opacity: 1, scale: 1, y: 0 }}
-        exit={{ opacity: 0, scale: 0.95, y: 20 }}
-        transition={{ duration: 0.2 }}
-        className="relative bg-white dark:bg-gray-900 rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto"
-        onClick={e => e.stopPropagation()}
-      >
+    <Modal
+      onClose={onClose}
+      labelledBy="product-modal-title"
+      panelClassName="relative bg-white dark:bg-gray-900 rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto"
+    >
+      <>
         <div className="flex items-center justify-between p-6 border-b dark:border-gray-800">
-          <h2 className="text-lg font-bold text-gray-900 dark:text-white">
+          <h2 id="product-modal-title" className="text-lg font-bold text-gray-900 dark:text-white">
             {isEdit ? 'Edit Product' : 'Add New Product'}
           </h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 text-xl leading-none">✕</button>
+          <button onClick={onClose} aria-label="Close" className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 text-xl leading-none">✕</button>
         </div>
 
         <form onSubmit={handleSubmit} className="p-6 space-y-4" noValidate>
           {/* Name */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Product Name</label>
-            <input className="input" value={form.name} onChange={set('name')} placeholder="e.g. iPhone 15 Pro" />
+            <label htmlFor="product-name" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Product Name</label>
+            <input id="product-name" className="input" value={form.name} onChange={set('name')} placeholder="e.g. iPhone 15 Pro" />
             {errors.name && <p className="text-red-500 text-xs mt-1">{errors.name}</p>}
           </div>
 
           {/* Description */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Description</label>
-            <textarea className="input" rows={3} value={form.description} onChange={set('description')} placeholder="Product description…" />
+            <label htmlFor="product-description" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Description</label>
+            <textarea id="product-description" className="input" rows={3} value={form.description} onChange={set('description')} placeholder="Product description…" />
             {errors.description && <p className="text-red-500 text-xs mt-1">{errors.description}</p>}
           </div>
 
           {/* Price + Stock */}
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Price ($)</label>
-              <input type="number" min="0" step="0.01" className="input" value={form.price} onChange={set('price')} placeholder="0.00" />
+              <label htmlFor="product-price" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Price ($)</label>
+              <input id="product-price" type="number" min="0" step="0.01" className="input" value={form.price} onChange={set('price')} placeholder="0.00" />
               {errors.price && <p className="text-red-500 text-xs mt-1">{errors.price}</p>}
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Stock</label>
-              <input type="number" min="0" step="1" className="input" value={form.stock} onChange={set('stock')} placeholder="0" />
+              <label htmlFor="product-stock" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Stock</label>
+              <input id="product-stock" type="number" min="0" step="1" className="input" value={form.stock} onChange={set('stock')} placeholder="0" />
               {errors.stock && <p className="text-red-500 text-xs mt-1">{errors.stock}</p>}
             </div>
           </div>
 
           {/* Category */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Category</label>
+            <label htmlFor="product-category" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Category</label>
             {allCategories.length === 0 ? (
               <div className="rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 px-4 py-3 text-sm text-amber-800 dark:text-amber-300 flex items-center justify-between gap-3">
                 <span>⚠️ No categories yet.</span>
@@ -450,7 +418,7 @@ function ProductModal({
                 </a>
               </div>
             ) : (
-              <select className="input" value={form.categoryId} onChange={set('categoryId')}>
+              <select id="product-category" className="input" value={form.categoryId} onChange={set('categoryId')}>
                 <option value="">Select a category…</option>
                 {allCategories.map(c => (
                   <option key={c._id} value={c._id}>
@@ -484,8 +452,8 @@ function ProductModal({
             </button>
           </div>
         </form>
-      </motion.div>
-    </div>
+      </>
+    </Modal>
   );
 }
 
@@ -727,7 +695,7 @@ export default function AdminProducts() {
               <button
                 onClick={handleBulkDelete}
                 disabled={bulkLoading}
-                className="bg-red-500 hover:bg-red-600 text-white text-sm py-1.5 px-3 rounded-lg font-medium transition-colors disabled:opacity-50"
+                className="btn btn-danger py-1.5 px-3 text-sm"
               >
                 {bulkLoading ? '⏳ Deleting...' : '🗑️ Delete Selected'}
               </button>
@@ -825,13 +793,7 @@ export default function AdminProducts() {
             </thead>
             <tbody>
               {loading ? (
-                Array.from({ length: 5 }).map((_, i) => (
-                  <tr key={i} className="border-b dark:border-gray-800 animate-pulse">
-                    {Array.from({ length: 7 }).map((_, j) => (
-                      <td key={j} className="px-4 py-3"><div className="h-4 bg-gray-200 dark:bg-gray-700 rounded" /></td>
-                    ))}
-                  </tr>
-                ))
+                <TableRowsSkeleton rows={5} columns={7} />
               ) : products.map(p => (
                 <tr
                   key={p._id}

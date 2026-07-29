@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useAppDispatch, useAppSelector } from '../../hooks/useAppDispatch';
 import { fetchCurrentStore, setCurrentStore } from '../../store/storeSlice';
 import { storesApi } from '../../api/stores';
+import { CardGridSkeleton } from '../../components/Skeleton';
 import { Store } from '../../types';
 import toast from 'react-hot-toast';
 
@@ -21,12 +22,23 @@ function Section({ title, description, children }: { title: string; description:
 
 // ── Input row ─────────────────────────────────────────────────────────────────
 
-function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
+/**
+ * `htmlFor` associates the caption with its control. The caption was previously
+ * a <p>, so screen readers had no way to connect it to the input beside it and
+ * clicking it did not focus the field.
+ *
+ * `block` is added explicitly because <label> is inline by default where <p> is
+ * block — without it the hint below would reflow. Rendering is unchanged.
+ */
+function Field({ label, hint, htmlFor, children }: {
+  label: string; hint?: string; htmlFor?: string; children: React.ReactNode;
+}) {
+  const hintId = htmlFor ? `${htmlFor}-hint` : undefined;
   return (
     <div className="grid sm:grid-cols-3 gap-3 items-start py-4 border-b dark:border-gray-800 last:border-0">
       <div>
-        <p className="text-sm font-medium text-gray-700 dark:text-gray-300">{label}</p>
-        {hint && <p className="text-xs text-gray-400 mt-0.5">{hint}</p>}
+        <label htmlFor={htmlFor} className="block text-sm font-medium text-gray-700 dark:text-gray-300">{label}</label>
+        {hint && <p id={hintId} className="text-xs text-gray-400 mt-0.5">{hint}</p>}
       </div>
       <div className="sm:col-span-2">{children}</div>
     </div>
@@ -35,16 +47,23 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
 
 // ── Social input with icon ────────────────────────────────────────────────────
 
-function SocialInput({ icon, placeholder, value, onChange }: {
-  icon: string; placeholder: string; value: string; onChange: (v: string) => void;
+/**
+ * The emoji conveys the network visually but is meaningless to a screen reader,
+ * so it is hidden from the accessibility tree and the input carries an explicit
+ * `aria-label` (e.g. "Facebook page URL") instead.
+ */
+function SocialInput({ icon, network, placeholder, value, onChange }: {
+  icon: string; network: string; placeholder: string; value: string; onChange: (v: string) => void;
 }) {
   return (
     <div className="flex items-center gap-2">
-      <span className="text-xl w-7 shrink-0">{icon}</span>
+      <span className="text-xl w-7 shrink-0" aria-hidden="true">{icon}</span>
       <input
         type="url"
         className="input flex-1"
         placeholder={placeholder}
+        aria-label={`${network} URL`}
+        autoComplete="url"
         value={value}
         onChange={e => onChange(e.target.value)}
       />
@@ -147,13 +166,15 @@ export default function AdminSettings() {
 
   if (storeLoading && !currentStore) {
     return (
-      <div className="p-6 space-y-4">
-        {[1, 2, 3].map(i => (
-          <div key={i} className="card p-6 animate-pulse">
-            <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-1/4 mb-4" />
-            <div className="h-10 bg-gray-200 dark:bg-gray-700 rounded" />
-          </div>
-        ))}
+      <div className="p-6">
+        <CardGridSkeleton
+          count={3}
+          lines={0}
+          padding="p-6"
+          footer
+          className="space-y-4"
+          label="Loading store settings…"
+        />
       </div>
     );
   }
@@ -171,21 +192,26 @@ export default function AdminSettings() {
       <div className="space-y-6">
         {/* ── General ─────────────────────────────────────────────────────── */}
         <Section title="General" description="Basic store information shown on the storefront.">
-          <Field label="Store Name" hint="Displayed in the navbar and page titles">
+          <Field label="Store Name" htmlFor="settings-store-name" hint="Displayed in the navbar and page titles">
             <input
+              id="settings-store-name"
               className="input"
               value={form.name}
               onChange={e => set('name')(e.target.value)}
               placeholder="My Awesome Store"
+              autoComplete="organization"
+              aria-describedby="settings-store-name-hint"
             />
           </Field>
 
-          <Field label="Store Slug" hint="Your store's URL identifier (read-only)">
+          <Field label="Store Slug" htmlFor="settings-store-slug" hint="Your store's URL identifier (read-only)">
             <div className="flex items-center gap-2">
-              <span className="text-gray-400 text-sm shrink-0">shophub.com/</span>
+              <span className="text-gray-400 text-sm shrink-0" aria-hidden="true">shophub.com/</span>
               <input
+                id="settings-store-slug"
                 className="input flex-1 bg-gray-50 dark:bg-gray-800 cursor-not-allowed"
                 value={currentStore?.slug ?? ''}
+                aria-describedby="settings-store-slug-hint"
                 readOnly
                 disabled
               />
@@ -271,22 +297,26 @@ export default function AdminSettings() {
 
         {/* ── Contact ─────────────────────────────────────────────────────── */}
         <Section title="Contact Information" description="Displayed in the storefront footer and order emails.">
-          <Field label="Contact Email">
+          <Field label="Contact Email" htmlFor="settings-contact-email">
             <input
+              id="settings-contact-email"
               type="email"
               className="input"
               value={form.contactEmail}
               onChange={e => set('contactEmail')(e.target.value)}
               placeholder="support@mystore.com"
+              autoComplete="email"
             />
           </Field>
-          <Field label="Phone Number">
+          <Field label="Phone Number" htmlFor="settings-phone">
             <input
+              id="settings-phone"
               type="tel"
               className="input"
               value={form.contactPhone}
               onChange={e => set('contactPhone')(e.target.value)}
               placeholder="+1 (555) 000-0000"
+              autoComplete="tel"
             />
           </Field>
         </Section>
@@ -294,11 +324,11 @@ export default function AdminSettings() {
         {/* ── Social Media ─────────────────────────────────────────────────── */}
         <Section title="Social Media" description="Links shown in the storefront footer.">
           <div className="space-y-3">
-            <SocialInput icon="📘" placeholder="https://facebook.com/yourpage" value={form.facebook} onChange={set('facebook')} />
-            <SocialInput icon="📸" placeholder="https://instagram.com/yourhandle" value={form.instagram} onChange={set('instagram')} />
-            <SocialInput icon="🐦" placeholder="https://twitter.com/yourhandle" value={form.twitter} onChange={set('twitter')} />
-            <SocialInput icon="🎵" placeholder="https://tiktok.com/@yourhandle" value={form.tiktok} onChange={set('tiktok')} />
-            <SocialInput icon="▶️" placeholder="https://youtube.com/@yourchannel" value={form.youtube} onChange={set('youtube')} />
+            <SocialInput icon="📘" network="Facebook" placeholder="https://facebook.com/yourpage" value={form.facebook} onChange={set('facebook')} />
+            <SocialInput icon="📸" network="Instagram" placeholder="https://instagram.com/yourhandle" value={form.instagram} onChange={set('instagram')} />
+            <SocialInput icon="🐦" network="Twitter" placeholder="https://twitter.com/yourhandle" value={form.twitter} onChange={set('twitter')} />
+            <SocialInput icon="🎵" network="TikTok" placeholder="https://tiktok.com/@yourhandle" value={form.tiktok} onChange={set('tiktok')} />
+            <SocialInput icon="▶️" network="YouTube" placeholder="https://youtube.com/@yourchannel" value={form.youtube} onChange={set('youtube')} />
           </div>
         </Section>
 

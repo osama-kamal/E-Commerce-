@@ -296,10 +296,12 @@ export default function ProductCard({ product, index = 0, detailPath, loginRedir
                   disabled={!isAuthenticated || isAdding || needsSize}
                   aria-disabled={needsSize}
                   title={isAdding ? 'Adding…' : needsSize ? 'Select a size first' : 'Add to Cart'}
-                  className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-lg font-medium text-white shadow-sm transition-all disabled:cursor-not-allowed ${
+                  // gap-1.5/py-1.5/px-2 kept: this button sits in a tight card
+                  // footer and .btn's default padding would grow the card.
+                  className={`btn flex-1 gap-1.5 py-1.5 px-2 text-white shadow-sm disabled:cursor-not-allowed ${
                     needsSize
                       ? 'bg-gray-400 dark:bg-gray-600 shadow-none opacity-70'
-                      : 'bg-gradient-to-r from-amber-500 to-yellow-600 hover:from-amber-600 hover:to-yellow-700 shadow-amber-200 disabled:opacity-50'
+                      : 'btn-brand'
                   }`}
                 >
                   {isAdding ? (

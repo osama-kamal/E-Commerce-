@@ -319,46 +319,60 @@ export default function StartStorePage() {
                 {step === 1 && (
                   <div className="space-y-5">
                     <div>
-                      <label className="block text-sm font-medium text-white/70 mb-1.5">Full name</label>
+                      <label htmlFor="onboard-fullname" className="block text-sm font-medium text-white/70 mb-1.5">Full name</label>
                       <input
+                        id="onboard-fullname"
                         type="text"
                         placeholder="Alex Johnson"
+                        autoComplete="name"
+                        aria-invalid={errors.fullName ? true : undefined}
+                        aria-describedby={errors.fullName ? 'onboard-fullname-error' : undefined}
                         className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-white/20 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/50 transition-all"
                         {...register('fullName')}
                       />
-                      {errors.fullName && <p className="text-red-400 text-xs mt-1.5">{errors.fullName.message}</p>}
+                      {errors.fullName && <p id="onboard-fullname-error" role="alert" className="text-red-400 text-xs mt-1.5">{errors.fullName.message}</p>}
                     </div>
 
                     <div>
-                      <label className="block text-sm font-medium text-white/70 mb-1.5">Email address</label>
+                      <label htmlFor="onboard-email" className="block text-sm font-medium text-white/70 mb-1.5">Email address</label>
                       <input
+                        id="onboard-email"
                         type="email"
                         placeholder="alex@example.com"
+                        autoComplete="email"
+                        aria-invalid={errors.email ? true : undefined}
+                        aria-describedby={errors.email ? 'onboard-email-error' : undefined}
                         className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-white/20 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/50 transition-all"
                         {...register('email')}
                       />
-                      {errors.email && <p className="text-red-400 text-xs mt-1.5">{errors.email.message}</p>}
+                      {errors.email && <p id="onboard-email-error" role="alert" className="text-red-400 text-xs mt-1.5">{errors.email.message}</p>}
                     </div>
 
                     <div>
-                      <label className="block text-sm font-medium text-white/70 mb-1.5">Password</label>
+                      <label htmlFor="onboard-password" className="block text-sm font-medium text-white/70 mb-1.5">Password</label>
                       <div className="relative">
                         <input
+                          id="onboard-password"
                           type={showPassword ? 'text' : 'password'}
                           placeholder="Min. 8 characters"
+                          autoComplete="new-password"
+                          aria-invalid={errors.password ? true : undefined}
+                          aria-describedby={errors.password ? 'onboard-password-error' : undefined}
                           className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 pr-12 text-white placeholder-white/20 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/50 transition-all"
                           {...register('password')}
                         />
                         <button
                           type="button"
                           onClick={() => setShowPassword(v => !v)}
+                          aria-label={showPassword ? 'Hide password' : 'Show password'}
+                          aria-pressed={showPassword}
                           className="absolute right-4 top-1/2 -translate-y-1/2 text-white/30 hover:text-white/60 transition-colors text-sm"
                         >
                           {showPassword ? '🙈' : '👁️'}
                         </button>
                       </div>
                       <PasswordStrength password={watchedPassword} />
-                      {errors.password && <p className="text-red-400 text-xs mt-1.5">{errors.password.message}</p>}
+                      {errors.password && <p id="onboard-password-error" role="alert" className="text-red-400 text-xs mt-1.5">{errors.password.message}</p>}
                     </div>
 
                     <button
@@ -382,10 +396,14 @@ export default function StartStorePage() {
                 {step === 2 && (
                   <div className="space-y-6">
                     <div>
-                      <label className="block text-sm font-medium text-white/70 mb-1.5">Store name</label>
+                      <label htmlFor="onboard-storename" className="block text-sm font-medium text-white/70 mb-1.5">Store name</label>
                       <input
+                        id="onboard-storename"
                         type="text"
                         placeholder="My Awesome Store"
+                        autoComplete="organization"
+                        aria-invalid={errors.storeName ? true : undefined}
+                        aria-describedby={errors.storeName ? 'onboard-storename-error' : undefined}
                         className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-white/20 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/50 transition-all"
                         {...register('storeName')}
                       />
@@ -395,11 +413,18 @@ export default function StartStorePage() {
                           <span className="text-indigo-400 font-mono">{slugify(watchedStoreName)}.vendbase.com</span>
                         </p>
                       )}
-                      {errors.storeName && <p className="text-red-400 text-xs mt-1.5">{errors.storeName.message}</p>}
+                      {errors.storeName && <p id="onboard-storename-error" role="alert" className="text-red-400 text-xs mt-1.5">{errors.storeName.message}</p>}
                     </div>
 
-                    <div>
-                      <label className="block text-sm font-medium text-white/70 mb-3">Store category</label>
+                    {/* Radio group: a <fieldset>/<legend> is the correct grouping
+                        semantic so screen readers announce "Store category" once
+                        before reading the options, instead of treating each tile
+                        as an unrelated control. */}
+                    <fieldset
+                      aria-invalid={errors.storeCategory ? true : undefined}
+                      aria-describedby={errors.storeCategory ? 'onboard-category-error' : undefined}
+                    >
+                      <legend className="block text-sm font-medium text-white/70 mb-3">Store category</legend>
                       <div className="grid grid-cols-2 gap-2">
                         {CATEGORIES.map(cat => (
                           <label
@@ -418,8 +443,8 @@ export default function StartStorePage() {
                           </label>
                         ))}
                       </div>
-                      {errors.storeCategory && <p className="text-red-400 text-xs mt-2">{errors.storeCategory.message}</p>}
-                    </div>
+                      {errors.storeCategory && <p id="onboard-category-error" role="alert" className="text-red-400 text-xs mt-2">{errors.storeCategory.message}</p>}
+                    </fieldset>
 
                     <div className="flex gap-3">
                       <button

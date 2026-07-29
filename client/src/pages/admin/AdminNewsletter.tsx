@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { newsletterApi } from '../../api/newsletter';
+import { TableSkeleton } from '../../components/Skeleton';
 import toast from 'react-hot-toast';
 
 interface Subscriber {
@@ -191,10 +192,13 @@ export default function AdminNewsletter() {
       {/* Subscribers Table */}
       <div className="card overflow-hidden">
         {loading ? (
-          <div className="p-8 text-center">
-            <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
-            <p className="mt-2 text-gray-600">Loading subscribers...</p>
-          </div>
+          <TableSkeleton
+            headers={['Email', 'Status', 'Subscribed At', 'Unsubscribed At']}
+            rows={5}
+            label="Loading subscribers…"
+            headerClassName="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider"
+            cellClassName="px-6 py-4"
+          />
         ) : subscribers.length === 0 ? (
           <div className="p-8 text-center">
             <p className="text-5xl mb-4">📭</p>

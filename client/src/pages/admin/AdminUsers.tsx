@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { adminApi } from '../../api/admin';
+import { TableRowsSkeleton } from '../../components/Skeleton';
 import { User } from '../../types';
 
 type UserRole = 'admin' | 'customer';
@@ -105,15 +106,7 @@ export default function AdminUsers() {
             </thead>
             <tbody>
               {loading ? (
-                Array.from({ length: 5 }).map((_, i) => (
-                  <tr key={i} className="border-b animate-pulse">
-                    {Array.from({ length: 5 }).map((_, j) => (
-                      <td key={j} className="px-4 py-3">
-                        <div className="h-4 bg-gray-200 rounded" />
-                      </td>
-                    ))}
-                  </tr>
-                ))
+                <TableRowsSkeleton rows={5} columns={5} />
               ) : users.length === 0 ? (
                 <tr>
                   <td colSpan={5} className="px-4 py-10 text-center text-gray-400 text-sm">

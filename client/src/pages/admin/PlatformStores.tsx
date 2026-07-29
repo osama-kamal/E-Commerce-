@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { adminApi } from '../../api/admin';
+import { CardGridSkeleton, TableSkeleton } from '../../components/Skeleton';
 import { Store } from '../../types';
 import toast from 'react-hot-toast';
 
@@ -390,12 +391,12 @@ function UpgradeRequestsTab() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-20">
-        <div className="text-center space-y-3">
-          <div className="w-8 h-8 border-4 border-primary-600 border-t-transparent rounded-full animate-spin mx-auto" />
-          <p className="text-sm text-gray-500 dark:text-gray-400">Loading requests…</p>
-        </div>
-      </div>
+      <CardGridSkeleton
+        count={3}
+        lines={4}
+        className="space-y-4"
+        label="Loading upgrade requests…"
+      />
     );
   }
 
@@ -525,7 +526,10 @@ function UpgradeRequestsTab() {
                   <button
                     onClick={() => handleActivate(store)}
                     disabled={isLoading || !store.requestedPlan}
-                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    // hover was emerald-500 — LIGHTER than the base, the opposite
+                    // direction to every other button in the app. btn-success
+                    // darkens on hover like the rest.
+                    className="btn btn-success btn-sm gap-1.5 font-semibold"
                   >
                     {isLoading ? <span className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : '✓'} Activate Now
                   </button>
@@ -668,12 +672,23 @@ export default function PlatformStores() {
       {/* Table */}
       <div className="card overflow-hidden">
         {loading ? (
-          <div className="flex items-center justify-center py-16">
-            <div className="text-center space-y-3">
-              <div className="w-8 h-8 border-4 border-primary-600 border-t-transparent rounded-full animate-spin mx-auto" />
-              <p className="text-sm text-gray-500 dark:text-gray-400">Loading stores…</p>
-            </div>
-          </div>
+          <TableSkeleton
+            headers={[
+              { label: '#', className: 'w-8' },
+              'Store',
+              { label: 'ID', className: 'hidden md:table-cell' },
+              'Plan',
+              'Status',
+              'Requested',
+              { label: 'Created', className: 'hidden lg:table-cell' },
+              'Manage Plan',
+              'Access',
+            ]}
+            rows={6}
+            label="Loading stores…"
+            headerClassName="px-4 py-3 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider"
+            theadClassName="border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50"
+          />
         ) : filtered.length === 0 ? (
           <div className="flex items-center justify-center py-16 text-center">
             <div>
