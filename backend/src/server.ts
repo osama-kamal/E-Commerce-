@@ -57,8 +57,21 @@ async function bootstrap(): Promise<void> {
   // Finds all stores that have been past_due for > 7 days and promotes them
   // to 'suspended'. Pure MongoDB bulk-update — no Stripe API calls.
   const { runDunningJob } = await import('./modules/payments/subscription.service');
-  setInterval(runDunningJob, 60 * 60 * 1000);
+  setInterval(runDunningJob, 60 * 60 * 1000).unref();
   logger.info('⏱️  Dunning job registered — runs every 60 minutes');
+
+  // ── 6. Release inventory held by abandoned checkouts ──────────────────────
+  // placeOrder decrements stock before payment, so an abandoned online checkout
+  // would hold units indefinitely. Runs every 5 minutes; COD orders are exempt.
+  const { expireStalePendingOrders } = await import('./modules/orders/order.service');
+  setInterval(() => {
+    expireStalePendingOrders().catch((err) =>
+      logger.error('Pending-order expiry job failed', { error: (err as Error).message })
+    );
+  }, 5 * 60 * 1000).unref();
+  logger.info(
+    `⏱️  Pending-order expiry registered — runs every 5 minutes (TTL ${config.PENDING_ORDER_TTL_MINUTES}m)`
+  );
 
   logger.info('✅ All services connected — server is fully ready');
 

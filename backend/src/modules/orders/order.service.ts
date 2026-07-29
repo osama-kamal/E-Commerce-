@@ -8,6 +8,8 @@ import { logger } from '../../utils/logger';
 import * as orderRepo from './order.repository';
 import * as productRepo from '../products/product.repository';
 import * as cartRepo from '../cart/cart.repository';
+import { couponService } from '../coupons/coupon.service';
+import { config } from '../../config/index';
 
 export async function bulkUpdateOrderStatus(storeId: string, ids: string[], status: OrderStatus): Promise<number> {
   const validIds = ids.filter(id => Types.ObjectId.isValid(id)).map(id => new Types.ObjectId(id));
@@ -49,7 +51,6 @@ export async function placeOrder(
   customerId: string,
   shippingAddress: IShippingAddress,
   paymentMethod: PaymentMethod = 'online',
-  discountAmount = 0,
   couponCode?: string,
   idempotencyKey?: string
 ): Promise<OrderDoc> {
@@ -79,7 +80,23 @@ export async function placeOrder(
         checkTotal += effective * item.quantity;
       }
     }
-    checkTotal = Math.max(0, Math.round((checkTotal - discountAmount) * 100) / 100);
+
+    // Preview the coupon discount read-only (no usedCount increment) purely so the
+    // duplicate-order lookup below compares against the same total the real order
+    // will carry. The authoritative discount is claimed inside the transaction.
+    let previewDiscount = 0;
+    if (couponCode) {
+      try {
+        const preview = await couponService.validateCoupon(storeId, couponCode, checkTotal);
+        previewDiscount = preview.discount;
+      } catch {
+        // Invalid/expired coupon — skip the estimate. The transaction below
+        // performs the authoritative check and surfaces the real error.
+        previewDiscount = 0;
+      }
+    }
+
+    checkTotal = Math.max(0, Math.round((checkTotal - previewDiscount) * 100) / 100);
 
     const recentDuplicate = await orderRepo.findRecentPendingOrder(
       storeObjId, customerObjId, checkTotal, fiveMinutesAgo
@@ -154,12 +171,32 @@ export async function placeOrder(
     return { cart, orderItems, totalAmount };
   };
 
+  // ── Server-authoritative discount resolution ──────────────────────────────
+  // The discount is NEVER taken from the request. It is recomputed here from the
+  // coupon record, and the usage claim is made in the same session as the order
+  // so an aborted checkout does not burn a coupon use.
+  const resolveDiscount = async (
+    subtotal: number,
+    session?: mongoose.ClientSession
+  ): Promise<number> => {
+    if (!couponCode) return 0;
+    const applied = await couponService.validateAndApplyCoupon(
+      storeId,
+      couponCode,
+      subtotal,
+      session
+    );
+    // Never let a discount exceed the subtotal — guarantees a non-negative total.
+    return Math.min(Math.max(0, applied.discount), subtotal);
+  };
+
   const session = await mongoose.startSession();
   try {
     let createdOrder: OrderDoc | null = null;
 
     await session.withTransaction(async () => {
       const { cart, orderItems, totalAmount } = await validateAndBuild(session);
+      const discountAmount = await resolveDiscount(totalAmount, session);
       const finalAmount = Math.max(0, Math.round((totalAmount - discountAmount) * 100) / 100);
 
       const order = await orderRepo.createOrder(
@@ -214,6 +251,7 @@ export async function placeOrder(
     logger.warn('[placeOrder] Transactions not supported — using non-transactional fallback');
 
     const { cart, orderItems, totalAmount } = await validateAndBuild();
+    const discountAmount = await resolveDiscount(totalAmount);
     const finalAmount = Math.max(0, Math.round((totalAmount - discountAmount) * 100) / 100);
 
     const order = await orderRepo.createOrder({
@@ -281,24 +319,94 @@ export async function getMyOrderById(storeId: string, customerId: string, orderI
   return order as unknown as OrderDoc;
 }
 
+/**
+ * Return every line item's units to stock.
+ *
+ * Callers MUST only invoke this after an atomic status transition that they won
+ * (i.e. transitionOrderStatus returned a document), otherwise a concurrent
+ * cancellation could restore the same units twice.
+ */
+async function restoreStockForOrder(
+  items: { productId: Types.ObjectId; quantity: number }[],
+  storeObjId: Types.ObjectId
+): Promise<void> {
+  for (const item of items) {
+    await productRepo.restoreStock(item.productId, storeObjId, item.quantity);
+  }
+}
+
 export async function cancelMyOrder(storeId: string, customerId: string, orderId: string): Promise<OrderDoc> {
   if (!Types.ObjectId.isValid(orderId)) {
     throw createError('Invalid order ID', 400, 'BAD_REQUEST');
   }
 
-  const order = await orderRepo.findOrderDocumentByIdForCustomer(
-    orderId, new Types.ObjectId(storeId), new Types.ObjectId(customerId)
+  const storeObjId = new Types.ObjectId(storeId);
+  const customerObjId = new Types.ObjectId(customerId);
+
+  // Atomic pending -> cancelled. Only one concurrent caller can win, which makes
+  // the stock restoration below exactly-once.
+  const cancelled = await orderRepo.transitionOrderStatus(
+    orderId, storeObjId, 'pending', 'cancelled', customerObjId
   );
 
-  if (!order) throw createError('Order not found', 404, 'NOT_FOUND');
-
-  if (order.status !== 'pending') {
+  if (!cancelled) {
+    // Distinguish "not yours / doesn't exist" from "not cancellable any more".
+    const existing = await orderRepo.findOrderByIdForCustomer(orderId, storeObjId, customerObjId);
+    if (!existing) throw createError('Order not found', 404, 'NOT_FOUND');
     throw createError('Only pending orders can be cancelled by the customer', 400, 'BAD_REQUEST');
   }
 
-  order.status = 'cancelled';
-  await order.save();
-  return order.toObject() as unknown as OrderDoc;
+  // Cancelling previously destroyed inventory — the units were decremented at
+  // checkout and never returned.
+  await restoreStockForOrder(cancelled.items, storeObjId);
+
+  return cancelled.toObject() as unknown as OrderDoc;
+}
+
+/**
+ * Release inventory held by abandoned online checkouts.
+ *
+ * placeOrder creates the order and decrements stock BEFORE the customer pays, so
+ * a shopper who closes the tab on the payment step leaves an unpayable pending
+ * order holding units that never come back. This job cancels those orders and
+ * returns their stock.
+ *
+ * Uses the same atomic pending -> cancelled transition as manual cancellation,
+ * so an order that is being paid for concurrently is never stolen, and stock is
+ * restored at most once.
+ *
+ * COD orders are excluded — see findStalePendingOnlineOrders.
+ *
+ * Exported for direct testing; scheduled from server.ts.
+ */
+export async function expireStalePendingOrders(
+  ttlMinutes: number = config.PENDING_ORDER_TTL_MINUTES
+): Promise<number> {
+  const cutoff = new Date(Date.now() - ttlMinutes * 60 * 1000);
+  const stale = await orderRepo.findStalePendingOnlineOrders(cutoff);
+
+  let released = 0;
+  for (const candidate of stale) {
+    const storeObjId = candidate.storeId as Types.ObjectId;
+
+    // Only the caller that actually performs the transition restores stock.
+    const cancelled = await orderRepo.transitionOrderStatus(
+      candidate._id.toString(), storeObjId, 'pending', 'cancelled'
+    );
+    if (!cancelled) continue; // paid or cancelled in the meantime
+
+    await restoreStockForOrder(cancelled.items, storeObjId);
+    released++;
+  }
+
+  if (released > 0) {
+    logger.info('Released inventory from abandoned checkouts', {
+      released,
+      ttlMinutes,
+      cutoff,
+    });
+  }
+  return released;
 }
 
 export async function getAllOrders(storeId: string, page: number, limit: number, status?: OrderStatus): Promise<PaginatedOrders> {
@@ -327,10 +435,14 @@ export async function updateOrderStatus(
     throw createError('Invalid order ID', 400, 'BAD_REQUEST');
   }
 
-  const order = await orderRepo.findOrderDocumentById(orderId, new Types.ObjectId(storeId));
+  const storeObjId = new Types.ObjectId(storeId);
+  const order = await orderRepo.findOrderDocumentById(orderId, storeObjId);
   if (!order) throw createError('Order not found', 404, 'NOT_FOUND');
 
-  const allowed = STATUS_TRANSITIONS[order.status];
+  // `?? []` guards against a status value outside the enum. Bulk updates now
+  // enforce the enum, but a corrupt legacy row would otherwise crash here with
+  // "Cannot read properties of undefined (reading 'includes')" -> HTTP 500.
+  const allowed = STATUS_TRANSITIONS[order.status] ?? [];
   if (!allowed.includes(newStatus)) {
     throw createError(
       `Cannot transition order from "${order.status}" to "${newStatus}"`,
@@ -339,12 +451,28 @@ export async function updateOrderStatus(
     );
   }
 
-  order.status = newStatus;
-  await order.save();
+  // Atomic transition guarded on the exact status we validated against, so two
+  // concurrent admins cannot both "win" and double-restore stock.
+  const updated = await orderRepo.transitionOrderStatus(
+    orderId, storeObjId, order.status, newStatus
+  );
+
+  if (!updated) {
+    throw createError(
+      'Order status changed while this request was in flight — please retry',
+      409,
+      'CONFLICT'
+    );
+  }
+
+  // Cancelling releases the reserved inventory back to the catalogue.
+  if (newStatus === 'cancelled') {
+    await restoreStockForOrder(updated.items, storeObjId);
+  }
 
   const notifiableStatuses = ['processing', 'shipped', 'delivered', 'cancelled'];
   if (notifiableStatuses.includes(newStatus)) {
-    const customer = await User.findById(order.customerId).lean();
+    const customer = await User.findById(updated.customerId).lean();
     if (customer?.email) {
       emailService.sendOrderStatusEmail(storeId, customer.email, {
         orderId,
@@ -354,5 +482,5 @@ export async function updateOrderStatus(
     }
   }
 
-  return order.toObject() as unknown as OrderDoc;
+  return updated.toObject() as unknown as OrderDoc;
 }

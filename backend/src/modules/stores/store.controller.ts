@@ -127,8 +127,19 @@ export async function getStoreToken(req: Request, res: Response, next: NextFunct
   try {
     const storeId = req.params.id;
     const ownerId = req.user!.userId.toString();
-    const callerRole = req.user!.role;
 
+    // Re-read the account from the database. This endpoint ISSUES new 15-minute
+    // tokens, so trusting the presented token's claims would let a deactivated
+    // user chain tokens indefinitely (deactivation would never take effect) and
+    // would carry a stale role forward after a demotion.
+    const { User } = await import('../auth/user.model');
+    const account = await User.findById(ownerId).select('role isActive').lean();
+
+    if (!account || !account.isActive) {
+      return next(createError('Account is deactivated', 401, 'UNAUTHORIZED'));
+    }
+
+    const callerRole = account.role;
     const store = await storeService.getStoreById(storeId);
     const isSuperAdmin = callerRole === 'super-admin';
 

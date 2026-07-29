@@ -75,11 +75,39 @@ export function authenticateJWT(req: Request, _res: Response, next: NextFunction
 }
 
 /**
+ * Platform-level guard — admits ONLY role 'super-admin'.
+ * Must be used after authenticateJWT.
+ *
+ * Use this (never `authorizeRole('admin', 'super-admin')`) on any endpoint that
+ * acts across tenants: listing every store, mutating an arbitrary store's plan,
+ * or reading platform-wide billing data.
+ *
+ * Rationale: public onboarding mints store owners with role 'admin'. Treating
+ * 'admin' as a platform role therefore let anyone self-register and take over
+ * the platform. 'admin' means "administrator OF ONE STORE", nothing more.
+ */
+export function requireSuperAdmin(req: Request, _res: Response, next: NextFunction): void {
+  if (!req.user) {
+    return next(createError('Authentication token is required', 401, 'UNAUTHORIZED'));
+  }
+  if (req.user.role !== 'super-admin') {
+    return next(
+      createError('This action requires platform administrator privileges', 403, 'FORBIDDEN')
+    );
+  }
+  next();
+}
+
+/**
  * Role-based access control middleware.
  * Must be used after authenticateJWT.
  *
  * super-admin automatically passes ALL role checks — they have every permission
  * that admin has, plus platform-level access.
+ *
+ * ⚠️  This is a TENANT-level check. `authorizeRole('admin')` means "an admin of
+ * the store resolved for this request", not "a platform operator". For
+ * cross-tenant endpoints use `requireSuperAdmin` above.
  */
 export function authorizeRole(...roles: Array<'super-admin' | 'admin' | 'customer'>) {
   return (req: Request, _res: Response, next: NextFunction): void => {

@@ -87,8 +87,9 @@ const orderSchema = new Schema<IOrder>(
     },
     discountAmount: { type: Number, default: 0, min: 0 },
     couponCode: { type: String },
-    // Idempotency key supplied by the client at checkout — prevents duplicate orders on retry
-    idempotencyKey: { type: String, sparse: true },
+    // Idempotency key supplied by the client at checkout — prevents duplicate orders on retry.
+    // No index options here: the compound partial index below is the only one needed.
+    idempotencyKey: { type: String },
     shippingAddress: { type: shippingAddressSchema, required: true },
   },
   { timestamps: true }
@@ -101,7 +102,22 @@ orderSchema.index({ storeId: 1, customerId: 1, createdAt: -1 });
 orderSchema.index({ storeId: 1, status: 1, createdAt: -1 });
 // analytics: date-range aggregations across statuses
 orderSchema.index({ storeId: 1, createdAt: -1 });
-// Idempotency: unique per-store per-customer key — sparse so null values are excluded
-orderSchema.index({ storeId: 1, customerId: 1, idempotencyKey: 1 }, { unique: true, sparse: true });
+// Idempotency: unique per-store per-customer key.
+//
+// MUST use partialFilterExpression, NOT sparse. A compound sparse index includes
+// a document when ANY indexed field is present, and storeId/customerId always
+// are — so every order was indexed, key-less orders all indexed as
+// `idempotencyKey: null`, and a customer could place only ONE order per store
+// without a key. The second failed with E11000.
+//
+// The partial filter indexes only documents where idempotencyKey is an actual
+// string, which is precisely the set the uniqueness constraint should cover.
+orderSchema.index(
+  { storeId: 1, customerId: 1, idempotencyKey: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { idempotencyKey: { $type: 'string' } },
+  }
+);
 
 export const Order = mongoose.model<IOrder>('Order', orderSchema);

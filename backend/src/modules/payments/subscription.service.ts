@@ -296,11 +296,20 @@ export async function handleSubscriptionDeleted(event: Stripe.Event): Promise<vo
 
   const oldStatus = store.subscriptionStatus;
 
+  // $unset — NOT `stripeSubscriptionId: null`.
+  // The field carries a sparse unique index. Sparse skips documents where the
+  // field is ABSENT, but null is a real BSON value and is indexed, so writing
+  // null made the SECOND store to cancel collide with E11000. That error was
+  // swallowed by handleWebhook's outer catch (Stripe received 200 and never
+  // retried), leaving the store on its paid plan indefinitely.
+  // store.model.ts documents this hazard on the field definition itself.
   await Store.findByIdAndUpdate(store._id, {
-    subscriptionStatus: 'cancelled' as SubscriptionStatus,
-    subscriptionPlan: 'free',
-    subscriptionEndsAt: null,
-    stripeSubscriptionId: null,
+    $set: {
+      subscriptionStatus: 'cancelled' as SubscriptionStatus,
+      subscriptionPlan: 'free',
+      subscriptionEndsAt: null,
+    },
+    $unset: { stripeSubscriptionId: '' },
   });
 
   logger.info('Store subscription deleted — reverted to free, subscription ID cleared', {

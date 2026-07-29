@@ -1,7 +1,7 @@
 import { Router } from 'express';
-import { authenticateJWT, authorizeRole } from '../../middleware/authenticate';
+import { authenticateJWT, requireSuperAdmin } from '../../middleware/authenticate';
 import { validate } from '../../middleware/validate';
-import { createStoreSchema, updateStoreSchema, storeIdSchema } from './store.schemas';
+import { createStoreSchema, updateStoreSchema, updateMyStoreSchema, storeIdSchema } from './store.schemas';
 import {
   createStore,
   getMyStores,
@@ -33,7 +33,7 @@ router.get('/current', resolveStore, getCurrentStore);
 router.post('/', authenticateJWT, validate(createStoreSchema), createStore);
 router.get('/mine', authenticateJWT, getMyStores);
 router.get('/:id', authenticateJWT, validate(storeIdSchema), getMyStore);
-router.put('/:id', authenticateJWT, validate(updateStoreSchema), updateMyStore);
+router.put('/:id', authenticateJWT, validate(updateMyStoreSchema), updateMyStore);
 router.delete('/:id', authenticateJWT, validate(storeIdSchema), deleteMyStore);
 
 // ── Settings (owner or super-admin) ──────────────────────────────────────────
@@ -46,7 +46,10 @@ router.post('/:id/token', authenticateJWT, getStoreToken);
 router.post('/:id/upgrade-request', authenticateJWT, requestUpgrade);
 
 // ── Super-admin ───────────────────────────────────────────────────────────────
-router.get('/', authenticateJWT, authorizeRole('admin'), listAllStores);
-router.patch('/:id/admin', authenticateJWT, authorizeRole('admin'), validate(updateStoreSchema), adminUpdateStore);
+// Both operate on an arbitrary store with no ownership check, so they must be
+// platform-scoped. `authorizeRole('admin')` previously admitted every store
+// owner, letting any tenant read all stores and deactivate a competitor's.
+router.get('/', authenticateJWT, requireSuperAdmin, listAllStores);
+router.patch('/:id/admin', authenticateJWT, requireSuperAdmin, validate(updateStoreSchema), adminUpdateStore);
 
 export default router;

@@ -3,6 +3,7 @@ import { Types } from 'mongoose';
 import { Store } from '../stores/store.model';
 import { User } from '../auth/user.model';
 import { signAccessToken } from '../../utils/jwt';
+import { issueRefreshToken } from '../auth/auth.service';
 import { createError } from '../../middleware/errorHandler';
 import { emailService } from '../../services/email.service';
 
@@ -118,22 +119,10 @@ export async function onboardStore(input: OnboardingInput): Promise<OnboardingRe
 
   const accessToken = signAccessToken(user._id as Types.ObjectId, 'admin', storeId);
 
-  // Simple refresh token (same pattern as auth.service)
-  const crypto = await import('crypto');
-  const rawRefresh = `${userId}.${crypto.randomBytes(64).toString('hex')}`;
-  const refreshHash = await bcrypt.hash(rawRefresh, BCRYPT_ROUNDS);
-
-  await User.updateOne(
-    { _id: user._id },
-    {
-      $push: {
-        refreshTokens: {
-          token: refreshHash,
-          expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
-        },
-      },
-    }
-  );
+  // Delegate to auth.service so onboarding sessions use the same hash format,
+  // TTL and session cap as every other login. This block previously duplicated
+  // the logic with a bcrypt hash, which the refresh path then had to special-case.
+  const rawRefresh = await issueRefreshToken(userId);
 
   // ── Fire-and-forget welcome email ─────────────────────────────────────────
   emailService.sendWelcomeEmail(storeId, user.email);

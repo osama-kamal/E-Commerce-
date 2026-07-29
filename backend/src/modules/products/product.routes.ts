@@ -7,6 +7,8 @@ import {
   updateProductSchema,
   productIdSchema,
   listProductsSchema,
+  bulkDeleteProductsSchema,
+  bulkUpdateProductsSchema,
 } from './product.schemas';
 import {
   listProducts,
@@ -55,11 +57,13 @@ router.delete(
   deleteProduct
 );
 
-// Bulk operations
+// Bulk operations — `validate` here is a security control, not just ergonomics:
+// the controller forwards `updates` straight into Product.updateMany().
 router.post(
   '/bulk/delete',
   authenticateJWT,
   authorizeRole('admin'),
+  validate(bulkDeleteProductsSchema),
   bulkDeleteProducts
 );
 
@@ -67,6 +71,7 @@ router.put(
   '/bulk/update',
   authenticateJWT,
   authorizeRole('admin'),
+  validate(bulkUpdateProductsSchema),
   bulkUpdateProducts
 );
 

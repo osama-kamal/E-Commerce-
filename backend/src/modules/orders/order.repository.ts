@@ -111,7 +111,13 @@ export async function bulkUpdateOrderStatuses(
   storeId: Types.ObjectId,
   status: OrderStatus
 ) {
-  return Order.updateMany({ _id: { $in: ids }, storeId }, { status });
+  // runValidators makes Mongoose enforce the status enum on this update.
+  // Without it, updateMany writes whatever string it is given.
+  return Order.updateMany(
+    { _id: { $in: ids }, storeId },
+    { status },
+    { runValidators: true }
+  );
 }
 
 export async function deleteOrdersByIds(ids: Types.ObjectId[], storeId: Types.ObjectId): Promise<{ deletedCount: number }> {
@@ -148,6 +154,59 @@ export async function findPendingOrderForPayment(
 /** Attach the Stripe PaymentIntent ID to an order for later reconciliation. */
 export async function attachPaymentIntentId(orderId: string, paymentIntentId: string) {
   return Order.updateOne({ _id: orderId }, { paymentIntentId });
+}
+
+/**
+ * Online orders left pending past the reservation window.
+ *
+ * Deliberately excludes paymentMethod 'cod' — those sit pending by design until
+ * a human fulfils them and must never be auto-cancelled.
+ */
+export async function findStalePendingOnlineOrders(cutoff: Date, limit = 200) {
+  return Order.find({
+    status: 'pending',
+    paymentMethod: 'online',
+    createdAt: { $lt: cutoff },
+  })
+    .select('_id storeId items')
+    .limit(limit)
+    .lean();
+}
+
+/**
+ * Atomically move an order to `to`, but only if it is currently exactly `from`.
+ *
+ * Returns the updated document, or null if the order had already moved on. The
+ * status term in the filter makes the transition at-most-once under concurrency,
+ * which is what allows the caller to restore stock exactly once on cancellation.
+ */
+export async function transitionOrderStatus(
+  orderId: string,
+  storeId: Types.ObjectId,
+  from: OrderStatus,
+  to: OrderStatus,
+  customerId?: Types.ObjectId
+) {
+  const filter: Record<string, unknown> = { _id: orderId, storeId, status: from };
+  if (customerId) filter.customerId = customerId;
+
+  return Order.findOneAndUpdate(filter, { $set: { status: to } }, { new: true });
+}
+
+/**
+ * Atomically advance a pending order to 'processing'.
+ *
+ * Returns true only for the caller that actually performed the transition, so
+ * concurrent webhook deliveries cannot both send a receipt email. The
+ * `status: 'pending'` term in the filter also prevents a late or replayed event
+ * from resurrecting a cancelled or already-fulfilled order.
+ */
+export async function markOrderProcessingIfPending(orderId: string): Promise<boolean> {
+  const res = await Order.updateOne(
+    { _id: orderId, status: 'pending' },
+    { $set: { status: 'processing' } }
+  );
+  return res.modifiedCount === 1;
 }
 
 /** Find a live order document by orderId only (no storeId constraint).

@@ -3,6 +3,7 @@ import { Review } from './review.model';
 import { Product } from '../products/product.model';
 import { Order } from '../orders/order.model';
 import { createError } from '../../middleware/errorHandler';
+import { config } from '../../config/index';
 
 export interface ReviewDoc {
   _id: Types.ObjectId;
@@ -79,9 +80,10 @@ export async function submitReview(
   const product = await Product.findOne({ _id: productObjId, storeId: storeObjId, isDeleted: false }).lean();
   if (!product) throw createError('Product not found', 404, 'NOT_FOUND');
 
-  const isDev = process.env.NODE_ENV !== 'production';
-
-  if (!isDev) {
+  // Verified-purchase enforcement is driven by an explicit, default-on flag.
+  // It was previously `process.env.NODE_ENV !== 'production'`, so any host that
+  // left NODE_ENV unset let anyone review anything.
+  if (!config.ALLOW_UNVERIFIED_REVIEWS) {
     const deliveredOrder = await Order.findOne({
       storeId: storeObjId,
       customerId: customerObjId,

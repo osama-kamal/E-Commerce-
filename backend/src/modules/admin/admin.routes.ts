@@ -18,8 +18,6 @@ import {
   updateUserRole,
   filterOrders,
   getLowStockProducts,
-  updateStorePlan,
-  listAllStoresAdmin,
 } from './admin.controller';
 
 const router = Router();
@@ -43,8 +41,9 @@ router.get('/orders', validate(orderFilterSchema), filterOrders);
 // ── Inventory alerts ───────────────────────────────────────────────────────────
 router.get('/low-stock', getLowStockProducts);
 
-// ── Store plan management (super-admin) ───────────────────────────────────────
-router.patch('/stores/:id/plan', updateStorePlan);
-router.get('/stores', listAllStoresAdmin);
+// NOTE: the platform-scoped store routes (PATCH /stores/:id/plan, GET /stores)
+// are deliberately NOT registered here. This router is mounted behind
+// `authorizeRole('admin')`, which every store owner satisfies. Those endpoints
+// live on the super-admin-guarded router in app.ts instead.
 
 export default router;

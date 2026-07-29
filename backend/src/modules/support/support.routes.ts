@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { validate } from '../../middleware/validate';
+import { emailLimiter } from '../../middleware/rateLimiter';
 import { contactSales } from './support.controller';
 
 const router = Router();
@@ -14,7 +15,8 @@ const contactSalesSchema = z.object({
   }),
 });
 
-// POST /api/v1/support/contact-sales  — public, no auth required
-router.post('/contact-sales', validate(contactSalesSchema), contactSales);
+// POST /api/v1/support/contact-sales  — public, no auth required.
+// Rate limited: it sends email to the platform operator on every call.
+router.post('/contact-sales', emailLimiter, validate(contactSalesSchema), contactSales);
 
 export default router;

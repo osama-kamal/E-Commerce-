@@ -3,12 +3,13 @@ import { newsletterController } from './newsletter.controller';
 import { validate } from '../../middleware/validate';
 import { subscribeSchema, unsubscribeSchema } from './newsletter.schemas';
 import { authenticateJWT, authorizeRole } from '../../middleware/authenticate';
+import { emailLimiter } from '../../middleware/rateLimiter';
 
 const router = Router();
 
-// Public routes
-router.post('/subscribe', validate(subscribeSchema), newsletterController.subscribe);
-router.post('/unsubscribe', validate(unsubscribeSchema), newsletterController.unsubscribe);
+// Public routes — rate limited because they trigger outbound email.
+router.post('/subscribe', emailLimiter, validate(subscribeSchema), newsletterController.subscribe);
+router.post('/unsubscribe', emailLimiter, validate(unsubscribeSchema), newsletterController.unsubscribe);
 
 // Admin routes (require authentication and admin role)
 router.get('/subscribers', authenticateJWT, authorizeRole('admin'), newsletterController.getAllSubscribers);

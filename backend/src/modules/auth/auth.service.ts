@@ -12,6 +12,13 @@ const REFRESH_TOKEN_BYTES = 64;
 const REFRESH_TOKEN_TTL_SECONDS = 7 * 24 * 60 * 60; // 7 days
 const RESET_TOKEN_EXPIRY_MS = 60 * 60 * 1000;        // 1 hour
 
+/**
+ * Upper bound on concurrent sessions retained per account.
+ * Every login pushes a record and only the consumed one is pulled on refresh,
+ * so without a cap the array grew forever.
+ */
+const MAX_ACTIVE_SESSIONS = 10;
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function generateRawRefreshToken(userId: string): string {
@@ -19,21 +26,47 @@ function generateRawRefreshToken(userId: string): string {
   return `${userId}.${random}`;
 }
 
+/**
+ * Refresh tokens carry 512 bits of CSPRNG entropy, so they are not guessable and
+ * gain nothing from a slow KDF. They were previously bcrypt-hashed, which forced
+ * an O(n) sequential compare (~250ms each) on every /auth/refresh — a
+ * single-account DoS. A SHA-256 digest allows an exact-match lookup instead.
+ */
+function hashRefreshToken(rawToken: string): string {
+  return crypto.createHash('sha256').update(rawToken).digest('hex');
+}
+
+/** Records written before the SHA-256 migration are bcrypt hashes ($2a$/$2b$/$2y$). */
+function isLegacyBcryptHash(hash: string): boolean {
+  return hash.startsWith('$2');
+}
+
+/** Constant-time comparison of two same-length hex digests. */
+function digestsMatch(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  return crypto.timingSafeEqual(Buffer.from(a, 'hex'), Buffer.from(b, 'hex'));
+}
+
 function redisRefreshKey(userId: string, tokenHash: string): string {
   return `refresh:${userId}:${tokenHash}`;
 }
 
 async function storeRefreshToken(userId: string, rawToken: string): Promise<void> {
-  const hash = await bcrypt.hash(rawToken, BCRYPT_ROUNDS);
+  const hash = hashRefreshToken(rawToken);
 
-  // Always persist to MongoDB (source of truth)
+  // Always persist to MongoDB (source of truth).
+  // $slice keeps only the most recent MAX_ACTIVE_SESSIONS records, so a user who
+  // never logs out cannot grow this array without bound.
   await User.updateOne(
     { _id: userId },
     {
       $push: {
         refreshTokens: {
-          token: hash,
-          expiresAt: new Date(Date.now() + REFRESH_TOKEN_TTL_SECONDS * 1000),
+          $each: [{
+            token: hash,
+            expiresAt: new Date(Date.now() + REFRESH_TOKEN_TTL_SECONDS * 1000),
+          }],
+          $slice: -MAX_ACTIVE_SESSIONS,
         },
       },
     }
@@ -50,6 +83,21 @@ async function storeRefreshToken(userId: string, rawToken: string): Promise<void
   }
 }
 
+async function revokeStoredToken(userId: string, storedHash: string): Promise<void> {
+  await User.updateOne(
+    { _id: userId },
+    { $pull: { refreshTokens: { token: storedHash } } }
+  );
+  if (isRedisAvailable()) {
+    try {
+      const redis = getRedisClient();
+      await redis.del(redisRefreshKey(userId, storedHash));
+    } catch {
+      // Redis delete failed — DB removal is sufficient
+    }
+  }
+}
+
 async function findAndInvalidateRefreshToken(
   userId: string,
   rawToken: string
@@ -57,27 +105,51 @@ async function findAndInvalidateRefreshToken(
   const user = await User.findById(userId).select('+refreshTokens');
   if (!user) return false;
 
-  for (const stored of user.refreshTokens) {
-    const match = await bcrypt.compare(rawToken, stored.token);
-    if (match) {
-      // Remove from DB
-      await User.updateOne(
-        { _id: userId },
-        { $pull: { refreshTokens: { token: stored.token } } }
-      );
-      // Remove from Redis if available
-      if (isRedisAvailable()) {
-        try {
-          const redis = getRedisClient();
-          await redis.del(redisRefreshKey(userId, stored.token));
-        } catch {
-          // Redis delete failed — DB removal is sufficient
-        }
-      }
+  const now = new Date();
+
+  // `expiresAt` was previously written and never read, so a token remained valid
+  // indefinitely. Expired records are now excluded from matching AND purged.
+  const live = user.refreshTokens.filter((t) => t.expiresAt > now);
+  if (live.length !== user.refreshTokens.length) {
+    await User.updateOne(
+      { _id: userId },
+      { $pull: { refreshTokens: { expiresAt: { $lte: now } } } }
+    );
+  }
+
+  // Fast path — current SHA-256 records, exact match, no KDF cost.
+  const candidateHash = hashRefreshToken(rawToken);
+  const direct = live.find(
+    (t) => !isLegacyBcryptHash(t.token) && digestsMatch(t.token, candidateHash)
+  );
+  if (direct) {
+    await revokeStoredToken(userId, direct.token);
+    return true;
+  }
+
+  // Compatibility path — sessions issued before the migration. Bounded by both
+  // the expiry filter above and MAX_ACTIVE_SESSIONS, and disappears naturally as
+  // old tokens rotate or expire.
+  for (const stored of live) {
+    if (!isLegacyBcryptHash(stored.token)) continue;
+    if (await bcrypt.compare(rawToken, stored.token)) {
+      await revokeStoredToken(userId, stored.token);
       return true;
     }
   }
+
   return false;
+}
+
+/**
+ * Generates a refresh token, persists it, and returns the raw value.
+ * Exported so other modules (e.g. onboarding) reuse this instead of
+ * re-implementing token creation with a different hash format.
+ */
+export async function issueRefreshToken(userId: string): Promise<string> {
+  const raw = generateRawRefreshToken(userId);
+  await storeRefreshToken(userId, raw);
+  return raw;
 }
 
 // ── Service methods ───────────────────────────────────────────────────────────

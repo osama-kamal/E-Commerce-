@@ -1,0 +1,98 @@
+name: CI
+
+# Nothing gated deploys before this: no type check, no lint, no tests ran
+# automatically on any change.
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+    branches: [master, main]
+
+# A newer push to the same branch cancels the in-flight run.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install
+        working-directory: backend
+        run: npm ci
+
+      - name: Type check
+        working-directory: backend
+        run: npx tsc --noEmit
+
+      - name: Lint
+        working-directory: backend
+        run: npm run lint
+        continue-on-error: true # advisory until the existing lint debt is cleared
+
+      - name: Test
+        working-directory: backend
+        # mongodb-memory-server downloads a mongod binary on first run.
+        run: npm test
+        env:
+          NODE_ENV: test
+          # Required at import time by config/stripe.ts; any non-empty value works
+          # because every test that touches Stripe mocks the SDK.
+          STRIPE_SECRET_KEY: sk_test_ci_placeholder
+          JWT_ACCESS_SECRET: ci-access-secret-not-a-real-secret-32c
+          JWT_REFRESH_SECRET: ci-refresh-secret-not-a-real-secret-32c
+
+      - name: Build
+        working-directory: backend
+        run: npm run build
+
+  client:
+    name: Client
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+
+      - name: Install
+        working-directory: client
+        run: npm ci
+
+      - name: Type check
+        working-directory: client
+        run: npx tsc --noEmit
+
+      - name: Lint
+        working-directory: client
+        run: npm run lint
+        continue-on-error: true # advisory until the existing lint debt is cleared
+
+      - name: Test
+        working-directory: client
+        run: npm test
+
+      - name: Build
+        working-directory: client
+        run: npm run build
+        env:
+          # Checkout refuses card payment when this is absent in a production
+          # build (see utils/checkoutMode.ts); a placeholder keeps the build
+          # representative without embedding a real key.
+          VITE_STRIPE_PUBLISHABLE_KEY: pk_test_ci_placeholder_key_1234567890abcdef

@@ -94,6 +94,28 @@ const envSchema = z.object({
   // This is DIFFERENT from the Integration ID used in payment key generation.
   PAYMOB_IFRAME_ID: z.string().optional(),
 
+  // ── Checkout ────────────────────────────────────────────────────────────────
+  // Orders are created (and stock decremented) BEFORE the customer pays, so an
+  // abandoned online checkout would otherwise hold inventory forever. Pending
+  // online orders older than this are auto-cancelled and their stock released.
+  // Cash-on-delivery orders are never expired — they legitimately sit pending
+  // until a human fulfils them.
+  PENDING_ORDER_TTL_MINUTES: z
+    .string()
+    .default('30')
+    .transform((v) => parseInt(v, 10)),
+
+  // ── Reviews ─────────────────────────────────────────────────────────────────
+  // Verified-purchase enforcement is ON unless explicitly disabled.
+  // This was previously derived from NODE_ENV (`NODE_ENV !== 'production'`
+  // skipped the check), which meant a host that forgot to set NODE_ENV silently
+  // let anyone review any product. Security controls must be opt-OUT by explicit
+  // intent, never a side effect of an unrelated environment variable.
+  ALLOW_UNVERIFIED_REVIEWS: z
+    .string()
+    .default('false')
+    .transform((v) => v === 'true'),
+
   // ── AI / Chatbot (OPTIONAL) ─────────────────────────────────────────────────
   OPENAI_API_KEY: z.string().optional(),
 

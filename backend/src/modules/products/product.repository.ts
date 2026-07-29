@@ -9,6 +9,7 @@
 import mongoose, { ClientSession, FilterQuery, Types } from 'mongoose';
 import { Product, IProduct } from './product.model';
 import { Category } from '../categories/category.model';
+import { createError } from '../../middleware/errorHandler';
 
 // ── Query helpers ─────────────────────────────────────────────────────────────
 
@@ -119,13 +120,52 @@ export async function bulkUpdate(
   storeId: Types.ObjectId,
   data: Partial<IProduct>
 ) {
+  // runValidators enforces the schema's min/max constraints (price >= 0,
+  // 0 <= discount <= 100) on bulk writes, which updateMany skips by default.
   return Product.updateMany(
     { _id: { $in: ids }, storeId, isDeleted: false },
-    data
+    data,
+    { runValidators: true }
   );
 }
 
+/**
+ * Atomically reserve `qty` units.
+ *
+ * The `stock: { $gte: qty }` term is what makes this safe: the availability
+ * check and the decrement happen in one operation, so a concurrent order cannot
+ * slip between them. Previously this was an unconditional `$inc`, and the only
+ * check lived in a separate read in placeOrder — fine inside a transaction, but
+ * placeOrder has a non-transactional fallback for standalone MongoDB where
+ * stock could go negative.
+ *
+ * Throws (rather than returning a result the caller may ignore) so an
+ * unavailable item can never silently pass.
+ */
 export async function decrementStock(
+  productId: Types.ObjectId,
+  storeId: Types.ObjectId,
+  qty: number,
+  session?: ClientSession
+) {
+  const res = await Product.updateOne(
+    { _id: productId, storeId, stock: { $gte: qty } },
+    { $inc: { stock: -qty } },
+    ...(session ? [{ session }] : [])
+  );
+
+  if (res.matchedCount === 0) {
+    throw createError(
+      'Insufficient stock — the item sold out while your order was being placed',
+      409,
+      'OUT_OF_STOCK'
+    );
+  }
+  return res;
+}
+
+/** Return `qty` units to stock — used when an order is cancelled. */
+export async function restoreStock(
   productId: Types.ObjectId,
   storeId: Types.ObjectId,
   qty: number,
@@ -133,7 +173,7 @@ export async function decrementStock(
 ) {
   return Product.updateOne(
     { _id: productId, storeId },
-    { $inc: { stock: -qty } },
+    { $inc: { stock: qty } },
     ...(session ? [{ session }] : [])
   );
 }

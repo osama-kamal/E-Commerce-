@@ -268,20 +268,41 @@ async function handlePaymentSucceeded(event: Stripe.Event): Promise<void> {
     return;
   }
 
-  // Create payment record — stripeEventId unique index prevents duplicates
-  await Payment.create({
-    orderId: new Types.ObjectId(orderId),
-    customerId: new Types.ObjectId(customerId),
-    stripePaymentIntentId: intent.id,
-    amount: intent.amount,
-    currency: intent.currency,
-    status: 'succeeded',
-    stripeEventId: event.id,
-  });
+  // Record the payment. A duplicate delivery collides on the unique
+  // stripeEventId index; that is a no-op, NOT a failure, and must not stop the
+  // order transition below. (Previously this threw and the order silently
+  // stayed 'pending' even though the card had been charged.)
+  try {
+    await Payment.create({
+      orderId: new Types.ObjectId(orderId),
+      customerId: new Types.ObjectId(customerId),
+      stripePaymentIntentId: intent.id,
+      amount: intent.amount,
+      currency: intent.currency,
+      status: 'succeeded',
+      stripeEventId: event.id,
+    });
+  } catch (err) {
+    if ((err as { code?: number }).code !== 11000) throw err;
+    logger.info('Payment already recorded for this event — continuing', {
+      eventId: event.id,
+      intentId: intent.id,
+    });
+  }
 
-  // Advance order to processing — same automated flow as Paymob webhook
-  order.status = 'processing';
-  await order.save();
+  // Atomic pending -> processing. Only the caller that actually performed the
+  // transition sends the receipt, so concurrent deliveries cannot double-email,
+  // and a replayed event cannot resurrect a cancelled order.
+  const transitioned = await orderRepo.markOrderProcessingIfPending(orderId);
+
+  if (!transitioned) {
+    logger.info('Order was not pending — no transition or receipt sent', {
+      orderId,
+      intentId: intent.id,
+      currentStatus: order.status,
+    });
+    return;
+  }
 
   // Send payment receipt email (fire-and-forget)
   const storeId = order.storeId.toString();
@@ -311,16 +332,22 @@ async function handlePaymentFailed(event: Stripe.Event): Promise<void> {
     return;
   }
 
-  // Record the failure — order stays in 'pending' so customer can retry
-  await Payment.create({
-    orderId: new Types.ObjectId(orderId),
-    customerId: new Types.ObjectId(customerId),
-    stripePaymentIntentId: intent.id,
-    amount: intent.amount,
-    currency: intent.currency,
-    status: 'failed',
-    stripeEventId: event.id,
-  });
+  // Record the failure — order stays in 'pending' so customer can retry.
+  // Duplicate deliveries collide on stripeEventId and are ignored.
+  try {
+    await Payment.create({
+      orderId: new Types.ObjectId(orderId),
+      customerId: new Types.ObjectId(customerId),
+      stripePaymentIntentId: intent.id,
+      amount: intent.amount,
+      currency: intent.currency,
+      status: 'failed',
+      stripeEventId: event.id,
+    });
+  } catch (err) {
+    if ((err as { code?: number }).code !== 11000) throw err;
+    logger.info('Payment failure already recorded for this event', { eventId: event.id });
+  }
 
   logger.info('Payment failed — order remains pending', {
     orderId,

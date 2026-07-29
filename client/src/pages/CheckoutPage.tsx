@@ -11,16 +11,32 @@ import { ordersApi } from '../api/orders';
 import { paymentsApi } from '../api/payments';
 import { useAppSelector, useAppDispatch } from '../hooks/useAppDispatch';
 import { validateCouponThunk, removeCoupon } from '../store/couponSlice';
+import { resolveCheckoutMode } from '../utils/checkoutMode';
 import { ShippingAddress } from '../types';
 
 // ── Provider type ─────────────────────────────────────────────────────────────
 type OnlineProvider = 'stripe' | 'paymob';
 
-// Guard against empty/fake Stripe key — avoids IntegrationError crash
+// Guard against empty/fake Stripe key — avoids IntegrationError crash.
+// See utils/checkoutMode.ts: simulation is only ever available in a dev build.
+// A production build with no usable key reports 'unavailable' and refuses card
+// payment rather than offering a bypass.
 const STRIPE_KEY = import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY as string | undefined;
-const isRealStripeKey = Boolean(STRIPE_KEY && STRIPE_KEY.startsWith('pk_') && STRIPE_KEY.length > 30 && !STRIPE_KEY.includes('000000000000'));
-const stripePromise = isRealStripeKey ? loadStripe(STRIPE_KEY!) : null;
-const TEST_MODE = !isRealStripeKey;
+const CHECKOUT_MODE = resolveCheckoutMode(STRIPE_KEY, import.meta.env.DEV);
+
+const stripePromise = CHECKOUT_MODE === 'live' ? loadStripe(STRIPE_KEY!) : null;
+/** Dev-only simulated payment. NEVER true in a production build. */
+const TEST_MODE = CHECKOUT_MODE === 'simulated';
+/** Production build with no usable Stripe key — card payment must be refused. */
+const STRIPE_UNAVAILABLE = CHECKOUT_MODE === 'unavailable';
+
+if (STRIPE_UNAVAILABLE) {
+  // Loud, actionable signal — this is a deployment misconfiguration.
+  console.error(
+    '[checkout] VITE_STRIPE_PUBLISHABLE_KEY is missing or invalid in a production build. ' +
+    'Card payment is disabled. Set a valid pk_… key and redeploy.'
+  );
+}
 
 const addressSchema = yup.object({
   line1:      yup.string().required('Address is required'),
@@ -169,7 +185,11 @@ function CheckoutForm() {
   const [clientSecret, setClientSecret] = useState('');
   const [shippingData, setShippingData] = useState<ShippingAddress | null>(null);
   const [paymentMethod, setPaymentMethod] = useState<'online' | 'cod'>('online');
-  const [onlineProvider, setOnlineProvider] = useState<OnlineProvider>('stripe');
+  // Default away from Stripe when it cannot be used, so the customer is not
+  // dropped onto a dead gateway.
+  const [onlineProvider, setOnlineProvider] = useState<OnlineProvider>(
+    STRIPE_UNAVAILABLE ? 'paymob' : 'stripe'
+  );
   const [payLoading, setPayLoading] = useState(false);
   const [orderLoading, setOrderLoading] = useState(false);
   const [savedTotal, setSavedTotal] = useState(0);
@@ -205,16 +225,30 @@ function CheckoutForm() {
 
   const handleShippingSubmit = async (data: AddressForm) => {
     if (orderLoading) return; // prevent double-submit
+
+    // Refuse before creating the order — an order created here would decrement
+    // stock and email a confirmation for something that can never be paid.
+    if (paymentMethod === 'online' && onlineProvider === 'stripe' && STRIPE_UNAVAILABLE) {
+      toast.error('Card payment is temporarily unavailable. Please choose another payment method.');
+      return;
+    }
+
     setOrderLoading(true);
     try {
       const currentTotal = Math.max(0, (cart?.subtotal ?? 0) - discount);
       setSavedTotal(currentTotal);
       setSavedItems(cart?.items ?? []);
 
-      const orderRes = await ordersApi.place(data as ShippingAddress, paymentMethod, currentTotal > 0 ? discount : 0, couponCode ?? undefined, idempotencyKey);
-      const oid = orderRes.data.data._id;
+      const orderRes = await ordersApi.place(data as ShippingAddress, paymentMethod, couponCode ?? undefined, idempotencyKey);
+      const order = orderRes.data.data;
+      const oid = order._id;
       setOrderId(oid);
       setShippingData(data as ShippingAddress);
+
+      // Trust the server's total, not the locally-estimated one. The server
+      // recomputes the discount from the coupon, so this is the amount that
+      // will actually be charged.
+      setSavedTotal(order.totalAmount);
 
       if (paymentMethod === 'cod') { setStep(2); return; }
 
@@ -371,16 +405,26 @@ function CheckoutForm() {
                     <div className="mt-3">
                       <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-2 uppercase tracking-wide">Payment Gateway</p>
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                        <label className={`flex items-center gap-2 p-2.5 rounded-lg border cursor-pointer transition-colors text-sm ${
-                          onlineProvider === 'stripe' ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400' : 'border-gray-200 dark:border-gray-700 text-gray-600 hover:border-gray-300'
+                        <label className={`flex items-center gap-2 p-2.5 rounded-lg border transition-colors text-sm ${
+                          STRIPE_UNAVAILABLE ? 'border-gray-200 dark:border-gray-700 text-gray-400 opacity-60 cursor-not-allowed'
+                          : onlineProvider === 'stripe' ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400 cursor-pointer'
+                          : 'border-gray-200 dark:border-gray-700 text-gray-600 hover:border-gray-300 cursor-pointer'
                         }`}>
-                          <input type="radio" name="onlineProvider" value="stripe" checked={onlineProvider === 'stripe'} onChange={() => setOnlineProvider('stripe')} className="sr-only" />
+                          <input
+                            type="radio" name="onlineProvider" value="stripe"
+                            checked={onlineProvider === 'stripe'}
+                            disabled={STRIPE_UNAVAILABLE}
+                            onChange={() => setOnlineProvider('stripe')}
+                            className="sr-only"
+                          />
                           <span>💳</span>
                           <div>
                             <p className="font-semibold leading-none">Stripe</p>
-                            <p className="text-xs text-gray-400 mt-0.5">Global · USD</p>
+                            <p className="text-xs text-gray-400 mt-0.5">
+                              {STRIPE_UNAVAILABLE ? 'Currently unavailable' : 'Global · USD'}
+                            </p>
                           </div>
-                          {onlineProvider === 'stripe' && <span className="ml-auto text-blue-500 text-xs">✓</span>}
+                          {onlineProvider === 'stripe' && !STRIPE_UNAVAILABLE && <span className="ml-auto text-blue-500 text-xs">✓</span>}
                         </label>
 
                         <label className={`flex items-center gap-2 p-2.5 rounded-lg border cursor-pointer transition-colors text-sm ${
@@ -471,11 +515,24 @@ function CheckoutForm() {
                     </button>
                   </div>
                 </div>
+              ) : STRIPE_UNAVAILABLE ? (
+                // Production build with no usable Stripe key. Never offer a bypass —
+                // send the customer to a payment method that actually works.
+                <div className="card p-6 space-y-4">
+                  <h2 className="font-semibold text-gray-900 dark:text-white text-lg">Card payment unavailable</h2>
+                  <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4 text-sm text-red-700 dark:text-red-400">
+                    <p className="font-semibold mb-1">We can't take card payments right now</p>
+                    <p>Please go back and choose Cash on Delivery, or try again later. You have not been charged.</p>
+                  </div>
+                  <button type="button" onClick={() => setStep(0)} className="btn-secondary w-full">
+                    ← Choose another payment method
+                  </button>
+                </div>
               ) : TEST_MODE ? (
                 <div className="card p-6 space-y-4">
                   <h2 className="font-semibold text-gray-900 dark:text-white text-lg">Payment Details</h2>
                   <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-300 dark:border-yellow-700 rounded-lg p-4 text-sm text-yellow-800 dark:text-yellow-400">
-                    <p className="font-semibold mb-1">🧪 Test Mode Active</p>
+                    <p className="font-semibold mb-1">🧪 Test Mode Active (development build only)</p>
                     <p>No Stripe key configured. Click below to simulate a successful payment.</p>
                   </div>
                   <div className="flex justify-between text-sm text-gray-600 dark:text-gray-400">
@@ -554,9 +611,11 @@ function CheckoutForm() {
   );
 }
 
-// Conditionally wrap with Elements only when Stripe is configured
+// Only mount Stripe <Elements> when a real key is configured. In 'simulated'
+// (dev) and 'unavailable' (prod misconfiguration) modes stripePromise is null,
+// and rendering Elements with a null stripe instance is pointless.
 export default function CheckoutPage() {
-  if (TEST_MODE) {
+  if (CHECKOUT_MODE !== 'live') {
     return <CheckoutForm />;
   }
   return (

@@ -10,6 +10,8 @@
     "seed": "ts-node src/seed.ts",
     "update-images": "ts-node src/update-images.ts",
     "create-indexes": "ts-node src/scripts/create-indexes.ts",
+    "migrate:payment-intent-index": "ts-node src/scripts/drop-payment-intent-unique-index.ts",
+    "migrate:order-idempotency-index": "ts-node src/scripts/fix-order-idempotency-index.ts",
     "optimize-images": "ts-node src/scripts/optimize-existing-images.ts",
     "test": "jest --runInBand",
     "test:watch": "jest --watch",

@@ -4,6 +4,17 @@ import cors from 'cors';
 import cookieParser from 'cookie-parser';
 import rateLimit from 'express-rate-limit';
 import mongoSanitize from 'express-mongo-sanitize';
+import mongoose from 'mongoose';
+
+import { isRedisAvailable } from './config/redis';
+
+/** mongoose.connection.readyState -> human-readable label. */
+const MONGO_STATES: Record<number, string> = {
+  0: 'disconnected',
+  1: 'connected',
+  2: 'connecting',
+  3: 'disconnecting',
+};
 
 import { CORS_ORIGINS } from './config/index';
 import { notFound } from './middleware/notFound';
@@ -72,9 +83,6 @@ app.use(limiter);
 // Defined in middleware/rateLimiter.ts and re-exported above.
 // Applied per-route in auth.routes.ts to avoid circular import issues.
 
-// ── NoSQL injection sanitization ──────────────────────────────────────────────
-app.use(mongoSanitize());
-
 // ── Webhook routes — raw body MUST be registered before express.json() ────────
 // express.json() consumes the request stream. Any webhook route that needs the
 // raw Buffer for HMAC verification (Stripe, Paymob) must be mounted here, BEFORE
@@ -86,11 +94,57 @@ app.use('/api/v1/payments', paymentRoutes);
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+// ── NoSQL injection sanitization ──────────────────────────────────────────────
+// MUST come AFTER the body parsers. express-mongo-sanitize walks req.body,
+// req.query, req.params and req.headers and strips keys containing `$` or `.`.
+// Registered before express.json() it saw req.body === undefined and silently
+// skipped it, so every request body reached the route handlers unsanitized.
+//
+// Payment routes are mounted above (they need the raw Buffer for HMAC
+// verification), so they are NOT covered here — the two non-webhook payment
+// routes apply this middleware themselves after their own express.json().
+app.use(mongoSanitize());
+
 // ── Health check ──────────────────────────────────────────────────────────────
+// ── Liveness ──────────────────────────────────────────────────────────────────
+// "Is the process up?" — always 200. Deliberately does NOT check dependencies:
+// server.ts binds the port before connecting to MongoDB so the platform health
+// check passes during startup, and render.yaml points healthCheckPath here.
+// Failing this on a slow DB connect would make the platform kill the container
+// mid-boot. Use /health/ready for dependency state.
 app.get('/api/v1/health', (_req: Request, res: Response) => {
   res.status(200).json({
     status: 'ok',
     version: '2.0.0',
+    timestamp: new Date().toISOString(),
+  });
+});
+
+// ── Readiness ─────────────────────────────────────────────────────────────────
+// "Can this instance actually serve traffic?" — 503 when MongoDB is unreachable.
+// Point uptime monitoring and load-balancer readiness probes here; the previous
+// single endpoint reported healthy with a completely dead database.
+app.get('/api/v1/health/ready', (_req: Request, res: Response) => {
+  // 0 = disconnected, 1 = connected, 2 = connecting, 3 = disconnecting
+  const dbState = mongoose.connection.readyState;
+  const dbReady = dbState === 1;
+
+  // Redis is optional — the app degrades gracefully without it, so it is
+  // reported but never fails the probe.
+  let redisReady = false;
+  try {
+    redisReady = isRedisAvailable();
+  } catch {
+    redisReady = false;
+  }
+
+  res.status(dbReady ? 200 : 503).json({
+    status: dbReady ? 'ready' : 'not_ready',
+    version: '2.0.0',
+    checks: {
+      mongodb: { ready: dbReady, state: MONGO_STATES[dbState] ?? 'unknown', required: true },
+      redis: { ready: redisReady, required: false },
+    },
     timestamp: new Date().toISOString(),
   });
 });
@@ -116,12 +170,17 @@ app.use('/api/v1/plans', planRoutes);
 // and are registered in the tenant router below.
 import { Router as ExpressRouter } from 'express';
 const globalAdminRouter = ExpressRouter();
-import { authenticateJWT, authorizeRole } from './middleware/authenticate';
+import { authenticateJWT, requireSuperAdmin } from './middleware/authenticate';
 import { updateStorePlan, listAllStoresAdmin, listPendingUpgrades } from './modules/admin/admin.controller';
-globalAdminRouter.use(authenticateJWT, authorizeRole('admin', 'super-admin'));
-globalAdminRouter.patch('/stores/:id/plan', updateStorePlan);
-globalAdminRouter.get('/stores', listAllStoresAdmin);
-globalAdminRouter.get('/stores/pending-upgrades', listPendingUpgrades);
+
+// These three act ACROSS tenants, so they are restricted to 'super-admin'.
+// Guards are attached PER ROUTE, never via globalAdminRouter.use(...): a
+// router-level `use` would also run for every /api/v1/admin/* path that this
+// router does not handle (e.g. /admin/dashboard) and would lock store admins
+// out of their own tenant dashboards before the request reaches tenantRouter.
+globalAdminRouter.patch('/stores/:id/plan', authenticateJWT, requireSuperAdmin, updateStorePlan);
+globalAdminRouter.get('/stores', authenticateJWT, requireSuperAdmin, listAllStoresAdmin);
+globalAdminRouter.get('/stores/pending-upgrades', authenticateJWT, requireSuperAdmin, listPendingUpgrades);
 app.use('/api/v1/admin', globalAdminRouter);
 
 // ── Store-scoped API routes ───────────────────────────────────────────────────

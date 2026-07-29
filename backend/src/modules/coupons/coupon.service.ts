@@ -1,4 +1,4 @@
-import { Types } from 'mongoose';
+import { ClientSession, Types } from 'mongoose';
 import { Coupon, ICoupon } from './coupon.model';
 import { createError } from '../../middleware/errorHandler';
 
@@ -22,15 +22,24 @@ export const couponService = {
    *
    * Returns null if the coupon doesn't exist or any condition fails.
    */
-  async validateAndApplyCoupon(storeId: string, code: string, subtotal: number): Promise<ValidateCouponResult> {
+  async validateAndApplyCoupon(
+    storeId: string,
+    code: string,
+    subtotal: number,
+    session?: ClientSession
+  ): Promise<ValidateCouponResult> {
     const normalizedCode = code.toUpperCase().trim();
     const now = new Date();
 
-    // First, fetch to get the current coupon state for discount calculation
-    const coupon = await Coupon.findOne({
+    // First, fetch to get the current coupon state for discount calculation.
+    // Runs inside the caller's transaction when a session is supplied so the
+    // read and the claim below observe a consistent snapshot.
+    const couponQuery = Coupon.findOne({
       storeId: new Types.ObjectId(storeId),
       code: normalizedCode,
     });
+    if (session) couponQuery.session(session);
+    const coupon = await couponQuery;
 
     if (!coupon) throw createError('Coupon code not found', 404, 'NOT_FOUND');
     if (!coupon.isActive) throw createError('This coupon is no longer active', 400, 'BAD_REQUEST');
@@ -47,19 +56,36 @@ export const couponService = {
         storeId: new Types.ObjectId(storeId),
         code: normalizedCode,
         isActive: true,
-        // Single $or combining both expiry and maxUses conditions — fixes duplicate key error
-        $or: [
+        // Expiry and usage are INDEPENDENT requirements — both must hold, so they
+        // are two $or groups combined with $and.
+        //
+        // These were previously flattened into one $or, which any single branch
+        // satisfied: a coupon with a future expiry matched on the expiry branch
+        // alone and `maxUses` was never checked, so a limited promotion could be
+        // redeemed without bound.
+        $and: [
           // Not expired (or no expiry set)
-          { expiresAt: { $gt: now } },
-          { expiresAt: { $exists: false } },
-          { expiresAt: null },
+          {
+            $or: [
+              { expiresAt: { $gt: now } },
+              { expiresAt: { $exists: false } },
+              { expiresAt: null },
+            ],
+          },
           // Unlimited uses (maxUses = 0) or still has uses left
-          { maxUses: 0 },
-          { $expr: { $lt: ['$usedCount', '$maxUses'] } },
+          {
+            $or: [
+              { maxUses: 0 },
+              { $expr: { $lt: ['$usedCount', '$maxUses'] } },
+            ],
+          },
         ],
       },
       { $inc: { usedCount: 1 } },
-      { new: false } // return the pre-update doc to verify
+      // Return the pre-update doc to verify. When a session is supplied the
+      // increment participates in the caller's transaction, so an aborted
+      // checkout rolls the usage claim back automatically.
+      { new: false, ...(session ? { session } : {}) }
     );
 
     if (!claimed) {

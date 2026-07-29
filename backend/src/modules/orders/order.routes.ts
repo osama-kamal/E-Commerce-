@@ -6,6 +6,8 @@ import {
   orderIdSchema,
   paginationSchema,
   updateStatusSchema,
+  bulkUpdateStatusSchema,
+  bulkDeleteOrdersSchema,
 } from './order.schemas';
 import {
   placeOrder,
@@ -62,18 +64,16 @@ router.get(
   getAllOrders
 );
 
-router.put(
-  '/admin/:id/status',
-  authenticateJWT,
-  authorizeRole('admin'),
-  validate(updateStatusSchema),
-  updateOrderStatus
-);
-
+// ⚠️  ORDER MATTERS — the bulk routes MUST be registered before '/admin/:id/status'.
+// '/admin/:id/status' and '/admin/bulk/status' both have three path segments, so
+// the parameterised route matches '/admin/bulk/status' with id === 'bulk'. When it
+// was registered first it swallowed every bulk request, which then failed with
+// "Invalid order ID" — the bulk status feature never worked.
 router.put(
   '/admin/bulk/status',
   authenticateJWT,
   authorizeRole('admin'),
+  validate(bulkUpdateStatusSchema),
   bulkUpdateOrderStatus
 );
 
@@ -81,7 +81,16 @@ router.delete(
   '/admin/bulk/delete',
   authenticateJWT,
   authorizeRole('admin'),
+  validate(bulkDeleteOrdersSchema),
   bulkDeleteOrders
+);
+
+router.put(
+  '/admin/:id/status',
+  authenticateJWT,
+  authorizeRole('admin'),
+  validate(updateStatusSchema),
+  updateOrderStatus
 );
 
 export default router;

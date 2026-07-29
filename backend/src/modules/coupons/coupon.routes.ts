@@ -1,11 +1,13 @@
 import { Router } from 'express';
 import { couponController } from './coupon.controller';
 import { authenticateJWT, authorizeRole } from '../../middleware/authenticate';
+import { couponLimiter } from '../../middleware/rateLimiter';
 
 const router = Router();
 
-// Public — validate a coupon code
-router.post('/validate', couponController.validate);
+// Public — validate a coupon code.
+// Rate limited: the distinct error messages make this a code-guessing oracle.
+router.post('/validate', couponLimiter, couponController.validate);
 
 // Admin — CRUD
 router.get('/', authenticateJWT, authorizeRole('admin'), couponController.list);

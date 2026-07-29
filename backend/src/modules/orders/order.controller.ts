@@ -21,8 +21,10 @@ function getStoreId(req: Request): string {
 export async function placeOrder(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     const customerId = req.user!.userId.toString();
-    const { shippingAddress, paymentMethod = 'online', discountAmount = 0, couponCode, idempotencyKey } = req.body;
-    const order = await orderService.placeOrder(getStoreId(req), customerId, shippingAddress, paymentMethod, discountAmount, couponCode, idempotencyKey);
+    // `discountAmount` is intentionally NOT read from the body — the discount is
+    // resolved server-side from `couponCode` inside placeOrder.
+    const { shippingAddress, paymentMethod = 'online', couponCode, idempotencyKey } = req.body;
+    const order = await orderService.placeOrder(getStoreId(req), customerId, shippingAddress, paymentMethod, couponCode, idempotencyKey);
     sendSuccess(res, order, 201);
   } catch (err) {
     logger.error('[placeOrder] Failed to place order', { error: err, body: req.body, userId: req.user?.userId });
