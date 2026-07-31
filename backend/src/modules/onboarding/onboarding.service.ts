@@ -70,22 +70,44 @@ export async function onboardStore(input: OnboardingInput): Promise<OnboardingRe
   const baseSlug = storeSlug ? storeSlug.toLowerCase() : slugify(storeName);
   const slug = await uniqueSlug(baseSlug);
 
-  // ── Check email uniqueness across ALL stores (global email check for onboarding) ──
-  // We allow the same email in different stores, but not in the same store.
-  // For onboarding we create a brand-new store, so we just need to make sure
-  // no store with this slug already has this email (which can't happen since slug is new).
-  // We do a global check to give a friendly error if they already own a store.
-  const existingGlobal = await User.findOne({ email: email.toLowerCase(), role: 'admin' });
-  if (existingGlobal) {
-    // Check if they already own a store — if so, tell them to log in instead
-    const existingStore = await Store.findOne({ ownerId: existingGlobal._id });
-    if (existingStore) {
-      throw createError(
-        'An account with this email already owns a store. Please log in instead.',
-        409,
-        'CONFLICT'
-      );
-    }
+  // ── Reject a repeat signup for an email that already has an admin account ──
+  //
+  // This previously inspected ONE arbitrary admin row:
+  //
+  //     const existingGlobal = await User.findOne({ email, role: 'admin' });
+  //     if (existingGlobal) { if (await Store.findOne({ ownerId: existingGlobal._id })) throw 409; }
+  //
+  // `findOne` has no sort, so it returned whichever document the index happened
+  // to yield. If that one owned no stores the guard passed and onboarding minted
+  // ANOTHER admin user with the same email — permitted, because the unique index
+  // is { storeId, email }, not { email }.
+  //
+  // The result was several independent accounts sharing one address. Login
+  // (auth.service.login) resolves globally and takes the OLDEST admin, checking
+  // only that one password, so every later account became unreachable: its
+  // password "did not work" and the stores it owned vanished from
+  // GET /stores/mine, which hides the store switcher (it needs length > 1).
+  //
+  // The check now considers EVERY admin account for the address, not one of
+  // them. An existing admin is reason enough to stop: additional stores are
+  // created through POST /stores, which reuses the signed-in user and keeps a
+  // single owner. That is the path the store switcher is built for.
+  const existingAdmins = await User.find({ email: email.toLowerCase(), role: 'admin' })
+    .select('_id')
+    .lean();
+
+  if (existingAdmins.length > 0) {
+    const ownsAnyStore = await Store.exists({
+      ownerId: { $in: existingAdmins.map(u => u._id) },
+    });
+
+    throw createError(
+      ownsAnyStore
+        ? 'An account with this email already owns a store. Please log in and use "Create new store" instead.'
+        : 'An account with this email already exists. Please log in instead.',
+      409,
+      'CONFLICT'
+    );
   }
 
   // ── Create store + owner atomically ───────────────────────────────────────

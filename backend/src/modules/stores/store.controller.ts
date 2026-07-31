@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import * as storeService from './store.service';
+import { resolveTheme } from './store.model';
 import { sendSuccess } from '../../utils/response';
 import { createError } from '../../middleware/errorHandler';
 import { logger } from '../../utils/logger';
@@ -182,22 +183,67 @@ export async function getCurrentStore(req: Request, res: Response, next: NextFun
     // branding is shown on the storefront.
     sendSuccess(res, {
       ...(req.store as unknown as Record<string, unknown>),
+      // Normalised rather than passed through raw: stores created before the
+      // theme field existed have no value, and a `.lean()` read does not apply
+      // the schema default. Without this the storefront would receive
+      // `theme: undefined` for every pre-existing store.
+      theme: resolveTheme((req.store as unknown as Record<string, unknown>).theme),
       planCapabilities: storeService.getPlanCapabilities(req.store.subscriptionPlan),
     });
   } catch (err) { next(err); }
 }
 
-// ── Owner: update store settings (logo, contact, social) ─────────────────────
+/**
+ * May this caller administer the presentation of this store?
+ *
+ * Grants access to three principals:
+ *
+ *   · the store owner;
+ *   · a super-admin;
+ *   · an admin whose SIGNED token is scoped to this store.
+ *
+ * The third case is the important one and is not a relaxation. Every other
+ * store-admin surface — products, categories, orders, coupons, customers —
+ * already authorises exactly this way (`authorizeRole('admin')` plus the token's
+ * storeId). Requiring `ownerId` equality *here only* meant a store admin could
+ * delete the whole catalogue but not change the store's logo, and it broke
+ * store impersonation outright: getStoreToken deliberately mints that token with
+ * role 'admin' so the UI enters store mode, which makes the super-admin check
+ * false while userId is still the platform admin's.
+ *
+ * `storeId` comes from the JWT we signed, so it cannot be forged, and it is
+ * compared against the store in the URL — an admin of store A still cannot
+ * touch store B. Customers are excluded by the explicit role check.
+ *
+ * Deliberately NOT used for updateMyStore (slug, custom domain), deleteMyStore,
+ * getStoreToken or requestUpgrade: those change identity, mint credentials or
+ * affect billing, and stay owner-only.
+ */
+function canAdministerStore(req: Request, existing: { ownerId: { toString(): string } }, storeId: string): boolean {
+  const userId = req.user!.userId.toString();
+  const role = req.user!.role;
+
+  if (existing.ownerId.toString() === userId) return true;      // owner
+  if (role === 'super-admin') return true;                       // platform admin
+  return role === 'admin' && req.user!.storeId?.toString() === storeId; // this store's admin
+}
+
+// ── Store admin: update store settings (name, contact, social, theme) ────────
 
 export async function updateStoreSettings(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     const storeId = req.params.id;
-    const ownerId = req.user!.userId.toString();
 
-    // Verify ownership
     const existing = await storeService.getStoreById(storeId);
-    const isSuperAdmin = req.user!.role === 'super-admin';
-    if (existing.ownerId.toString() !== ownerId && !isSuperAdmin) {
+    if (!canAdministerStore(req, existing, storeId)) {
+      // Logged with context because a bare 403 on this endpoint was previously
+      // very hard to diagnose from the client side.
+      logger.warn('Store settings update denied', {
+        storeId,
+        userId: req.user!.userId.toString(),
+        role: req.user!.role,
+        tokenStoreId: req.user!.storeId?.toString(),
+      });
       return next(createError('Access denied', 403, 'FORBIDDEN'));
     }
 
@@ -206,7 +252,7 @@ export async function updateStoreSettings(req: Request, res: Response, next: Nex
   } catch (err) { next(err); }
 }
 
-// ── Owner: upload store logo ──────────────────────────────────────────────────
+// ── Store admin: upload store logo ───────────────────────────────────────────
 
 export async function uploadStoreLogo(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
@@ -215,11 +261,18 @@ export async function uploadStoreLogo(req: Request, res: Response, next: NextFun
     }
 
     const storeId = req.params.id;
-    const ownerId = req.user!.userId.toString();
 
+    // Same principals as updateStoreSettings. The logo sits in the very same
+    // Appearance panel as the theme picker, so authorising them differently
+    // would leave a store admin able to change the theme but not the logo.
     const existing = await storeService.getStoreById(storeId);
-    const isSuperAdmin = req.user!.role === 'super-admin';
-    if (existing.ownerId.toString() !== ownerId && !isSuperAdmin) {
+    if (!canAdministerStore(req, existing, storeId)) {
+      logger.warn('Store logo upload denied', {
+        storeId,
+        userId: req.user!.userId.toString(),
+        role: req.user!.role,
+        tokenStoreId: req.user!.storeId?.toString(),
+      });
       return next(createError('Access denied', 403, 'FORBIDDEN'));
     }
 

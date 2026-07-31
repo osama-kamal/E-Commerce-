@@ -153,6 +153,65 @@
     @apply text-xs font-semibold uppercase tracking-[0.18em];
   }
 
+  /* ── Editorial / luxury layer ──────────────────────────────────────────────
+     Luxury retail is built on hairlines and flat planes, not elevation. These
+     are deliberately additive: the `.surface`/`.card` system above is untouched,
+     so every other page keeps its current look. */
+
+  /* Wide-tracked small caps — the label style that carries luxury navigation
+     and section marks. Heavier tracking than .eyebrow and always sentence-width. */
+  .smallcaps {
+    @apply text-[11px] font-medium uppercase tracking-[0.22em];
+  }
+
+  /* A single hairline. Luxury layouts separate with 1px rules, not shadows. */
+  .rule {
+    @apply border-t border-ivory-200 dark:border-stone-800;
+  }
+
+  /* Editorial product tile: no shell, no radius, no shadow. The photograph is
+     the object; chrome around it is what makes a grid look like a template. */
+  .tile {
+    @apply relative bg-transparent;
+  }
+
+  /* Secondary controls (size, quantity, add-to-cart, compare) rest hidden and
+     appear on hover or keyboard focus.
+
+     Gated behind `hover: hover` and `pointer: fine` on purpose: a touch device
+     has no hover state, so on phones and tablets the controls are simply always
+     visible. Nothing is ever display:none — the markup stays in the DOM and in
+     the tab order, and `focus-within` reveals it for keyboard users, so this
+     costs no functionality and no accessibility. */
+  .tile-actions {
+    @apply transition-all duration-200;
+  }
+
+  /* The min-width guard is belt-and-braces. Pointer detection alone is not
+     trustworthy — touch laptops report `pointer: fine`, and emulated mobile
+     viewports often inherit the host's pointer characteristics. Getting it wrong
+     means Add to Cart is invisible on a phone, so below 1024px the controls are
+     shown unconditionally whatever the pointer claims. */
+  @media (hover: hover) and (pointer: fine) and (min-width: 1024px) {
+    .tile-actions {
+      opacity: 0;
+      transform: translateY(6px);
+    }
+    .tile:hover .tile-actions,
+    .tile:focus-within .tile-actions {
+      opacity: 1;
+      transform: none;
+    }
+  }
+
+  /* Quiet link with a rule that draws itself on hover — the standard luxury
+     text-link affordance. */
+  .link-underline {
+    @apply relative inline-block after:absolute after:bottom-0 after:left-0 after:h-px
+           after:w-0 after:bg-current after:transition-[width] after:duration-200
+           hover:after:w-full;
+  }
+
   /* ── Button system ──────────────────────────────────────────────────────────
      Audit found 236 buttons: 83 on .btn-primary/.btn-secondary, 112 styled
      entirely inline, 41 unstyled. The inline ones had grown four border radii
@@ -229,6 +288,187 @@
   }
 }
 
+/* ══════════════════════════════════════════════════════════════════════════
+   STOREFRONT THEMES
+
+   Each block restyles the shared primitives the storefront already renders
+   through — `.surface`, `.card`, `.btn-brand`, `.tile`, headings and the page
+   ground. One attribute on <html> (or on a wrapper, for the settings preview)
+   reskins every page, and no component needs to know a theme exists.
+
+   `default` deliberately has NO block here. ThemeProvider removes the attribute
+   for it, so the base styles above apply untouched — that is what guarantees
+   the current design is unchanged.
+
+   COLOUR is scoped to `:not(.dark)`; geometry (radius, shadow, letter-spacing,
+   font) is not. A theme describes a light palette, and without that guard
+   `luxury` and `minimal` — which set an explicit white card — painted white
+   surfaces in dark mode, because a theme rule and Tailwind's `.dark .surface`
+   have equal specificity and the theme block is emitted later. Dark mode keeps
+   its own palette under every theme; only the shapes change.
+
+   Presentation only. Nothing here can affect behaviour.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Luxury ─────────────────────────────────────────────────────────────────
+   Editorial. Bone ground, serif headings, hairlines instead of elevation. */
+html[data-store-theme='luxury']:not(.dark) {
+  background-color: #fafaf9;
+}
+[data-store-theme='luxury'] h1,
+[data-store-theme='luxury'] h2 {
+  font-family: 'Cormorant Garamond', Georgia, serif;
+  font-weight: 400;
+  letter-spacing: -0.01em;
+}
+/* Geometry applies in both colour schemes… */
+[data-store-theme='luxury'] .surface,
+[data-store-theme='luxury'] .card {
+  border-radius: 0;
+  box-shadow: none;
+}
+/* …colour only in light mode, so dark mode keeps its own palette. */
+html[data-store-theme='luxury']:not(.dark) .surface,
+html[data-store-theme='luxury']:not(.dark) .card,
+:not(.dark) [data-store-theme='luxury'] .surface,
+:not(.dark) [data-store-theme='luxury'] .card {
+  border-color: #e7e5e4;
+  background-color: #fff;
+}
+[data-store-theme='luxury'] .btn,
+[data-store-theme='luxury'] .btn-primary,
+[data-store-theme='luxury'] .btn-secondary {
+  border-radius: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  font-size: 11px;
+}
+[data-store-theme='luxury'] .btn-brand {
+  background-image: none;
+  background-color: #1c1917;
+  color: #fff;
+  box-shadow: none;
+}
+
+/* ── Modern ─────────────────────────────────────────────────────────────────
+   Product-forward. Generous radius, deep elevation, indigo accent. */
+html[data-store-theme='modern']:not(.dark) {
+  background-color: #f8fafc;
+}
+[data-store-theme='modern'] h1,
+[data-store-theme='modern'] h2 {
+  letter-spacing: -0.035em;
+  font-weight: 800;
+}
+[data-store-theme='modern'] .surface,
+[data-store-theme='modern'] .card {
+  border-radius: 1.25rem;
+  border-color: transparent;
+  box-shadow: 0 18px 44px -14px rgb(15 23 42 / 0.16), 0 6px 16px -8px rgb(15 23 42 / 0.08);
+}
+[data-store-theme='modern'] .btn,
+[data-store-theme='modern'] .btn-primary,
+[data-store-theme='modern'] .btn-secondary {
+  border-radius: 0.75rem;
+}
+[data-store-theme='modern'] .btn-brand {
+  background-image: none;
+  background-color: #4f46e5;
+  box-shadow: 0 10px 24px -8px rgb(79 70 229 / 0.5);
+}
+
+/* ── Minimal ────────────────────────────────────────────────────────────────
+   Monochrome, square, flat. Everything removed that can be removed. */
+html[data-store-theme='minimal']:not(.dark) {
+  background-color: #fff;
+}
+[data-store-theme='minimal'] .surface,
+[data-store-theme='minimal'] .card {
+  border-radius: 0;
+  box-shadow: none;
+}
+html[data-store-theme='minimal']:not(.dark) .surface,
+html[data-store-theme='minimal']:not(.dark) .card,
+:not(.dark) [data-store-theme='minimal'] .surface,
+:not(.dark) [data-store-theme='minimal'] .card {
+  border-color: #e5e7eb;
+  background-color: #fff;
+}
+[data-store-theme='minimal'] .btn,
+[data-store-theme='minimal'] .btn-primary,
+[data-store-theme='minimal'] .btn-secondary {
+  border-radius: 0;
+}
+[data-store-theme='minimal'] .btn-brand {
+  background-image: none;
+  background-color: #111827;
+  color: #fff;
+  box-shadow: none;
+}
+[data-store-theme='minimal'] .badge {
+  border-radius: 0;
+}
+
+/* ── Fashion ────────────────────────────────────────────────────────────────
+   Warm neutrals, serif headings, soft edges. Apparel and lifestyle. */
+html[data-store-theme='fashion']:not(.dark) {
+  background-color: #fdf6f0;
+}
+[data-store-theme='fashion'] h1,
+[data-store-theme='fashion'] h2 {
+  font-family: 'Cormorant Garamond', Georgia, serif;
+  font-weight: 500;
+}
+[data-store-theme='fashion'] .surface,
+[data-store-theme='fashion'] .card {
+  border-radius: 0.25rem;
+  border-color: #f0e0d6;
+  box-shadow: 0 2px 10px -4px rgb(120 53 15 / 0.12);
+}
+[data-store-theme='fashion'] .btn,
+[data-store-theme='fashion'] .btn-primary,
+[data-store-theme='fashion'] .btn-secondary {
+  border-radius: 0.25rem;
+}
+[data-store-theme='fashion'] .btn-brand {
+  background-image: none;
+  background-color: #9d174d;
+  color: #fff;
+  box-shadow: none;
+}
+
+/* ── Marketplace ────────────────────────────────────────────────────────────
+   Dense and information-first. Tighter padding, small radius, blue accent. */
+html[data-store-theme='marketplace']:not(.dark) {
+  background-color: #f1f5f9;
+}
+[data-store-theme='marketplace'] .surface,
+[data-store-theme='marketplace'] .card {
+  border-radius: 0.5rem;
+  border-color: #e2e8f0;
+  box-shadow: 0 1px 2px rgb(15 23 42 / 0.06);
+}
+[data-store-theme='marketplace'] .surface .p-5,
+[data-store-theme='marketplace'] .card .p-5 {
+  padding: 0.875rem;
+}
+[data-store-theme='marketplace'] .btn,
+[data-store-theme='marketplace'] .btn-primary,
+[data-store-theme='marketplace'] .btn-secondary {
+  border-radius: 0.375rem;
+}
+[data-store-theme='marketplace'] .btn-brand {
+  background-image: none;
+  background-color: #0284c7;
+  color: #fff;
+  box-shadow: none;
+}
+
+/* No dark-mode override needed here any more: every colour rule above is
+   scoped with :not(.dark), so dark mode never inherits a theme's light palette
+   in the first place. The previous `background-color: inherit` workaround
+   depended on cascade order and was removed. */
+
 /* Shimmer skeleton animation */
 @keyframes shimmer {
   0%   { background-position: -400px 0; }
@@ -266,6 +506,23 @@
     animation: none !important;
     opacity: 1 !important;
     transform: none !important;
+  }
+
+  /* Transitions were NOT covered before — only keyframe animations were. Every
+     hover lift, card elevation, image zoom, drawer slide and dropdown scale in
+     the app is a CSS transition, so a user with reduce-motion set still got the
+     full set of moving parts.
+
+     1ms rather than 0s on purpose: a duration of exactly zero prevents
+     `transitionend` from firing in some engines, and any code waiting on that
+     event would hang. 1ms is imperceptible and still fires. */
+  *,
+  *::before,
+  *::after {
+    transition-duration: 1ms !important;
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
   }
 }
 

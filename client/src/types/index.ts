@@ -273,6 +273,9 @@ export interface ProductPerformanceResult {
 
 // ── Store / Tenant ────────────────────────────────────────────────────────────
 
+import type { StoreTheme } from '../theme/themes';
+export type { StoreTheme };
+
 export interface StoreSettings {
   logoUrl?: string;
   contactEmail?: string;
@@ -295,6 +298,12 @@ export interface Store {
   requestedPlan?: string;
   /** ISO 4217 code the store prices and charges in (e.g. 'USD', 'EGP'). */
   currency?: string;
+  /**
+   * Storefront presentation theme. Optional because stores created before the
+   * feature shipped have no value on disk — always read it through
+   * `resolveTheme()` rather than using it directly.
+   */
+  theme?: StoreTheme;
   /**
    * Capabilities granted by the store's plan, derived server-side so the client
    * never mirrors the plan table. Absent on older API responses — treat a

@@ -17,9 +17,22 @@ interface Props {
   index?: number;
   detailPath?: string;   // override the default /products/:id link (e.g. for storefront routes)
   loginRedirect?: string; // override the /login redirect (e.g. /s/slug for storefront)
+  /**
+   * Presentation only — no behavioural difference.
+   *
+   * `card`      (default) the boxed surface used everywhere today.
+   * `editorial` shell-less tile for the luxury homepage: portrait crop, hairline
+   *             instead of border+shadow, text badges instead of filled pills,
+   *             and secondary controls revealed on hover/focus (see `.tile-actions`
+   *             in index.css — they stay in the DOM and in the tab order).
+   *
+   * Opt-in so wishlist, search, compare and the storefront pages are untouched.
+   */
+  variant?: 'card' | 'editorial';
 }
 
-export default function ProductCard({ product, index = 0, detailPath, loginRedirect }: Props) {
+export default function ProductCard({ product, index = 0, detailPath, loginRedirect, variant = 'card' }: Props) {
+  const editorial = variant === 'editorial';
   const dispatch = useAppDispatch();
   const navigate = useNavigate();
   const isAuthenticated = useAppSelector((s) => s.auth.isAuthenticated);
@@ -137,9 +150,18 @@ export default function ProductCard({ product, index = 0, detailPath, loginRedir
           overlap its neighbours. A translate + shadow change reads as depth
           without touching the layout. The amber tint is gone — a warm wash over
           a warm price colour was muddying both. */}
-      <div className="surface surface-interactive group flex flex-col overflow-hidden cursor-pointer">
+      <div
+        className={
+          editorial
+            ? 'tile group flex cursor-pointer flex-col'
+            : 'surface surface-interactive group flex flex-col overflow-hidden cursor-pointer'
+        }
+      >
       <Link to={detailPath ?? `/products/${product._id}`} className="flex flex-col flex-1">
-        <div className="relative aspect-square bg-gray-100 dark:bg-gray-800 overflow-hidden">
+        {/* Portrait 3:4 in editorial mode. A square crop is the e-commerce
+            default; fashion and lifestyle photography is shot portrait, and the
+            taller frame is most of why a luxury grid looks considered. */}
+        <div className={`relative overflow-hidden bg-ivory-100 dark:bg-stone-900 ${editorial ? 'aspect-[3/4]' : 'aspect-square bg-gray-100 dark:bg-gray-800'}`}>
           {!imgLoaded && <div className="absolute inset-0 shimmer" />}
           {image ? (
             <img
@@ -161,22 +183,32 @@ export default function ProductCard({ product, index = 0, detailPath, loginRedir
           )}
 
           {/* Bottom scrim so white badges and controls stay legible over pale product photography. */}
-          <div className="pointer-events-none absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-black/25 to-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-100" aria-hidden="true" />
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-black/25 to-transparent opacity-0 transition-opacity duration-200 group-hover:opacity-100" aria-hidden="true" />
 
           {/* Stock badges — three hand-rolled pill styles collapsed onto the
               shared .badge scale so weight, radius and tracking match. */}
+          {/* Editorial badges are set type on the image, not filled pills. A red
+              "−30% OFF" lozenge is a discount-retail signal and reads as cheap
+              on a luxury grid; the same information as tracked small caps does
+              not. Identical conditions and content in both modes. */}
           {isOutOfStock && (
-            <span className="badge badge-neutral absolute top-3 left-3">
+            <span className={editorial
+              ? 'smallcaps absolute left-4 top-4 bg-white/90 px-2.5 py-1 text-stone-900 backdrop-blur-sm'
+              : 'badge badge-neutral absolute top-3 left-3'}>
               Out of Stock
             </span>
           )}
           {!isOutOfStock && hasDiscount && (
-            <span className="badge badge-danger absolute top-3 left-3">
-              −{product.discount}% OFF
+            <span className={editorial
+              ? 'smallcaps absolute left-4 top-4 bg-stone-900/85 px-2.5 py-1 text-white backdrop-blur-sm'
+              : 'badge badge-danger absolute top-3 left-3'}>
+              {editorial ? `${product.discount}% off` : `−${product.discount}% OFF`}
             </span>
           )}
           {!isOutOfStock && !hasDiscount && isLowStock && (
-            <span className="badge badge-warning absolute top-3 left-3">
+            <span className={editorial
+              ? 'smallcaps absolute left-4 top-4 bg-white/90 px-2.5 py-1 text-stone-900 backdrop-blur-sm'
+              : 'badge badge-warning absolute top-3 left-3'}>
               Only {product.stock} left
             </span>
           )}
@@ -189,7 +221,7 @@ export default function ProductCard({ product, index = 0, detailPath, loginRedir
             // `active:scale-90` gives the tap physical feedback that the old
             // instant colour swap lacked.
             className={`absolute top-3 right-3 w-9 h-9 rounded-full flex items-center justify-center text-base
-                        shadow-elevated backdrop-blur-sm transition-all duration-300
+                        shadow-elevated backdrop-blur-sm transition-all duration-200
                         hover:scale-110 active:scale-90 ${
               isInWishlist
                 ? 'bg-red-500 text-white scale-105'
@@ -201,7 +233,7 @@ export default function ProductCard({ product, index = 0, detailPath, loginRedir
                 AND weight between states because they are different characters
                 in the font. */}
             <Heart
-              className={`h-[18px] w-[18px] transition-transform duration-300 ${isInWishlist ? 'animate-scale-in' : ''}`}
+              className={`h-[18px] w-[18px] transition-transform duration-200 ${isInWishlist ? 'animate-scale-in' : ''}`}
               fill={isInWishlist ? 'currentColor' : 'none'}
               strokeWidth={2}
               aria-hidden="true"
@@ -217,7 +249,7 @@ export default function ProductCard({ product, index = 0, detailPath, loginRedir
             // Rises into place instead of just fading — and the emoji is now an
             // outline icon that inherits currentColor like every other glyph.
             className="absolute bottom-3 right-3 flex h-9 w-9 translate-y-2 items-center justify-center rounded-full
-                       bg-white/90 text-gray-700 opacity-0 shadow-elevated backdrop-blur-sm transition-all duration-300
+                       bg-white/90 text-gray-700 opacity-0 shadow-elevated backdrop-blur-sm transition-all duration-200
                        hover:scale-110 hover:bg-white group-hover:translate-y-0 group-hover:opacity-100
                        dark:bg-gray-900/85 dark:text-gray-200"
             aria-label="Quick view"
@@ -226,7 +258,7 @@ export default function ProductCard({ product, index = 0, detailPath, loginRedir
           </button>
         </div>
 
-        <div className="p-5 flex flex-col flex-1">
+        <div className={editorial ? 'flex flex-1 flex-col pt-5' : 'p-5 flex flex-col flex-1'}>
           {/* Two lines with a reserved min-height instead of `truncate`: names
               were being cut mid-word, and a fixed block keeps every card in the
               row aligned regardless of name length. */}
@@ -236,7 +268,9 @@ export default function ProductCard({ product, index = 0, detailPath, loginRedir
 
           <div className="mt-2 flex items-center gap-1.5">
             <StarRating rating={product.averageRating} size="sm" />
-            <span className="text-xs font-medium text-gray-400">({product.reviewCount})</span>
+            {/* gray-400 on white measures 2.54:1 — below the 4.5:1 AA minimum
+                for text this size. gray-500 is 4.83:1 and visually near-identical. */}
+            <span className="text-xs font-medium text-gray-500 dark:text-gray-400">({product.reviewCount})</span>
           </div>
 
           {/* Price. Moved off amber onto near-black: an amber price on the old
@@ -249,12 +283,17 @@ export default function ProductCard({ product, index = 0, detailPath, loginRedir
                 <span className="text-[22px] font-bold tracking-tight text-gray-900 dark:text-white">
                   ${discountedPrice.toFixed(2)}
                 </span>
-                <span className="text-sm font-medium text-gray-400 line-through">
+                <span className="text-sm font-medium text-gray-500 line-through dark:text-gray-400">
                   ${product.price.toFixed(2)}
                 </span>
-                <span className="ml-auto text-xs font-semibold text-emerald-600 dark:text-emerald-400">
-                  Save ${(product.price - discountedPrice).toFixed(2)}
-                </span>
+                {/* The savings chip is a discount-retail device — suppressed in
+                    editorial mode, where the struck original already tells the
+                    story without shouting. */}
+                {!editorial && (
+                  <span className="ml-auto text-xs font-semibold text-emerald-600 dark:text-emerald-400">
+                    Save ${(product.price - discountedPrice).toFixed(2)}
+                  </span>
+                )}
               </div>
             ) : (
               <span className="text-[22px] font-bold tracking-tight text-gray-900 dark:text-white">
@@ -262,6 +301,16 @@ export default function ProductCard({ product, index = 0, detailPath, loginRedir
               </span>
             )}
           </div>
+
+          {/* Everything below is secondary. In editorial mode `.tile-actions`
+              fades it in on hover or keyboard focus (and shows it unconditionally
+              on touch devices) — see index.css. Nothing is removed from the DOM,
+              so every control stays tabbable and functional in both modes. */}
+          {/* `contents` in card mode so the wrapper generates no box at all and
+              the existing layout (including the compare row's mt-auto) is
+              byte-identical. In editorial mode it becomes a real flex column so
+              mt-auto still pins compare to the bottom. */}
+          <div className={editorial ? 'tile-actions flex flex-1 flex-col' : 'contents'}>
 
           {/* Size selector — only shown when product has variants.
               Chips are now 24px tall with real hit area (were 10px text in a
@@ -388,17 +437,22 @@ export default function ProductCard({ product, index = 0, detailPath, loginRedir
               the foot of every card in a 4-up grid created a visible warm stripe
               across the whole page. */}
           <div className="mt-auto pt-3.5 border-t border-gray-100 dark:border-gray-800">
-            <label className="flex items-center gap-2 cursor-pointer group w-fit">
+            {/* py-1 lifts the row past the 24px WCAG 2.5.8 (AA) target size —
+                measured at 320px the bare 16px checkbox was the only control on
+                the card that failed it. The label wraps the input, so the whole
+                row is the hit area. */}
+            <label className="group flex w-fit cursor-pointer items-center gap-2 py-1">
               <input
                 type="checkbox"
                 checked={isInComparison}
                 onChange={handleToggleComparison}
-                className="w-4 h-4 shrink-0 rounded border-gray-300 text-gray-900 focus:ring-gray-900 dark:border-gray-600 dark:bg-gray-800 dark:text-white"
+                className="h-[18px] w-[18px] shrink-0 rounded border-gray-300 text-gray-900 focus:ring-gray-900 dark:border-gray-600 dark:bg-gray-800 dark:text-white"
               />
               <span className="text-xs font-medium text-gray-500 transition-colors group-hover:text-gray-900 dark:text-gray-400 dark:group-hover:text-white">
                 Compare
               </span>
             </label>
+          </div>
           </div>
         </div>
       </Link>

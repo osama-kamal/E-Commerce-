@@ -8,6 +8,8 @@ import { clearCart } from './store/cartSlice';
 import { removeCoupon } from './store/couponSlice';
 import { fetchCurrentStore } from './store/storeSlice';
 import { wishlistApi } from './api/wishlist';
+import { useAppSelector } from './hooks/useAppDispatch';
+import { ThemeProvider } from './theme/ThemeProvider';
 import { useNotifications } from './hooks/useNotifications';
 import Navbar from './components/Navbar';
 import ProtectedRoute from './components/ProtectedRoute';
@@ -92,6 +94,20 @@ function PlatformAdminRoute({ children }: { children: React.ReactNode }) {
 function Layout({ children }: { children: React.ReactNode }) {
   useNotifications(); // Initialize notifications system
 
+  // Storefront theme for the main site.
+  //
+  // ThemeProvider was originally mounted only inside StorefrontLayout, which
+  // serves /s/:slug. Every main-site route — home, product detail, cart,
+  // checkout, wishlist — renders through THIS layout, so the theme attribute
+  // was never written there and no theme CSS could match. The API and Redux
+  // were correct the whole time; nothing was consuming the value.
+  //
+  // Read from Redux (not fetched here) so switching a theme in Settings updates
+  // the storefront immediately: AdminSettings dispatches setCurrentStore, this
+  // re-renders, the attribute changes. `fetchCurrentStore()` below repopulates
+  // it on a hard refresh, which is what makes the choice survive reload.
+  const storeTheme = useAppSelector(s => s.currentStore.current?.theme);
+
   // Store-change guard: if currentStoreId changes between page loads,
   // clear the Redux cart so stale items from the old store don't persist.
   const prevStoreId = useRef(localStorage.getItem('currentStoreId'));
@@ -137,9 +153,23 @@ function Layout({ children }: { children: React.ReactNode }) {
   }, []);
 
   return (
-    <>
+    <ThemeProvider theme={storeTheme}>
+      {/* Skip link — first thing in the tab order. Without it a keyboard user
+          had to tab through the whole navbar and the entire filter sidebar on
+          every page before reaching the product grid. Visually hidden until
+          focused, then it appears as a real button. */}
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[100]
+                   focus:rounded-lg focus:bg-gray-900 focus:px-4 focus:py-2.5 focus:text-sm
+                   focus:font-semibold focus:text-white focus:shadow-float
+                   dark:focus:bg-white dark:focus:text-gray-900"
+      >
+        Skip to content
+      </a>
       <Navbar />
-      <main>
+      {/* tabIndex={-1} so the skip link can move focus here, not just scroll. */}
+      <main id="main-content" tabIndex={-1} className="focus:outline-none">
         <Suspense fallback={<PageLoader />}>
           {children}
         </Suspense>
@@ -149,7 +179,7 @@ function Layout({ children }: { children: React.ReactNode }) {
       <Suspense fallback={null}>
         <Chatbot />
       </Suspense>
-    </>
+    </ThemeProvider>
   );
 }
 
@@ -164,8 +194,6 @@ export default function App() {
             style: { borderRadius: '10px', fontSize: '14px' },
           }}
         />
-        <BackToTop />
-
         <Routes>
           {/* Public */}
           <Route path="/"           element={<Layout><HomePage /></Layout>} />
@@ -229,6 +257,12 @@ export default function App() {
             </Route>
           </Route>
         </Routes>
+
+        {/* Rendered after <Routes> purely for tab order. It is position:fixed so
+            DOM position has no visual effect, but sitting before the routes made
+            "Back to top" the very first tab stop on every page — ahead of the
+            skip link, which must come first to be useful. */}
+        <BackToTop />
       </BrowserRouter>
     </Provider>
   );

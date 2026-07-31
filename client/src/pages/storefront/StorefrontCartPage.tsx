@@ -8,6 +8,8 @@
 
 import { useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import { ShoppingCart } from 'lucide-react';
+import { CardGridSkeleton } from '../../components/Skeleton';
 import { useStorefront } from '../../contexts/StorefrontContext';
 import { useAppSelector } from '../../hooks/useAppDispatch';
 import { useCart, useUpdateCartItem, useRemoveCartItem } from '../../hooks/useCart';
@@ -41,15 +43,17 @@ export default function StorefrontCartPage() {
       </div>
 
       {isLoading ? (
-        <div className="flex justify-center py-16">
-          <div className="w-8 h-8 border-4 border-primary-600 border-t-transparent rounded-full animate-spin" />
-        </div>
+        <CardGridSkeleton count={3} lines={2} className="space-y-4" label="Loading your cart…" />
       ) : !cart || cart.items.length === 0 ? (
-        <div className="text-center py-24 card">
-          <p className="text-5xl mb-4">🛒</p>
-          <h2 className="text-xl font-semibold text-gray-700 dark:text-gray-300 mb-2">Your cart is empty</h2>
-          <p className="text-sm text-gray-400 mb-6">Browse the store and add some items.</p>
-          <Link to={`/s/${slug}`} className="btn-primary px-8">Shop Now</Link>
+        <div className="surface py-24 text-center">
+          <div className="mx-auto mb-6 flex h-20 w-20 items-center justify-center rounded-2xl bg-gray-100 dark:bg-gray-800">
+            <ShoppingCart className="h-9 w-9 text-gray-400" strokeWidth={1.5} aria-hidden="true" />
+          </div>
+          <h2 className="mb-2 text-2xl font-bold tracking-tight text-gray-900 dark:text-white">Your cart is empty</h2>
+          <p className="mx-auto mb-8 max-w-sm text-sm leading-relaxed text-gray-500 dark:text-gray-400">
+            Browse the store and add something you like.
+          </p>
+          <Link to={`/s/${slug}`} className="btn btn-brand btn-lg inline-flex">Shop Now</Link>
         </div>
       ) : (
         <>

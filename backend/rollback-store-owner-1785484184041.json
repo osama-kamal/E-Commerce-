@@ -1,0 +1,9 @@
+{
+  "storeId": "6a03b5108bdcd392044d1c37",
+  "storeSlug": "default",
+  "storeName": "Hamroush Store",
+  "oldOwnerId": "6a03b5108bdcd392044d1c35",
+  "newOwnerId": "6a269ca638a0fd90904a7b1b",
+  "timestamp": "2026-07-31T07:49:44.041Z",
+  "restoreCommand": "db.stores.updateOne({_id:ObjectId(\"6a03b5108bdcd392044d1c37\")},{$set:{ownerId:ObjectId(\"6a03b5108bdcd392044d1c35\")}})"
+}

@@ -48,7 +48,11 @@ export default {
           'Arial',
           'sans-serif',
         ],
+        // Display serif for editorial headings only. Opt-in via `font-display`
+        // so nothing inherits it by accident.
+        display: ['Cormorant Garamond', 'Georgia', 'Times New Roman', 'serif'],
       },
+
 
       // ── Display scale ───────────────────────────────────────────────────────
       // The hero headline was text-3xl/4xl (30–36px). These are the sizes a
@@ -100,6 +104,17 @@ export default {
       },
 
       colors: {
+        // Warm neutral ground. Pure #fff with cool greys reads clinical; luxury
+        // retail sits on bone/ivory. Merged into THIS block rather than declared
+        // separately — a second `colors` key in the same object silently
+        // overwrites the first, which would have dropped the palette below.
+        ivory: {
+          50: '#fafaf9',
+          100: '#f5f5f4',
+          200: '#e7e5e4',
+          300: '#d6d3d1',
+        },
+
         // Full 50–900 scale. The five shades that were already defined
         // (50/100/500/600/700) are Tailwind's default `blue` values and are
         // UNCHANGED — brand identity is preserved exactly.

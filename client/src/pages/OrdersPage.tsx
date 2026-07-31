@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Package } from 'lucide-react';
+import { CardGridSkeleton, Skeleton } from '../components/Skeleton';
 import { ordersApi } from '../api/orders';
 import { Order } from '../types';
 
@@ -20,7 +21,14 @@ export default function OrdersPage() {
     ordersApi.getMyOrders().then(res => setOrders(res.data.data.data)).finally(() => setLoading(false));
   }, []);
 
-  if (loading) return <div className="max-w-3xl mx-auto px-4 py-12 text-center text-gray-400">Loading…</div>;
+  // Was the bare string "Loading…". A skeleton that mirrors the order rows below
+  // holds the page height, so the list does not jump into place when it lands.
+  if (loading) return (
+    <div className="mx-auto max-w-4xl px-4 py-8 sm:px-6">
+      <Skeleton className="mb-6 h-8 w-40" />
+      <CardGridSkeleton count={4} lines={2} className="space-y-4" label="Loading your orders…" />
+    </div>
+  );
 
   if (orders.length === 0) return (
     <div className="max-w-3xl mx-auto px-4 py-20 text-center">

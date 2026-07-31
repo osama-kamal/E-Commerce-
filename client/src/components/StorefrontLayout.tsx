@@ -18,6 +18,7 @@ import axios from 'axios';
 import { motion } from 'framer-motion';
 import { Store } from '../types';
 import { StorefrontProvider } from '../contexts/StorefrontContext';
+import { ThemeProvider } from '../theme/ThemeProvider';
 import { useDarkMode } from '../hooks/useDarkMode';
 import { useAppSelector } from '../hooks/useAppDispatch';
 
@@ -314,13 +315,18 @@ export default function StorefrontLayout() {
 
   return (
     <StorefrontProvider store={store} slug={slug!}>
-      <div className="min-h-screen bg-gradient-to-b from-amber-50 to-white dark:from-stone-900 dark:to-gray-950 flex flex-col">
-        <StorefrontNavbar store={store} slug={slug!} />
-        <main className="flex-1">
-          <Outlet />
-        </main>
-        <StorefrontFooter store={store} />
-      </div>
+      {/* Applies the merchant's chosen presentation theme to this storefront.
+          Wraps only the layout, so nothing outside /s/:slug is affected, and it
+          renders no DOM of its own — the tree below is unchanged. */}
+      <ThemeProvider theme={store.theme}>
+        <div className="min-h-screen bg-gradient-to-b from-amber-50 to-white dark:from-stone-900 dark:to-gray-950 flex flex-col">
+          <StorefrontNavbar store={store} slug={slug!} />
+          <main className="flex-1">
+            <Outlet />
+          </main>
+          <StorefrontFooter store={store} />
+        </div>
+      </ThemeProvider>
     </StorefrontProvider>
   );
 }

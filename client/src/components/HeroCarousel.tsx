@@ -119,7 +119,10 @@ export interface HeroStat {
   suffix?: string;
 }
 
-export default function HeroCarousel({ stats }: { stats?: HeroStat[] } = {}) {
+export default function HeroCarousel({
+  stats,
+  fullBleed = false,
+}: { stats?: HeroStat[]; fullBleed?: boolean } = {}) {
   const [, setSearchParams] = useSearchParams();
   const [current, setCurrent] = useState(0);
   const [paused, setPaused] = useState(false);
@@ -163,8 +166,11 @@ export default function HeroCarousel({ stats }: { stats?: HeroStat[] } = {}) {
       onMouseLeave={() => setPaused(false)}
       onFocus={() => setPaused(true)}
       onBlur={() => setPaused(false)}
-      className="relative w-full overflow-hidden rounded-3xl shadow-float
-                 min-h-[440px] sm:min-h-[520px] lg:min-h-[600px]"
+      // fullBleed drops the radius and shadow so the image can run edge to edge.
+      // A floating rounded card is a SaaS convention; editorial layouts bleed.
+      className={`relative w-full overflow-hidden min-h-[440px] sm:min-h-[520px] lg:min-h-[600px] ${
+        fullBleed ? '' : 'rounded-3xl shadow-float'
+      } ${fullBleed ? 'lg:min-h-[86vh]' : ''}`}
     >
       {/* Slide track */}
       <div
@@ -310,12 +316,20 @@ export default function HeroCarousel({ stats }: { stats?: HeroStat[] } = {}) {
             aria-selected={i === current}
             aria-label={`Go to slide ${i + 1}`}
             onClick={() => setCurrent(i)}
-            className={`h-1.5 cursor-pointer rounded-full border-none transition-all duration-500 ${
-              i === current
-                ? 'w-10 bg-gradient-to-r from-amber-400 to-yellow-500'
-                : 'w-4 bg-white/35 hover:bg-white/60'
-            }`}
-          />
+            // The visible bar stays 6px, but the button now carries 20px of
+            // vertical padding cancelled by an equal negative margin. That gives
+            // a ~46px tap target (WCAG 2.5.5) without moving anything on screen —
+            // measured at 320px the bare bar was 16x6, effectively untappable.
+            className="group -my-5 flex cursor-pointer items-center border-none bg-transparent py-5"
+          >
+            <span
+              className={`block h-1.5 rounded-full transition-all duration-200 ${
+                i === current
+                  ? 'w-10 bg-gradient-to-r from-amber-400 to-yellow-500'
+                  : 'w-4 bg-white/35 group-hover:bg-white/60'
+              }`}
+            />
+          </button>
         ))}
         <span className="ml-3 text-xs font-medium tabular-nums text-white/60" aria-live="polite">
           {String(current + 1).padStart(2, '0')} / {String(slides.length).padStart(2, '0')}

@@ -1,12 +1,13 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
+import {
+  ArrowRight, DollarSign, Flame, FolderTree, RotateCcw, Search,
+  SlidersHorizontal, X,
+} from 'lucide-react';
 import { useAppSelector } from '../hooks/useAppDispatch';
 import { newsletterApi } from '../api/newsletter';
-import {
-  DollarSign, Flame, FolderTree, Mail, RotateCcw, Search, SlidersHorizontal, Star, X,
-} from 'lucide-react';
 import { categoriesApi } from '../api/categories';
-import { Category } from '../types';
+import { Category, Product } from '../types';
 import ProductCard from '../components/ProductCard';
 import HeroCarousel from '../components/HeroCarousel';
 import { ProductCardSkeleton } from '../components/Skeleton';
@@ -14,11 +15,185 @@ import { useDebounce } from '../hooks/useDebounce';
 import { useProducts } from '../hooks/useProducts';
 import toast from 'react-hot-toast';
 
+/**
+ * Home — luxury editorial.
+ *
+ * Rebuilt around the conventions of high-end retail rather than software:
+ *
+ *  · Serif display type. Inter alone reads as a product, however well it is set.
+ *  · Bone ground, not white. Pure #fff plus cool grey reads clinical.
+ *  · Hairlines, not shadows. Elevation is a UI-kit device; luxury separates with
+ *    1px rules and negative space.
+ *  · Portrait crops, fewer per row. Three large frames sell better than five small.
+ *  · Chrome on demand. Filters live in a drawer; card controls appear on hover.
+ *    Nothing is removed — see `.tile-actions` in index.css for how the controls
+ *    stay in the DOM, in the tab order, and always visible on touch.
+ *  · Restraint with colour. Gold is a rule and a label, not a fill.
+ *
+ * Every filter, query, handler and URL contract is carried over unchanged.
+ */
+
+// ── Layout primitives ─────────────────────────────────────────────────────────
+
+function Section({ children, className = '', id }: {
+  children: React.ReactNode; className?: string; id?: string;
+}) {
+  return (
+    <section id={id} className={`mx-auto w-full max-w-[1440px] px-5 sm:px-8 lg:px-12 ${className}`}>
+      {children}
+    </section>
+  );
+}
+
+/**
+ * Editorial section mark: a hairline, a tracked label, a serif title.
+ * Replaces the sans-bold headings that made every section look like a widget.
+ */
+function SectionMark({ label, title, note, action }: {
+  label: string; title: string; note?: string; action?: React.ReactNode;
+}) {
+  return (
+    <div className="rule pt-8">
+      <div className="flex flex-wrap items-end justify-between gap-6">
+        <div className="min-w-0">
+          <p className="smallcaps text-stone-400 dark:text-stone-500">{label}</p>
+          <h2 className="mt-4 font-display text-4xl font-normal leading-[1.05] tracking-[-0.01em] text-stone-900 sm:text-5xl dark:text-ivory-50">
+            {title}
+          </h2>
+          {note && (
+            <p className="mt-4 max-w-md text-sm leading-relaxed text-stone-500 dark:text-stone-400">
+              {note}
+            </p>
+          )}
+        </div>
+        {action}
+      </div>
+    </div>
+  );
+}
+
+/** Horizontal editorial rail. */
+function Rail({ products }: { products: Product[] }) {
+  return (
+    <div className="-mx-5 overflow-x-auto px-5 pb-2 sm:-mx-8 sm:px-8 lg:-mx-12 lg:px-12 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+      <div className="flex gap-6 lg:gap-10">
+        {products.map((p, i) => (
+          <div key={p._id} className="w-[68vw] shrink-0 sm:w-[300px] lg:w-[340px]">
+            <ProductCard product={p} index={i} variant="editorial" />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** Filter controls. One component, used by the single drawer at every breakpoint. */
+function FilterPanel({
+  categories, selectedCategory, onCategory,
+  minPrice, setMinPrice, maxPrice, setMaxPrice,
+  inStock, setInStock, onSale, toggleOnSale, setPage,
+}: {
+  categories: Category[];
+  selectedCategory: string;
+  onCategory: (id: string) => void;
+  minPrice: string; setMinPrice: (v: string) => void;
+  maxPrice: string; setMaxPrice: (v: string) => void;
+  inStock: boolean; setInStock: (v: boolean) => void;
+  onSale: boolean; toggleOnSale: () => void;
+  setPage: (n: number) => void;
+}) {
+  const row = (active: boolean) =>
+    `w-full py-2.5 text-left text-sm transition-colors ${
+      active
+        ? 'font-medium text-stone-900 dark:text-ivory-50'
+        : 'text-stone-500 hover:text-stone-900 dark:text-stone-400 dark:hover:text-ivory-50'
+    }`;
+
+  return (
+    <div className="divide-y divide-ivory-200 dark:divide-stone-800">
+      <div className="px-6 py-7">
+        <p className="smallcaps mb-4 flex items-center gap-2 text-stone-400">
+          <FolderTree className="h-3.5 w-3.5" aria-hidden="true" />
+          Category
+        </p>
+        <ul>
+          <li>
+            <button onClick={() => onCategory('')} aria-current={!selectedCategory ? 'true' : undefined} className={row(!selectedCategory)}>
+              All products
+            </button>
+          </li>
+          {categories.map(cat => (
+            <li key={cat._id}>
+              <button
+                onClick={() => onCategory(cat._id)}
+                aria-current={selectedCategory === cat._id ? 'true' : undefined}
+                style={cat.level > 0 ? { paddingLeft: `${cat.level * 0.85}rem` } : undefined}
+                className={row(selectedCategory === cat._id)}
+              >
+                {cat.name}
+              </button>
+            </li>
+          ))}
+        </ul>
+      </div>
+
+      <div className="px-6 py-7">
+        <p className="smallcaps mb-4 flex items-center gap-2 text-stone-400">
+          <DollarSign className="h-3.5 w-3.5" aria-hidden="true" />
+          Price
+        </p>
+        <div className="flex items-center gap-3">
+          <input
+            type="number" placeholder="Min" aria-label="Minimum price" value={minPrice}
+            onChange={e => { setMinPrice(e.target.value); setPage(1); }}
+            className="w-full border-0 border-b border-ivory-300 bg-transparent pb-2 text-sm outline-none transition-colors placeholder:text-stone-400 focus:border-stone-900 dark:border-stone-700 dark:text-ivory-50 dark:focus:border-ivory-200"
+          />
+          <span className="text-stone-300" aria-hidden="true">—</span>
+          <input
+            type="number" placeholder="Max" aria-label="Maximum price" value={maxPrice}
+            onChange={e => { setMaxPrice(e.target.value); setPage(1); }}
+            className="w-full border-0 border-b border-ivory-300 bg-transparent pb-2 text-sm outline-none transition-colors placeholder:text-stone-400 focus:border-stone-900 dark:border-stone-700 dark:text-ivory-50 dark:focus:border-ivory-200"
+          />
+        </div>
+      </div>
+
+      <div className="px-6 py-7">
+        <p className="smallcaps mb-4 flex items-center gap-2 text-stone-400">
+          <SlidersHorizontal className="h-3.5 w-3.5" aria-hidden="true" />
+          Refine
+        </p>
+        <label className="group flex w-fit cursor-pointer items-center gap-3 py-1">
+          <input
+            type="checkbox" checked={inStock}
+            onChange={e => { setInStock(e.target.checked); setPage(1); }}
+            className="h-[18px] w-[18px] rounded-none border-stone-300 text-stone-900 focus:ring-stone-900 dark:border-stone-600 dark:bg-stone-800 dark:text-ivory-50"
+          />
+          <span className="text-sm text-stone-600 transition-colors group-hover:text-stone-900 dark:text-stone-300 dark:group-hover:text-ivory-50">
+            In stock only
+          </span>
+        </label>
+        <button
+          onClick={toggleOnSale}
+          aria-pressed={onSale}
+          className={`mt-5 flex w-full items-center justify-center gap-2 border py-3 text-[11px] font-medium uppercase tracking-[0.22em] transition-colors ${
+            onSale
+              ? 'border-stone-900 bg-stone-900 text-white dark:border-ivory-50 dark:bg-ivory-50 dark:text-stone-900'
+              : 'border-ivory-300 text-stone-600 hover:border-stone-900 hover:text-stone-900 dark:border-stone-700 dark:text-stone-300 dark:hover:border-ivory-200 dark:hover:text-ivory-50'
+          }`}
+        >
+          <Flame className="h-3.5 w-3.5" aria-hidden="true" />
+          {onSale ? 'Hide offers' : 'Offers only'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function HomePage() {
   const [searchParams] = useSearchParams();
   const [categories, setCategories] = useState<Category[]>([]);
   const [page, setPage] = useState(1);
-  const [showMobileFilters, setShowMobileFilters] = useState(false);
+  const [filtersOpen, setFiltersOpen] = useState(false);
 
   // Filters
   const [searchInput, setSearchInput] = useState('');
@@ -109,558 +284,367 @@ export default function HomePage() {
 
   const { isAuthenticated } = useAppSelector(s => s.auth);
 
+  // Same derivations as before — both read from the current page of results.
+  const deals = useMemo(() => products.filter(p => p.discount > 0).slice(0, 8), [products]);
+  const topRated = useMemo(
+    () => products.filter(p => p.averageRating >= 4).sort((a, b) => b.averageRating - a.averageRating).slice(0, 8),
+    [products]
+  );
+
+  const activeFilterCount =
+    (selectedCategory ? 1 : 0) + (minPrice ? 1 : 0) + (maxPrice ? 1 : 0) +
+    (inStock ? 1 : 0) + (onSale ? 1 : 0) + (searchInput ? 1 : 0);
+
+  const toggleOnSale = () => { setOnSale(!onSale); setSelectedCategory(''); setPage(1); };
+
+  const activeCategoryName =
+    categories.find(c => c._id === selectedCategory)?.name ?? 'All products';
+
   return (
-    <div className="bg-amber-50/20 dark:bg-gray-900 min-h-screen">
-      <div className="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 py-8 lg:py-12">
-        {/* Hero Carousel — stats are real counts from the loaded data, never
-            placeholder marketing numbers. Omitted entirely until they resolve. */}
-        <div className="mb-12 lg:mb-16">
-          <HeroCarousel
-            stats={[
-              ...(total > 0 ? [{ value: total, label: 'Products' }] : []),
-              ...(categories.length > 0 ? [{ value: categories.length, label: 'Categories' }] : []),
-            ]}
+    <div className="min-h-screen bg-ivory-50 font-sans text-stone-900 dark:bg-stone-950 dark:text-ivory-50">
+      <h1 className="sr-only">Shop all products</h1>
+
+      {/* ── Hero, edge to edge ───────────────────────────────────────────────── */}
+      <HeroCarousel
+        fullBleed
+        stats={[
+          ...(total > 0 ? [{ value: total, label: 'Products' }] : []),
+          ...(categories.length > 0 ? [{ value: categories.length, label: 'Categories' }] : []),
+        ]}
+      />
+
+      {/* ── Statement ────────────────────────────────────────────────────────
+          A held pause between the hero and the merchandise. Luxury sites earn
+          attention with space before they ask for a click. Copy is descriptive
+          only — no invented provenance or guarantees. */}
+      <Section className="pt-20 lg:pt-32">
+        <div className="mx-auto max-w-3xl text-center">
+          <p className="smallcaps text-stone-400 dark:text-stone-500">The collection</p>
+          <p className="mt-7 font-display text-3xl font-light leading-[1.25] tracking-[-0.01em] text-stone-800 sm:text-[2.75rem] dark:text-ivory-100">
+            A considered selection across {categories.length || 'every'} categor
+            {categories.length === 1 ? 'y' : 'ies'} — browse the full catalogue,
+            or narrow it to exactly what you came for.
+          </p>
+        </div>
+      </Section>
+
+      {/* ── Categories as an index ───────────────────────────────────────────
+          Set as a typographic index rather than chips or tiles. Large type on
+          hairlines is how editorial retail presents a department list. */}
+      {categories.length > 0 && (
+        <Section className="pt-20 lg:pt-28">
+          <SectionMark
+            label="Browse"
+            title="Departments"
+            action={
+              <button onClick={() => handleCategoryChange('')} className="smallcaps link-underline text-stone-500 dark:text-stone-400">
+                View all
+              </button>
+            }
           />
-        </div>
-
-        {/* Vendor CTA banner — shown only to unauthenticated visitors.
-
-            The single largest colour inconsistency on the page was here: an
-            indigo→violet→purple gradient sitting between an amber hero and an
-            amber product grid — a third accent system with no relationship to
-            the other two. Rebuilt on the near-black surface the newsletter card
-            uses, with the amber accent as the only colour. One identity, and
-            nothing lost: same copy, same links, same routes. */}
-        {!isAuthenticated && (
-          <div className="relative mb-12 overflow-hidden rounded-2xl bg-gray-900 px-6 py-6 shadow-elevated sm:px-8 dark:bg-gray-800">
-            <div
-              className="pointer-events-none absolute -right-16 -top-16 h-56 w-56 rounded-full bg-gradient-to-br from-amber-400/25 to-yellow-500/5 blur-3xl"
-              aria-hidden="true"
-            />
-            <div className="relative flex flex-col items-center justify-between gap-5 sm:flex-row">
-              <div className="text-center sm:text-left">
-                <p className="eyebrow mb-2 text-amber-400">For Entrepreneurs</p>
-                <h2 className="text-xl font-bold leading-tight text-white sm:text-2xl">
-                  Launch your own online store — free
-                </h2>
-                <p className="mt-1.5 text-sm text-gray-400">
-                  Set up in minutes. No credit card required. Full 7-day free trial.
-                </p>
-              </div>
-              <div className="flex shrink-0 items-center gap-4">
-                <Link to="/start" className="btn btn-brand btn-lg">
-                  Start Free Trial
-                </Link>
-                <Link
-                  to="/login"
-                  className="text-sm font-medium text-gray-400 transition-colors hover:text-white"
-                >
-                  Sign in →
-                </Link>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Live search bar */}
-        <div className="flex gap-2 mb-8">
-          <div className="relative flex-1 max-w-2xl mx-auto">
-            <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" aria-hidden="true" />
-            <input
-              type="text"
-              placeholder="Search by name, description, or category…"
-              className="w-full rounded-xl border border-gray-200 bg-white py-3 pl-11 pr-4 text-sm shadow-soft outline-none transition-all placeholder:text-gray-400 hover:border-gray-300 focus:border-gray-900 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100 dark:hover:border-gray-600 dark:focus:border-gray-400"
-              value={searchInput}
-              onChange={e => setSearchInput(e.target.value)}
-            />
-            {searchInput && (
-              <button
-                onClick={() => setSearchInput('')}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-lg leading-none"
-                aria-label="Clear search"
-              >
-                ×
-              </button>
-            )}
-          </div>
-        </div>
-
-        <div className="flex gap-6" data-products-section>
-          {/* Mobile Filters Button */}
-          <button
-            onClick={() => setShowMobileFilters(true)}
-            className="lg:hidden fixed bottom-20 left-4 z-40 bg-primary-600 text-white p-3 md:p-4 rounded-full shadow-2xl hover:bg-primary-700 transition-all"
-            aria-label="Open filters"
-          >
-            <SlidersHorizontal className="h-5 w-5 md:h-6 md:w-6" aria-hidden="true" />
-          </button>
-
-          {/* Mobile Filters Modal */}
-          {showMobileFilters && (
-            <div className="lg:hidden fixed inset-0 z-50 bg-black/60 backdrop-blur-sm" onClick={() => setShowMobileFilters(false)}>
-              <div
-                className="absolute bottom-0 left-0 right-0 bg-white dark:bg-gray-800 rounded-t-3xl p-6 max-h-[80vh] overflow-y-auto"
-                onClick={(e) => e.stopPropagation()}
-              >
-                <div className="flex items-center justify-between mb-4">
-                  <h2 className="text-xl font-bold text-gray-900 dark:text-white">Filters</h2>
+          <ul className="mt-12 grid grid-cols-1 gap-x-12 sm:grid-cols-2 lg:grid-cols-3">
+            {categories.map(cat => {
+              const active = selectedCategory === cat._id;
+              return (
+                <li key={cat._id} className="rule">
                   <button
-                    onClick={() => setShowMobileFilters(false)}
-                    className="text-gray-400 hover:text-gray-600 text-2xl"
+                    onClick={() => handleCategoryChange(cat._id)}
+                    aria-pressed={active}
+                    className="group flex w-full items-baseline justify-between gap-4 py-6 text-left"
                   >
-                    ×
+                    <span className={`font-display text-2xl transition-colors sm:text-3xl ${
+                      active ? 'text-stone-900 dark:text-ivory-50' : 'text-stone-500 group-hover:text-stone-900 dark:text-stone-400 dark:group-hover:text-ivory-50'
+                    }`}>
+                      {cat.name}
+                    </span>
+                    <ArrowRight
+                      className="h-4 w-4 shrink-0 -translate-x-1 text-stone-300 opacity-0 transition-all duration-200 group-hover:translate-x-0 group-hover:opacity-100 dark:text-stone-600"
+                      aria-hidden="true"
+                    />
                   </button>
-                </div>
+                </li>
+              );
+            })}
+          </ul>
+        </Section>
+      )}
 
-                <div className="space-y-4">
-                  {/* Categories */}
-                  <div>
-                    <h3 className="mb-2.5 flex items-center gap-2 text-[13px] font-semibold text-gray-900 dark:text-white"><FolderTree className="h-4 w-4 text-gray-400" aria-hidden="true" />Categories</h3>
-                    <div className="space-y-1">
-                      <button
-                        onClick={() => { handleCategoryChange(''); setShowMobileFilters(false); }}
-                        className={`text-sm w-full text-left px-3 py-2 rounded-lg ${
-                          !selectedCategory ? 'bg-primary-500 text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
-                        }`}
-                      >
-                        All Products
-                      </button>
-                      {categories.map(cat => (
-                        <button
-                          key={cat._id}
-                          onClick={() => { handleCategoryChange(cat._id); setShowMobileFilters(false); }}
-                          className={`text-sm w-full text-left px-3 py-2 rounded-lg ${
-                            selectedCategory === cat._id ? 'bg-primary-500 text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
-                          }`}
-                        >
-                          {cat.level > 0 && <span className="mr-1">└</span>}
-                          {cat.name}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Price Range */}
-                  <div>
-                    <h3 className="mb-2.5 flex items-center gap-2 text-[13px] font-semibold text-gray-900 dark:text-white"><DollarSign className="h-4 w-4 text-gray-400" aria-hidden="true" />Price Range</h3>
-                    <div className="flex gap-2">
-                      <input
-                        type="number"
-                        placeholder="Min"
-                        className="input text-sm"
-                        value={minPrice}
-                        onChange={e => { setMinPrice(e.target.value); setPage(1); }}
-                      />
-                      <input
-                        type="number"
-                        placeholder="Max"
-                        className="input text-sm"
-                        value={maxPrice}
-                        onChange={e => { setMaxPrice(e.target.value); setPage(1); }}
-                      />
-                    </div>
-                  </div>
-
-                  {/* Filters */}
-                  <div>
-                    <h3 className="mb-2.5 flex items-center gap-2 text-[13px] font-semibold text-gray-900 dark:text-white"><SlidersHorizontal className="h-4 w-4 text-gray-400" aria-hidden="true" />Refine</h3>
-                    <label className="flex items-center gap-2 mb-3">
-                      <input
-                        type="checkbox"
-                        checked={inStock}
-                        onChange={e => { setInStock(e.target.checked); setPage(1); }}
-                        className="rounded"
-                      />
-                      <span className="text-sm">In stock only</span>
-                    </label>
-                    <button
-                      onClick={() => { setOnSale(!onSale); setSelectedCategory(''); setPage(1); }}
-                      className={`w-full text-sm px-4 py-2.5 rounded-lg font-semibold ${
-                        onSale ? 'bg-red-500 text-white' : 'bg-red-50 dark:bg-red-900/20 text-red-600 border border-red-200'
-                      }`}
-                    >
-                      <Flame className="h-4 w-4 shrink-0" aria-hidden="true" />{onSale ? 'Hide Offers' : 'Show Offers'}
-                    </button>
-                  </div>
-
-                  {/* Actions */}
-                  <div className="flex gap-2 pt-4 border-t">
-                    <button onClick={handleReset} className="btn-secondary flex-1">
-                      Reset
-                    </button>
-                    <button onClick={() => setShowMobileFilters(false)} className="btn-primary flex-1">
-                      Apply
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* LEFT SIDEBAR - Filters
-              Was three stacked cards, each with its own amber tint, amber border
-              and shadow-lg. Three competing boxes for what is conceptually one
-              control panel, and the warm tint fought the product photography
-              beside it. Now a single neutral panel divided by hairlines — the
-              structure Shopify, Stripe and Linear all converge on because it
-              lets the CONTENT carry the colour. */}
-          <aside className="w-64 shrink-0 hidden lg:block">
-            <div className="sticky top-20 space-y-3">
-              <div className="surface overflow-hidden">
-
-                {/* Categories */}
-                <div className="p-4">
-                  <h3 className="mb-3 flex items-center gap-2 text-[13px] font-semibold text-gray-900 dark:text-white">
-                    <FolderTree className="h-4 w-4 text-gray-400" aria-hidden="true" />
-                    Categories
-                  </h3>
-                  <ul className="space-y-0.5 max-h-64 overflow-y-auto -mx-1 px-1">
-                    <li>
-                      <button
-                        onClick={() => handleCategoryChange('')}
-                        aria-current={!selectedCategory ? 'true' : undefined}
-                        className={`w-full rounded-lg px-3 py-2 text-left text-[13px] transition-colors ${
-                          !selectedCategory
-                            ? 'bg-gray-900 font-semibold text-white dark:bg-white dark:text-gray-900'
-                            : 'font-medium text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800'
-                        }`}
-                      >
-                        All Products
-                      </button>
-                    </li>
-                    {categories.map(cat => (
-                      <li key={cat._id}>
-                        <button
-                          onClick={() => handleCategoryChange(cat._id)}
-                          aria-current={selectedCategory === cat._id ? 'true' : undefined}
-                          // Nesting is now real indentation instead of a `└`
-                          // character, which sat on the text baseline and made
-                          // child rows look vertically misaligned.
-                          style={cat.level > 0 ? { paddingLeft: `${0.75 + cat.level * 0.75}rem` } : undefined}
-                          className={`w-full rounded-lg px-3 py-2 text-left text-[13px] transition-colors ${
-                            selectedCategory === cat._id
-                              ? 'bg-gray-900 font-semibold text-white dark:bg-white dark:text-gray-900'
-                              : 'font-medium text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800'
-                          }`}
-                        >
-                          {cat.name}
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-
-                {/* Price */}
-                <div className="border-t border-gray-100 p-4 dark:border-gray-800">
-                  <h3 className="mb-3 flex items-center gap-2 text-[13px] font-semibold text-gray-900 dark:text-white">
-                    <DollarSign className="h-4 w-4 text-gray-400" aria-hidden="true" />
-                    Price Range
-                  </h3>
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="number"
-                      placeholder="Min"
-                      aria-label="Minimum price"
-                      className="input text-sm"
-                      value={minPrice}
-                      onChange={e => { setMinPrice(e.target.value); setPage(1); }}
-                    />
-                    <span className="text-gray-300 dark:text-gray-600" aria-hidden="true">–</span>
-                    <input
-                      type="number"
-                      placeholder="Max"
-                      aria-label="Maximum price"
-                      className="input text-sm"
-                      value={maxPrice}
-                      onChange={e => { setMaxPrice(e.target.value); setPage(1); }}
-                    />
-                  </div>
-                </div>
-
-                {/* Availability + offers */}
-                <div className="border-t border-gray-100 p-4 dark:border-gray-800">
-                  <h3 className="mb-3 flex items-center gap-2 text-[13px] font-semibold text-gray-900 dark:text-white">
-                    <SlidersHorizontal className="h-4 w-4 text-gray-400" aria-hidden="true" />
-                    Refine
-                  </h3>
-                  <div className="space-y-3">
-                    <label className="flex cursor-pointer items-center gap-2.5 group w-fit">
-                      <input
-                        type="checkbox"
-                        checked={inStock}
-                        onChange={e => { setInStock(e.target.checked); setPage(1); }}
-                        className="h-4 w-4 rounded border-gray-300 text-gray-900 focus:ring-gray-900 dark:border-gray-600 dark:bg-gray-800 dark:text-white"
-                      />
-                      <span className="text-[13px] font-medium text-gray-600 transition-colors group-hover:text-gray-900 dark:text-gray-300 dark:group-hover:text-white">
-                        In stock only
-                      </span>
-                    </label>
-
-                    {/* Toggle, so it now looks like one — an outlined chip that
-                        fills when active, rather than a red gradient panel that
-                        read as a permanent alert. */}
-                    <button
-                      onClick={() => {
-                        setOnSale(!onSale);
-                        setSelectedCategory('');
-                        setPage(1);
-                      }}
-                      aria-pressed={onSale}
-                      className={`flex w-full items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-[13px] font-semibold transition-all ${
-                        onSale
-                          ? 'bg-red-600 text-white shadow-soft hover:bg-red-700'
-                          : 'border border-gray-200 text-gray-600 hover:border-red-300 hover:text-red-600 dark:border-gray-700 dark:text-gray-300 dark:hover:border-red-800 dark:hover:text-red-400'
-                      }`}
-                    >
-                      <Flame className="h-4 w-4 shrink-0" aria-hidden="true" />
-                      {onSale ? 'Hide Offers' : 'Show Offers'}
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              <button
-                onClick={handleReset}
-                className="btn btn-ghost w-full gap-2 text-[13px] text-gray-500 dark:text-gray-400"
-              >
-                <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" />
-                Reset all filters
+      {/* ── Deals ────────────────────────────────────────────────────────────
+          Same derivation as before (current page, discount > 0). */}
+      {deals.length > 0 && (
+        <Section className="pt-24 lg:pt-32">
+          <SectionMark
+            label="Reduced"
+            title="Currently on offer"
+            note="Discounted pieces from the current selection."
+            action={
+              <button onClick={toggleOnSale} className="smallcaps link-underline text-stone-500 dark:text-stone-400">
+                {onSale ? 'Hide offers' : 'See all offers'}
               </button>
-            </div>
-          </aside>
+            }
+          />
+          <div className="mt-12"><Rail products={deals} /></div>
+        </Section>
+      )}
 
-          {/* MAIN CONTENT - Product grid */}
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center justify-between mb-4">
-              <p className="text-sm text-gray-600 dark:text-gray-400 font-medium">
-                {total} product{total !== 1 ? 's' : ''} found
-              </p>
+      {/* ── Catalogue ────────────────────────────────────────────────────────
+          `data-products-section` is the hero CTA's scroll target — preserved. */}
+      <Section className="pt-24 lg:pt-32" id="catalogue">
+        <div data-products-section>
+          <SectionMark label="Catalogue" title={activeCategoryName} />
 
-              {/* Sort Dropdown */}
-              <div className="flex items-center gap-2">
-                <label htmlFor="sort" className="text-sm text-gray-600 dark:text-gray-400">
-                  Sort by:
-                </label>
-                <select
-                  id="sort"
-                  value={sortBy}
-                  onChange={(e) => { setSortBy(e.target.value); setPage(1); }}
-                  className="input text-sm py-1.5 px-3 w-auto"
+          {/* Toolbar: a hairline strip, not a filled bar. Filters live in a
+              drawer at every breakpoint — the permanent rail is a marketplace
+              convention, and hiding it is most of what buys the whitespace. */}
+          <div className="rule mt-12 flex flex-wrap items-center gap-x-8 gap-y-4 py-5">
+            <button
+              onClick={() => setFiltersOpen(true)}
+              className="smallcaps group flex items-center gap-2.5 text-stone-900 dark:text-ivory-50"
+            >
+              <SlidersHorizontal className="h-3.5 w-3.5" aria-hidden="true" />
+              Filter
+              {activeFilterCount > 0 && (
+                <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-stone-900 px-1.5 text-[10px] font-semibold text-white dark:bg-ivory-50 dark:text-stone-900">
+                  {activeFilterCount}
+                </span>
+              )}
+            </button>
+
+            <div className="relative min-w-0 flex-1 sm:max-w-xs">
+              <Search className="pointer-events-none absolute left-0 top-1/2 h-4 w-4 -translate-y-1/2 text-stone-400" aria-hidden="true" />
+              <input
+                type="text"
+                placeholder="Search"
+                aria-label="Filter products in catalogue"
+                value={searchInput}
+                onChange={e => setSearchInput(e.target.value)}
+                className="w-full border-0 border-b border-transparent bg-transparent py-1.5 pl-7 pr-7 text-sm outline-none transition-colors placeholder:text-stone-400 hover:border-ivory-300 focus:border-stone-900 dark:hover:border-stone-700 dark:focus:border-ivory-200"
+              />
+              {searchInput && (
+                <button
+                  onClick={() => setSearchInput('')}
+                  aria-label="Clear search"
+                  className="absolute right-0 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center text-stone-400 transition-colors hover:text-stone-900 dark:hover:text-ivory-50"
                 >
-                  <option value="">Default</option>
-                  <option value="price_asc">Price: Low to High</option>
-                  <option value="price_desc">Price: High to Low</option>
-                  <option value="rating">Highest Rated</option>
-                  <option value="newest">Newest First</option>
-                </select>
-              </div>
+                  <X className="h-3.5 w-3.5" aria-hidden="true" />
+                </button>
+              )}
             </div>
 
+            <p className="smallcaps hidden tabular-nums text-stone-400 sm:block">
+              {total} item{total !== 1 ? 's' : ''}
+            </p>
+
+            <div className="ml-auto flex items-center gap-6">
+              {activeFilterCount > 0 && (
+                <button onClick={handleReset} className="smallcaps link-underline text-stone-500 dark:text-stone-400">
+                  Clear
+                </button>
+              )}
+              <label htmlFor="sort" className="sr-only">Sort by</label>
+              <select
+                id="sort"
+                value={sortBy}
+                onChange={(e) => { setSortBy(e.target.value); setPage(1); }}
+                className="cursor-pointer border-0 bg-transparent py-1 pr-6 text-[11px] font-medium uppercase tracking-[0.22em] text-stone-900 outline-none focus:ring-0 dark:text-ivory-50"
+              >
+                <option value="">Sort</option>
+                <option value="price_asc">Price ascending</option>
+                <option value="price_desc">Price descending</option>
+                <option value="rating">Highest rated</option>
+                <option value="newest">Newest</option>
+              </select>
+            </div>
+          </div>
+
+          {/* Grid — three across at desktop. Fewer, larger frames. */}
+          <div className="mt-14">
             {loading ? (
-              <div className="grid grid-cols-2 gap-4 sm:gap-5 md:grid-cols-3 lg:gap-6 xl:grid-cols-4">
-                {Array.from({ length: 8 }).map((_, i) => <ProductCardSkeleton key={i} />)}
+              <div className="grid grid-cols-2 gap-x-6 gap-y-14 lg:grid-cols-3 lg:gap-x-10">
+                {Array.from({ length: 6 }).map((_, i) => <ProductCardSkeleton key={i} />)}
               </div>
             ) : products.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-24 text-center card">
-                <div className="mb-5 flex h-14 w-14 items-center justify-center rounded-2xl bg-gray-100 dark:bg-gray-800"><Search className="h-6 w-6 text-gray-400" aria-hidden="true" /></div>
-                <h3 className="text-lg font-semibold text-gray-700 dark:text-gray-300 mb-1">
-                  No products found
+              <div className="rule flex flex-col items-center px-6 py-28 text-center">
+                <Search className="mb-8 h-7 w-7 text-stone-300 dark:text-stone-600" strokeWidth={1} aria-hidden="true" />
+                <h3 className="font-display text-3xl font-normal text-stone-900 dark:text-ivory-50">
+                  Nothing matches
                 </h3>
-                <p className="text-sm text-gray-400 mb-6">
-                  Try adjusting your filters or search term.
+                <p className="mx-auto mt-4 max-w-sm text-sm leading-relaxed text-stone-500 dark:text-stone-400">
+                  Try widening the price range, or clear the filters to see the full catalogue.
                 </p>
-                <button onClick={handleReset} className="btn-primary px-6">
-                  Clear Filters
+                <button
+                  onClick={handleReset}
+                  className="smallcaps mt-9 border border-stone-900 px-8 py-3.5 text-stone-900 transition-colors hover:bg-stone-900 hover:text-white dark:border-ivory-200 dark:text-ivory-50 dark:hover:bg-ivory-50 dark:hover:text-stone-900"
+                >
+                  Clear filters
                 </button>
               </div>
             ) : (
-              <div className={`grid grid-cols-2 gap-4 sm:gap-5 md:grid-cols-3 lg:gap-6 xl:grid-cols-4 transition-opacity duration-200 ${isPlaceholderData ? 'opacity-60' : 'opacity-100'}`}>
+              <div className={`grid grid-cols-2 gap-x-6 gap-y-14 transition-opacity duration-200 lg:grid-cols-3 lg:gap-x-10 ${isPlaceholderData ? 'opacity-50' : 'opacity-100'}`}>
                 {products.map((p, i) => (
-                  <ProductCard key={p._id} product={p} index={i} />
+                  <ProductCard key={p._id} product={p} index={i} variant="editorial" />
                 ))}
               </div>
             )}
 
-            {/* Pagination */}
             {totalPages > 1 && (
-              <div className="flex justify-center gap-2 mt-8">
+              <nav className="rule mt-20 flex items-center justify-between pt-8" aria-label="Pagination">
                 <button
                   onClick={() => setPage(p => Math.max(1, p - 1))}
                   disabled={page === 1}
-                  className="btn-secondary px-4 disabled:opacity-50"
+                  className="smallcaps flex items-center gap-2 text-stone-900 transition-opacity disabled:pointer-events-none disabled:opacity-30 dark:text-ivory-50"
                 >
-                  ←
+                  <ArrowRight className="h-3.5 w-3.5 rotate-180" aria-hidden="true" />
+                  Previous
                 </button>
-                <span className="flex items-center text-sm text-gray-600 dark:text-gray-400 font-medium px-4">
-                  Page {page} of {totalPages}
+                <span className="smallcaps tabular-nums text-stone-400">
+                  {page} / {totalPages}
                 </span>
                 <button
                   onClick={() => setPage(p => Math.min(totalPages, p + 1))}
                   disabled={page === totalPages}
-                  className="btn-secondary px-4 disabled:opacity-50"
+                  className="smallcaps flex items-center gap-2 text-stone-900 transition-opacity disabled:pointer-events-none disabled:opacity-30 dark:text-ivory-50"
                 >
-                  →
+                  Next
+                  <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
                 </button>
-              </div>
+              </nav>
             )}
           </div>
-
-          {/* RIGHT SIDEBAR - Hot Deals & Top Rated */}
-          <aside className="w-72 shrink-0 hidden xl:block">
-            <div className="sticky top-20 space-y-4">
-              {/* Hot Deals Card */}
-              {/* Neutral surface with a coloured ICON rather than a coloured
-                  panel. A red-to-orange gradient card next to an amber one next
-                  to the amber hero meant three warm blocks stacked down the
-                  right rail with no hierarchy between them. */}
-              <div className="surface p-4">
-                <h3 className="mb-3.5 flex items-center gap-2 text-[13px] font-semibold text-gray-900 dark:text-white">
-                  <Flame className="h-4 w-4 text-red-500" aria-hidden="true" />
-                  Hot Deals
-                </h3>
-                <div className="space-y-3">
-                  {products
-                    .filter(p => p.discount > 0)
-                    .slice(0, 3)
-                    .map(product => (
-                      <a
-                        key={product._id}
-                        href={`/products/${product._id}`}
-                        rel="noreferrer"
-                        className="flex gap-3 p-2 rounded-lg hover:bg-white/50 dark:hover:bg-gray-800/50 transition-all group"
-                      >
-                        <img
-                          src={product.images[0]}
-                          alt={`${product.name} product image`}
-                          loading="lazy"
-                          decoding="async"
-                          width="64"
-                          height="64"
-                          className="w-16 h-16 object-cover rounded-lg shrink-0"
-                        />
-                        <div className="flex-1 min-w-0">
-                          <h4 className="text-sm font-medium text-gray-900 dark:text-white truncate group-hover:text-primary-600">
-                            {product.name}
-                          </h4>
-                          <div className="flex items-center gap-2 mt-1">
-                            <span className="text-sm font-bold text-red-600 dark:text-red-400">
-                              ${(product.price * (1 - product.discount / 100)).toFixed(2)}
-                            </span>
-                            <span className="text-xs text-gray-400 line-through">
-                              ${product.price.toFixed(2)}
-                            </span>
-                          </div>
-                          <span className="inline-block text-xs bg-red-500 text-white px-2 py-0.5 rounded-full mt-1">
-                            -{product.discount}% OFF
-                          </span>
-                        </div>
-                      </a>
-                    ))}
-                  {products.filter(p => p.discount > 0).length === 0 && (
-                    // Was the bare string "No deals available". An empty state
-                    // needs a mark, a reason and a way forward.
-                    <div className="py-5 text-center">
-                      <Flame className="mx-auto mb-2 h-6 w-6 text-gray-300 dark:text-gray-600" aria-hidden="true" />
-                      <p className="text-xs font-medium text-gray-500 dark:text-gray-400">No active deals</p>
-                      <p className="mt-0.5 text-[11px] text-gray-400">Check back soon for new offers.</p>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Top Rated Card */}
-              <div className="surface p-4">
-                <h3 className="mb-3.5 flex items-center gap-2 text-[13px] font-semibold text-gray-900 dark:text-white">
-                  <Star className="h-4 w-4 text-amber-500" fill="currentColor" aria-hidden="true" />
-                  Top Rated
-                </h3>
-                <div className="space-y-3">
-                  {products
-                    .filter(p => p.averageRating >= 4)
-                    .sort((a, b) => b.averageRating - a.averageRating)
-                    .slice(0, 3)
-                    .map(product => (
-                      <a
-                        key={product._id}
-                        href={`/products/${product._id}`}
-                        rel="noreferrer"
-                        className="flex gap-3 p-2 rounded-lg hover:bg-white/50 dark:hover:bg-gray-800/50 transition-all group"
-                      >
-                        <img
-                          src={product.images[0]}
-                          alt={`${product.name} product image`}
-                          loading="lazy"
-                          decoding="async"
-                          width="64"
-                          height="64"
-                          className="w-16 h-16 object-cover rounded-lg shrink-0"
-                        />
-                        <div className="flex-1 min-w-0">
-                          <h4 className="text-sm font-medium text-gray-900 dark:text-white truncate group-hover:text-primary-600">
-                            {product.name}
-                          </h4>
-                          <div className="flex items-center gap-1 mt-1">
-                            <Star className="h-3 w-3 text-amber-500" fill="currentColor" aria-hidden="true" />
-                            <span className="text-sm font-bold text-gray-900 dark:text-white">
-                              {product.averageRating.toFixed(1)}
-                            </span>
-                            <span className="text-xs text-gray-400">
-                              ({product.reviewCount})
-                            </span>
-                          </div>
-                          <span className="text-sm font-bold text-gray-900 dark:text-white mt-1 block">
-                            ${product.price.toFixed(2)}
-                          </span>
-                        </div>
-                      </a>
-                    ))}
-                  {products.filter(p => p.averageRating >= 4).length === 0 && (
-                    <div className="py-5 text-center">
-                      <Star className="mx-auto mb-2 h-6 w-6 text-gray-300 dark:text-gray-600" aria-hidden="true" />
-                      <p className="text-xs font-medium text-gray-500 dark:text-gray-400">No rated products yet</p>
-                      <p className="mt-0.5 text-[11px] text-gray-400">Reviews will appear here.</p>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Newsletter — the one card in the rail that SHOULD carry brand
-                  colour, because it is the only one asking for an action. Now it
-                  is the sole warm surface here instead of the third in a row,
-                  so the eye lands on it. */}
-              <div className="relative overflow-hidden rounded-2xl bg-gray-900 p-5 text-white shadow-elevated dark:bg-gray-800">
-                <div
-                  className="pointer-events-none absolute -right-8 -top-8 h-28 w-28 rounded-full bg-gradient-to-br from-amber-400/30 to-yellow-500/10 blur-2xl"
-                  aria-hidden="true"
-                />
-                <h3 className="relative mb-1.5 flex items-center gap-2 text-[13px] font-semibold">
-                  <Mail className="h-4 w-4 text-amber-400" aria-hidden="true" />
-                  Newsletter
-                </h3>
-                <p className="relative mb-3.5 text-xs leading-relaxed text-gray-300">
-                  Subscribe to get special offers and updates.
-                </p>
-                <input
-                  type="email"
-                  placeholder="Your email"
-                  aria-label="Email address for newsletter"
-                  className="relative mb-2 w-full rounded-lg border border-white/15 bg-white/10 px-3 py-2 text-sm text-white placeholder-gray-400 outline-none transition-colors focus:border-amber-400/60"
-                  value={newsletterEmail}
-                  onChange={(e) => setNewsletterEmail(e.target.value)}
-                />
-                <button
-                  onClick={handleNewsletterSubscribe}
-                  disabled={subscribing}
-                  aria-busy={subscribing}
-                  className={`btn btn-brand relative w-full text-sm ${subscribing ? 'btn-loading' : ''}`}
-                >
-                  {subscribing ? 'Subscribing…' : 'Subscribe'}
-                </button>
-              </div>
-            </div>
-          </aside>
         </div>
-      </div>
+      </Section>
+
+      {/* ── Top rated ────────────────────────────────────────────────────────── */}
+      {topRated.length > 0 && (
+        <Section className="pt-24 lg:pt-32">
+          <SectionMark
+            label="Acclaimed"
+            title="Most admired"
+            note="Rated four stars and above by verified buyers."
+            action={
+              <button onClick={() => { setSortBy('rating'); setPage(1); }} className="smallcaps link-underline text-stone-500 dark:text-stone-400">
+                Sort by rating
+              </button>
+            }
+          />
+          <div className="mt-12"><Rail products={topRated} /></div>
+        </Section>
+      )}
+
+      {/* ── Vendor CTA ───────────────────────────────────────────────────────
+          Unauthenticated only — unchanged condition, links and copy. */}
+      {!isAuthenticated && (
+        <Section className="pt-24 lg:pt-32">
+          <div className="bg-stone-900 px-8 py-20 text-center sm:px-16 lg:py-28">
+            <p className="smallcaps text-amber-400/80">For entrepreneurs</p>
+            <h2 className="mx-auto mt-7 max-w-2xl font-display text-4xl font-normal leading-[1.1] text-white sm:text-5xl">
+              Launch your own online store — free
+            </h2>
+            <p className="mx-auto mt-6 max-w-md text-sm leading-relaxed text-stone-400">
+              Set up in minutes. No credit card required. Full 7-day free trial.
+            </p>
+            <div className="mt-11 flex flex-col items-center justify-center gap-6 sm:flex-row">
+              <Link
+                to="/start"
+                className="smallcaps border border-white bg-white px-10 py-4 text-stone-900 transition-colors hover:bg-transparent hover:text-white"
+              >
+                Start free trial
+              </Link>
+              <Link to="/login" className="smallcaps link-underline text-stone-400 hover:text-white">
+                Sign in
+              </Link>
+            </div>
+          </div>
+        </Section>
+      )}
+
+      {/* ── Newsletter ───────────────────────────────────────────────────────── */}
+      <Section className="py-24 lg:py-36">
+        <div className="rule mx-auto max-w-xl pt-14 text-center">
+          <p className="smallcaps text-stone-400 dark:text-stone-500">Correspondence</p>
+          <h2 className="mt-6 font-display text-4xl font-normal leading-[1.1] text-stone-900 sm:text-5xl dark:text-ivory-50">
+            Never miss a drop
+          </h2>
+          <p className="mx-auto mt-5 max-w-sm text-sm leading-relaxed text-stone-500 dark:text-stone-400">
+            Subscribe to get special offers and updates.
+          </p>
+          <form
+            onSubmit={e => { e.preventDefault(); handleNewsletterSubscribe(); }}
+            className="mx-auto mt-10 flex max-w-md items-end gap-4"
+          >
+            <input
+              type="email"
+              placeholder="you@example.com"
+              aria-label="Email address for newsletter"
+              value={newsletterEmail}
+              onChange={(e) => setNewsletterEmail(e.target.value)}
+              className="min-w-0 flex-1 border-0 border-b border-ivory-300 bg-transparent pb-3 text-center text-sm outline-none transition-colors placeholder:text-stone-400 focus:border-stone-900 sm:text-left dark:border-stone-700 dark:text-ivory-50 dark:focus:border-ivory-200"
+            />
+            <button
+              type="submit"
+              disabled={subscribing}
+              aria-busy={subscribing}
+              className="smallcaps shrink-0 border border-stone-900 px-7 py-3.5 text-stone-900 transition-colors hover:bg-stone-900 hover:text-white disabled:opacity-50 dark:border-ivory-200 dark:text-ivory-50 dark:hover:bg-ivory-50 dark:hover:text-stone-900"
+            >
+              {subscribing ? 'Sending' : 'Subscribe'}
+            </button>
+          </form>
+        </div>
+      </Section>
+
+      {/* ── Filter drawer ────────────────────────────────────────────────────
+          One drawer for every breakpoint — the mobile sheet and desktop rail
+          used to be duplicated markup that had already drifted apart. */}
+      {filtersOpen && (
+        <div className="fixed inset-0 z-50" role="dialog" aria-modal="true" aria-label="Filters">
+          <div
+            className="absolute inset-0 bg-stone-900/40 backdrop-blur-sm"
+            onClick={() => setFiltersOpen(false)}
+            aria-hidden="true"
+          />
+          <div className="absolute inset-y-0 right-0 flex w-full max-w-sm flex-col bg-ivory-50 shadow-float dark:bg-stone-950">
+            <div className="flex items-center justify-between border-b border-ivory-200 px-6 py-5 dark:border-stone-800">
+              <p className="smallcaps text-stone-900 dark:text-ivory-50">Filter</p>
+              <button
+                onClick={() => setFiltersOpen(false)}
+                aria-label="Close filters"
+                className="flex h-10 w-10 items-center justify-center text-stone-500 transition-colors hover:text-stone-900 dark:hover:text-ivory-50"
+              >
+                <X className="h-5 w-5" aria-hidden="true" />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto">
+              <FilterPanel
+                categories={categories}
+                selectedCategory={selectedCategory}
+                onCategory={(id) => { handleCategoryChange(id); setFiltersOpen(false); }}
+                minPrice={minPrice} setMinPrice={setMinPrice}
+                maxPrice={maxPrice} setMaxPrice={setMaxPrice}
+                inStock={inStock} setInStock={setInStock}
+                onSale={onSale} toggleOnSale={toggleOnSale}
+                setPage={setPage}
+              />
+            </div>
+
+            <div className="flex items-center gap-4 border-t border-ivory-200 p-6 dark:border-stone-800">
+              <button
+                onClick={handleReset}
+                className="smallcaps flex items-center gap-2 text-stone-500 transition-colors hover:text-stone-900 dark:hover:text-ivory-50"
+              >
+                <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" />
+                Reset
+              </button>
+              <button
+                onClick={() => setFiltersOpen(false)}
+                className="smallcaps ml-auto border border-stone-900 px-8 py-3.5 text-stone-900 transition-colors hover:bg-stone-900 hover:text-white dark:border-ivory-200 dark:text-ivory-50 dark:hover:bg-ivory-50 dark:hover:text-stone-900"
+              >
+                Show {total}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

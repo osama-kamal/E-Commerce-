@@ -1,5 +1,5 @@
 import { Types } from 'mongoose';
-import { Store, IStore, SubscriptionPlan, SubscriptionStatus } from './store.model';
+import { Store, IStore, SubscriptionPlan, SubscriptionStatus, StoreTheme, STORE_THEMES } from './store.model';
 import { createError } from '../../middleware/errorHandler';
 import { escapeHtml } from '../../utils/escapeHtml';
 import { getPlanLimits } from '../../config/planLimits';
@@ -211,6 +211,7 @@ export async function listAllStores(page: number, limit: number): Promise<{ data
 
 export interface StoreSettingsInput {
   name?: string;
+  theme?: StoreTheme;
   logoUrl?: string;
   contactEmail?: string;
   contactPhone?: string;
@@ -224,9 +225,27 @@ export interface StoreSettingsInput {
 export async function updateStoreSettings(storeId: string, input: StoreSettingsInput): Promise<IStore> {
   if (!Types.ObjectId.isValid(storeId)) throw createError('Invalid store ID', 400, 'BAD_REQUEST');
 
-  // Build the update — name goes to root, everything else into settings.*
+  // Build the update — name and theme go to root, everything else into settings.*
   const update: Record<string, unknown> = {};
   if (input.name) update.name = input.name.trim();
+
+  // Theme is a ROOT field, so it must be handled outside the settings.* loop
+  // below — routing it through that loop would write `settings.theme`, which the
+  // schema does not define and Mongoose would silently discard.
+  //
+  // This route has no `validate()` middleware, so the value is checked here
+  // rather than trusted. Mongoose's enum would also reject it, but a 400 with a
+  // clear message beats a ValidationError surfacing as a 500.
+  if (input.theme !== undefined) {
+    if (!STORE_THEMES.includes(input.theme)) {
+      throw createError(
+        `Invalid theme. Expected one of: ${STORE_THEMES.join(', ')}`,
+        400,
+        'BAD_REQUEST'
+      );
+    }
+    update.theme = input.theme;
+  }
 
   const settingsFields = ['logoUrl', 'contactEmail', 'contactPhone', 'facebook', 'instagram', 'twitter', 'tiktok', 'youtube'] as const;
   for (const field of settingsFields) {

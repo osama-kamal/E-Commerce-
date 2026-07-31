@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { useAppDispatch, useAppSelector } from '../../hooks/useAppDispatch';
 import { fetchCurrentStore, setCurrentStore } from '../../store/storeSlice';
 import { storesApi } from '../../api/stores';
+import ThemePicker from '../../components/ThemePicker';
+import { getThemeMeta, resolveTheme, type StoreTheme } from '../../theme/themes';
 import { CardGridSkeleton } from '../../components/Skeleton';
 import { Store } from '../../types';
 import toast from 'react-hot-toast';
@@ -93,6 +95,8 @@ export default function AdminSettings() {
   const [logoFile, setLogoFile] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
   const [uploadingLogo, setUploadingLogo] = useState(false);
+  /** Which theme is mid-write, so the picker can show a spinner and block clicks. */
+  const [savingTheme, setSavingTheme] = useState<StoreTheme | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Load store data
@@ -150,6 +154,35 @@ export default function AdminSettings() {
     }
   };
 
+  /**
+   * Theme is saved on click rather than waiting for "Save Changes".
+   *
+   * It is a single enum with a live preview, so a staged edit adds a step for no
+   * benefit. Sent through the existing settings endpoint on its own — the rest
+   * of `form` is deliberately NOT included, so an in-progress edit to another
+   * field cannot be written by accident when the merchant tries a theme.
+   */
+  const handleSelectTheme = async (theme: StoreTheme) => {
+    if (!currentStore || savingTheme) return;
+    const previous = resolveTheme(currentStore.theme);
+    setSavingTheme(theme);
+
+    // Optimistic: the storefront preview and picker update instantly.
+    dispatch(setCurrentStore({ ...currentStore, theme } as Store));
+
+    try {
+      const res = await storesApi.updateSettings(currentStore._id, { theme });
+      dispatch(setCurrentStore(res.data.data));
+      toast.success(`${getThemeMeta(theme).name} theme applied`);
+    } catch {
+      // Roll back so the picker never shows a selection the server rejected.
+      dispatch(setCurrentStore({ ...currentStore, theme: previous } as Store));
+      // Error toast already fired by the axios interceptor.
+    } finally {
+      setSavingTheme(null);
+    }
+  };
+
   const handleSave = async () => {
     if (!currentStore) return;
     setSaving(true);
@@ -190,6 +223,21 @@ export default function AdminSettings() {
       </div>
 
       <div className="space-y-6">
+        {/* ── Appearance ───────────────────────────────────────────────────
+            Placed above General because it is the change with the largest
+            visible effect, and the one a merchant most often comes here for. */}
+        <Section
+          title="Appearance"
+          description="Choose how your storefront looks. Applies instantly — your products, prices, orders and checkout are never affected."
+        >
+          <ThemePicker
+            value={resolveTheme(currentStore?.theme)}
+            onSelect={handleSelectTheme}
+            savingTheme={savingTheme}
+            disabled={!currentStore}
+          />
+        </Section>
+
         {/* ── General ─────────────────────────────────────────────────────── */}
         <Section title="General" description="Basic store information shown on the storefront.">
           <Field label="Store Name" htmlFor="settings-store-name" hint="Displayed in the navbar and page titles">

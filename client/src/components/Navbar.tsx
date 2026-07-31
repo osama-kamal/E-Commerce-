@@ -150,7 +150,7 @@ export default function Navbar() {
       aria-label="Toggle dark mode"
       // Track colour moved off indigo — it was the only indigo left in the
       // chrome once the CTA banner was unified, and it read as a stray accent.
-      className={`relative w-14 h-7 rounded-full transition-colors duration-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 ${
+      className={`relative w-14 h-7 rounded-full transition-colors duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 ${
         dark ? 'bg-gray-700' : 'bg-gray-200'
       } ${className}`}
     >
@@ -160,7 +160,7 @@ export default function Navbar() {
       <Moon className="pointer-events-none absolute left-1.5 top-1/2 h-3 w-3 -translate-y-1/2 text-gray-400" aria-hidden="true" />
       <Sun className="pointer-events-none absolute right-1.5 top-1/2 h-3 w-3 -translate-y-1/2 text-amber-500" aria-hidden="true" />
       <span
-        className={`absolute top-0.5 flex h-6 w-6 transform items-center justify-center rounded-full bg-white shadow-md transition-transform duration-300 ${
+        className={`absolute top-0.5 flex h-6 w-6 transform items-center justify-center rounded-full bg-white shadow-md transition-transform duration-200 ${
           dark ? 'translate-x-7' : 'translate-x-0.5'
         }`}
       >
@@ -177,14 +177,14 @@ export default function Navbar() {
           opaque and borderless so it reads as part of the page; on scroll it
           lifts with glass and a hairline. */}
       <nav
-        className={`sticky top-0 z-50 transition-all duration-300 ${
+        className={`sticky top-0 z-50 transition-all duration-200 ${
           scrolled
             ? 'border-b border-gray-200/70 bg-white/80 shadow-soft backdrop-blur-xl dark:border-gray-800/70 dark:bg-gray-900/80'
             : 'border-b border-transparent bg-white dark:bg-gray-900'
         }`}
       >
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className={`flex items-center gap-4 transition-all duration-300 ${scrolled ? 'h-14' : 'h-16'}`}>
+          <div className={`flex items-center gap-4 transition-all duration-200 ${scrolled ? 'h-14' : 'h-16'}`}>
 
             {/* ── Store branding ── */}
             <Link

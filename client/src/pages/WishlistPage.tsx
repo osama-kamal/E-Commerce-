@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Package } from 'lucide-react';
+import { Heart, Package, X } from 'lucide-react';
 import { wishlistApi } from '../api/wishlist';
 import { cartApi } from '../api/cart';
 import { setCart } from '../store/cartSlice';
@@ -43,10 +43,14 @@ export default function WishlistPage() {
 
   if (items.length === 0) return (
     <div className="max-w-3xl mx-auto px-4 py-24 text-center">
-      <p className="text-6xl mb-4">♡</p>
-      <h2 className="text-xl font-semibold text-gray-700 dark:text-gray-300 mb-2">Your wishlist is empty</h2>
-      <p className="text-sm text-gray-400 mb-6">Save items you love and come back to them later.</p>
-      <button onClick={() => navigate('/')} className="btn-primary px-8">Browse Products</button>
+      <div className="mx-auto mb-6 flex h-20 w-20 items-center justify-center rounded-2xl bg-gray-100 dark:bg-gray-800">
+        <Heart className="h-9 w-9 text-gray-400" strokeWidth={1.5} aria-hidden="true" />
+      </div>
+      <h2 className="mb-2 text-2xl font-bold tracking-tight text-gray-900 dark:text-white">Your wishlist is empty</h2>
+      <p className="mx-auto mb-8 max-w-sm text-sm leading-relaxed text-gray-500 dark:text-gray-400">
+        Tap the heart on any product to save it here for later.
+      </p>
+      <button onClick={() => navigate('/')} className="btn btn-brand btn-lg">Browse Products</button>
     </div>
   );
 
@@ -71,7 +75,7 @@ export default function WishlistPage() {
             <Link to={`/products/${p._id}`} className="block">
               <div className="aspect-square bg-gray-100 dark:bg-gray-800 overflow-hidden">
                 {p.images[0] ? (
-                  <img src={p.images[0]} alt={p.name} className="w-full h-full object-cover hover:scale-105 transition-transform duration-300" />
+                  <img src={p.images[0]} alt={p.name} className="w-full h-full object-cover hover:scale-105 transition-transform duration-200" />
                 ) : (
                   <div className="flex h-full w-full items-center justify-center text-gray-300 dark:text-gray-600"><Package className="h-8 w-8" strokeWidth={1.25} aria-hidden="true" /></div>
                 )}
@@ -98,10 +102,10 @@ export default function WishlistPage() {
                 <button
                   onClick={() => handleRemove(p._id)}
                   disabled={removingId === p._id}
-                  className="btn-secondary px-2.5 text-sm"
-                  aria-label="Remove"
+                  className="btn btn-secondary px-2.5"
+                  aria-label="Remove from wishlist"
                 >
-                  ✕
+                  <X className="h-4 w-4" aria-hidden="true" />
                 </button>
               </div>
             </div>

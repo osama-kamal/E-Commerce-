@@ -6,7 +6,8 @@ import { wishlistApi } from '../api/wishlist';
 import { categoriesApi } from '../api/categories';
 import { productsApi } from '../api/products';
 import { addToWishlist, removeFromWishlist } from '../store/wishlistSlice';
-import { useAppDispatch, useAppSelector } from '../hooks/useAppDispatch';import { Review, Category } from '../types';
+import { useAppDispatch, useAppSelector } from '../hooks/useAppDispatch';
+import { Review, Category } from '../types';
 import StarRating from '../components/StarRating';
 import { ProductDetailSkeleton } from '../components/Skeleton';
 import Breadcrumbs, { Crumb } from '../components/Breadcrumbs';
@@ -26,7 +27,7 @@ function ImageWithShimmer({ src, alt, className }: { src: string; alt: string; c
         src={src}
         alt={alt}
         onLoad={() => setLoaded(true)}
-        className={`${className} transition-opacity duration-500 ${loaded ? 'opacity-100' : 'opacity-0'}`}
+        className={`${className} transition-opacity duration-200 ${loaded ? 'opacity-100' : 'opacity-0'}`}
       />
     </div>
   );
@@ -210,7 +211,7 @@ export default function ProductDetailPage() {
                 <ImageWithShimmer
                   src={product.images[selectedImage]}
                   alt={product.name}
-                  className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+                  className="w-full h-full object-cover transition-transform duration-200 group-hover:scale-105"
                 />
                 {/* Tap-to-zoom hint — visible on touch devices, subtle on desktop */}
                 <div className="absolute bottom-2 right-2 bg-black/50 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">

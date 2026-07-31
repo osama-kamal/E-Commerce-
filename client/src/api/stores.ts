@@ -1,9 +1,15 @@
 import api from './axios';
 import axios from 'axios';
-import { Store, StoreSettings } from '../types';
+import { Store, StoreSettings, StoreTheme } from '../types';
 
 export interface UpdateSettingsPayload extends Partial<StoreSettings> {
   name?: string;
+  /**
+   * Storefront presentation theme. Sent to the same PATCH /stores/:id/settings
+   * endpoint as everything else — no new route. The server writes it to the
+   * document root (not into `settings`) and rejects unknown values with a 400.
+   */
+  theme?: StoreTheme;
 }
 
 export const storesApi = {
