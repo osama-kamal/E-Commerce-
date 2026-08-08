@@ -10,6 +10,7 @@ import { fetchCurrentStore } from './store/storeSlice';
 import { wishlistApi } from './api/wishlist';
 import { useAppSelector } from './hooks/useAppDispatch';
 import { ThemeProvider } from './theme/ThemeProvider';
+import { SiteProvider, useSite } from './contexts/SiteContext';
 import { useNotifications } from './hooks/useNotifications';
 import Navbar from './components/Navbar';
 import ProtectedRoute from './components/ProtectedRoute';
@@ -44,11 +45,14 @@ const AdminNewsletter   = lazy(() => import('./pages/admin/AdminNewsletter'));
 const AdminCoupons      = lazy(() => import('./pages/admin/AdminCoupons'));
 const AdminCategories   = lazy(() => import('./pages/admin/AdminCategories'));
 const AdminSettings     = lazy(() => import('./pages/admin/AdminSettings'));
+const AdminShipping     = lazy(() => import('./pages/admin/AdminShipping'));
+const AdminTax          = lazy(() => import('./pages/admin/AdminTax'));
 const AdminNewStore     = lazy(() => import('./pages/admin/AdminNewStore'));
 const AdminPricing      = lazy(() => import('./pages/admin/AdminPricing'));
 const AdminPlanEditor   = lazy(() => import('./pages/admin/AdminPlanEditor'));
 const PlatformStores    = lazy(() => import('./pages/admin/PlatformStores'));
 const StartStorePage    = lazy(() => import('./pages/StartStorePage'));
+const PlatformHomePage  = lazy(() => import('./pages/PlatformHomePage'));
 const TermsOfServicePage = lazy(() => import('./pages/TermsOfServicePage'));
 const PrivacyPolicyPage  = lazy(() => import('./pages/PrivacyPolicyPage'));
 
@@ -88,6 +92,71 @@ function PlatformAdminRoute({ children }: { children: React.ReactNode }) {
     // Silently redirect to the regular store dashboard — no error, no data leak
     return <Navigate to="/admin" replace />;
   }
+  return <>{children}</>;
+}
+
+/**
+ * Holds routing until the host's tenant is known.
+ *
+ * Every tenant-scoped request depends on this answer — the axios interceptor
+ * reads it, `fetchCurrentStore` reads it, and `useTenant()` reads it. Rendering
+ * routes first and correcting afterwards is exactly the race that made a
+ * storefront's opening fetch resolve to the wrong store; gating once here means
+ * no component has to defend against it individually.
+ *
+ * Costs one round-trip before first paint. That is the honest price of not
+ * knowing which shop this is until we ask.
+ */
+function SiteGate({ children }: { children: React.ReactNode }) {
+  const { mode } = useSite();
+  if (mode === 'loading') return <PageLoader />;
+  return <>{children}</>;
+}
+
+/**
+ * What `/` renders, decided by the host.
+ *
+ * Storefront host → that merchant's shop, using the SAME rich components the
+ * main site already had (filters, hero, the full checkout). Reusing them keeps
+ * one good storefront rather than growing a second thinner one.
+ *
+ * Platform host → the platform's landing page.
+ *
+ * Blocks on resolution rather than guessing. Rendering a storefront optimistically
+ * and correcting it would flash another merchant's catalogue at the visitor.
+ */
+function RootRoute() {
+  const { mode } = useSite();
+
+  if (mode === 'loading') return <PageLoader />;
+
+  if (mode === 'storefront') {
+    return <Layout><HomePage /></Layout>;
+  }
+
+  return (
+    <Layout>
+      <Suspense fallback={<PageLoader />}>
+        <PlatformHomePage />
+      </Suspense>
+    </Layout>
+  );
+}
+
+/**
+ * Keeps the merchant dashboard on the platform host.
+ *
+ * On a tenant domain the tenant is pinned by the host, which would fight the
+ * admin store switcher — a merchant with two shops could open /admin on one
+ * domain and silently edit the other. Sending them to the shop instead is the
+ * unambiguous behaviour.
+ */
+function AdminOnPlatform({ children }: { children: React.ReactNode }) {
+  const { mode } = useSite();
+
+  if (mode === 'loading') return <PageLoader />;
+  if (mode === 'storefront') return <Navigate to="/" replace />;
+
   return <>{children}</>;
 }
 
@@ -186,6 +255,10 @@ function Layout({ children }: { children: React.ReactNode }) {
 export default function App() {
   return (
     <Provider store={store}>
+      {/* Resolves platform-vs-storefront from the hostname once, above the
+          router, so every route can ask `useSite()` and no route renders
+          against an unresolved tenant. */}
+      <SiteProvider>
       <BrowserRouter>
         <Toaster
           position="top-right"
@@ -194,9 +267,16 @@ export default function App() {
             style: { borderRadius: '10px', fontSize: '14px' },
           }}
         />
+        <SiteGate>
         <Routes>
+          {/* Root — the one route whose meaning depends on the HOST.
+              On a tenant domain it is that merchant's shop; on the platform's
+              own domain it is the platform. This used to be unconditionally a
+              storefront bound to one hardcoded store, which made the platform
+              and a tenant the same page. */}
+          <Route path="/" element={<RootRoute />} />
+
           {/* Public */}
-          <Route path="/"           element={<Layout><HomePage /></Layout>} />
           <Route path="/login"      element={<Suspense fallback={<PageLoader />}><LoginPage /></Suspense>} />
           <Route path="/register"   element={<Suspense fallback={<PageLoader />}><RegisterPage /></Suspense>} />
           <Route path="/start"      element={<Suspense fallback={<PageLoader />}><StartStorePage /></Suspense>} />
@@ -223,11 +303,26 @@ export default function App() {
             <Route path="products/:id" element={<Suspense fallback={<PageLoader />}><StorefrontProductPage /></Suspense>} />
             <Route path="cart"    element={<Suspense fallback={<PageLoader />}><StorefrontCartPage /></Suspense>} />
             <Route path="orders"  element={<Suspense fallback={<PageLoader />}><StorefrontOrdersPage /></Suspense>} />
+            {/* Checkout MUST live inside this tree.
+                It previously sat only at the top-level /checkout, so a
+                storefront shopper leaving the cart unmounted StorefrontLayout —
+                and with it the provider that identifies the tenant. The order
+                was then placed against whatever the axios interceptor fell back
+                to, which is the platform's own hardcoded store. Nested here,
+                the provider stays mounted and `useTenant()` keeps resolving the
+                merchant the shopper is actually buying from. */}
+            <Route path="checkout" element={<Suspense fallback={<PageLoader />}><CheckoutPage /></Suspense>} />
+            <Route path="orders/:id" element={<Suspense fallback={<PageLoader />}><OrderDetailPage /></Suspense>} />
           </Route>
 
-          {/* Admin protected */}
+          {/* Admin protected.
+              Registered on every host, but AdminLayout is only reachable on the
+              platform: `AdminOnPlatform` below bounces a tenant domain back to
+              its shop. Merchants administer from the platform host, the way
+              admin.shopify.com is separate from the shop's own domain — mixing
+              them would put the store switcher in conflict with the host. */}
           <Route element={<ProtectedRoute requiredRole="admin" />}>
-            <Route path="/admin" element={<AdminLayout />}>
+            <Route path="/admin" element={<AdminOnPlatform><AdminLayout /></AdminOnPlatform>}>
               <Route index        element={<Suspense fallback={<PageLoader />}><AdminDashboard /></Suspense>} />
               <Route path="products" element={<Suspense fallback={<PageLoader />}><AdminProducts /></Suspense>} />
               <Route path="categories" element={<Suspense fallback={<PageLoader />}><AdminCategories /></Suspense>} />
@@ -236,6 +331,8 @@ export default function App() {
               <Route path="newsletter" element={<Suspense fallback={<PageLoader />}><AdminNewsletter /></Suspense>} />
               <Route path="coupons"    element={<Suspense fallback={<PageLoader />}><AdminCoupons /></Suspense>} />
               <Route path="settings"   element={<Suspense fallback={<PageLoader />}><AdminSettings /></Suspense>} />
+              <Route path="shipping"   element={<Suspense fallback={<PageLoader />}><AdminShipping /></Suspense>} />
+              <Route path="tax"        element={<Suspense fallback={<PageLoader />}><AdminTax /></Suspense>} />
               <Route path="pricing"    element={<Suspense fallback={<PageLoader />}><AdminPricing /></Suspense>} />
               <Route
                 path="plan-editor"
@@ -257,6 +354,7 @@ export default function App() {
             </Route>
           </Route>
         </Routes>
+        </SiteGate>
 
         {/* Rendered after <Routes> purely for tab order. It is position:fixed so
             DOM position has no visual effect, but sitting before the routes made
@@ -264,6 +362,7 @@ export default function App() {
             skip link, which must come first to be useful. */}
         <BackToTop />
       </BrowserRouter>
+      </SiteProvider>
     </Provider>
   );
 }

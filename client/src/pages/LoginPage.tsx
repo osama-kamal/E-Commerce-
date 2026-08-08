@@ -6,6 +6,7 @@ import toast from 'react-hot-toast';
 import { authApi } from '../api/auth';
 import { setCredentials, logout } from '../store/authSlice';
 import { useAppDispatch } from '../hooks/useAppDispatch';
+import { useTenant } from '../hooks/useTenant';
 
 const schema = yup.object({
   email: yup.string().email('Enter a valid email').required('Email is required'),
@@ -17,6 +18,7 @@ type FormData = yup.InferType<typeof schema>;
 export default function LoginPage() {
   const dispatch = useAppDispatch();
   const navigate = useNavigate();
+  const tenant = useTenant();
 
   const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<FormData>({
     resolver: yupResolver(schema),
@@ -28,7 +30,17 @@ export default function LoginPage() {
       // where old credentials can race with the new ones being applied.
       dispatch(logout());
 
-      const res = await authApi.login(data.email, data.password);
+      // Two different authentication decisions, chosen by which surface the
+      // visitor is on. A shopper on a storefront authenticates against THAT
+      // store; a merchant on the platform host authenticates against their own
+      // account and picks a store afterwards in the switcher.
+      //
+      // Sending a shopper down the platform path (or the reverse) is what the
+      // old single-endpoint login did implicitly, and it let one tenant's
+      // password reach another tenant's account.
+      const res = tenant.isStorefront
+        ? await authApi.login(data.email, data.password)
+        : await authApi.platformLogin(data.email, data.password);
       const { user, accessToken } = res.data.data;
 
       // Persist the user's storeId so the axios interceptor sets X-Store-ID correctly
@@ -38,8 +50,11 @@ export default function LoginPage() {
 
       dispatch(setCredentials({ user, accessToken }));
       toast.success('Welcome back!');
-      // super-admin and admin both land on /admin; the sidebar adapts based on role
-      navigate(user.role === 'customer' ? '/' : '/admin');
+
+      // On a storefront, a customer belongs in the shop they just signed into —
+      // `tenant.path` keeps them inside the tenant tree rather than dropping
+      // them on the platform's own root.
+      navigate(user.role === 'customer' ? tenant.path('/') : '/admin');
     } catch (err: any) {
       const msg: string =
         err?.response?.data?.message ??

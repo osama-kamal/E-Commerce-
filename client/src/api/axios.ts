@@ -1,6 +1,7 @@
 import axios from 'axios';
 import toast from 'react-hot-toast';
 import { store } from '../store';
+import { getHostTenant } from './activeTenant';
 import { logout, setTokens } from '../store/authSlice';
 
 const api = axios.create({
@@ -22,49 +23,50 @@ api.interceptors.request.use((config) => {
 
   // Multi-tenant: attach the store identifier so the backend can resolve the tenant.
   //
-  // Priority order:
-  //  1. Storefront slug in sessionStorage (set by StorefrontProvider while inside /s/:slug)
-  //     This MUST take precedence — otherwise VITE_STORE_ID would always win and
-  //     override it with the platform store's ID, breaking storefront cart/wishlist.
-  //  2. currentStoreId in localStorage (vendor admin session — explicit user selection)
-  //  3. VITE_STORE_ID env var (legacy single-store fallback, only when nothing else is set)
-  //  4. VITE_STORE_SLUG env var (build-time slug, last resort)
+  // Priority, most specific first:
+  //   1. Path storefront (/s/:slug) — the route the user is literally on.
+  //   2. Host tenant — this deployment's own domain maps to a store. Resolved
+  //      once at boot by SiteProvider and held in memory, never in storage.
+  //   3. Admin-selected store — a merchant working in /admin on the platform
+  //      host, where the store comes from the switcher rather than the URL.
+  //
+  // `VITE_STORE_ID` used to sit at the bottom of this list, which meant that on
+  // the platform's own domain EVERY request resolved to one hardcoded tenant.
+  // It is gone: a store is now reachable only by a route or a host that
+  // genuinely belongs to it. The dev-only override lives in SiteContext, where
+  // it is gated on a development build and cannot leak into production.
+  //
+  // Host outranks the admin selection deliberately: a shopper on
+  // shop.acme.com must see Acme even if that browser once administered another
+  // store and left `currentStoreId` behind.
 
-  const storefrontSlug = sessionStorage.getItem('sf_active_slug');
+  const pathStorefrontSlug = sessionStorage.getItem('sf_active_slug');
+  const hostTenant = getHostTenant();
 
-  if (storefrontSlug) {
-    // Inside a /s/:slug storefront — always use the slug, ignore everything else
-    config.headers['X-Store-Slug'] = storefrontSlug;
+  const isValidObjectId = (id: string | undefined | null): boolean =>
+    typeof id === 'string' && /^[a-f\d]{24}$/i.test(id);
+
+  if (pathStorefrontSlug) {
+    config.headers['X-Store-Slug'] = pathStorefrontSlug;
+  } else if (hostTenant) {
+    config.headers['X-Store-ID'] = hostTenant.storeId;
   } else {
     const currentStoreId = localStorage.getItem('currentStoreId');
-    const envStoreId = import.meta.env.VITE_STORE_ID as string | undefined;
-    const storeSlug = import.meta.env.VITE_STORE_SLUG as string | undefined;
 
-    const storeId: string | undefined = currentStoreId || envStoreId;
-
-    // Guard: only send X-Store-ID if it's a valid 24-char MongoDB ObjectId.
-    // Intentionally returns boolean (not a type predicate) so TypeScript does not
-    // narrow storeId to never in the else-branch, which would break .length access.
-    const isValidObjectId = (id: string | undefined | null): boolean =>
-      typeof id === 'string' && /^[a-f\d]{24}$/i.test(id);
-
-    if (isValidObjectId(storeId)) {
-      config.headers['X-Store-ID'] = storeId as string;
-    } else {
-      if (storeId) {
-        // The ID is present but invalid — warn loudly so typos are caught immediately.
-        // A bad ID means resolveStore will skip it and return 404 for all tenant routes.
-        console.error(
-          `[axios] ⚠️ currentStoreId in localStorage is NOT a valid 24-char ObjectId ` +
-          `(got "${storeId}", length ${storeId.length}). ` +
-          `All API calls will return 404 until a valid ID is set. ` +
-          `Fix: localStorage.setItem('currentStoreId', 'YOUR_24_CHAR_ID')`
-        );
-      }
-      if (storeSlug) {
-        config.headers['X-Store-Slug'] = storeSlug;
-      }
+    if (isValidObjectId(currentStoreId)) {
+      config.headers['X-Store-ID'] = currentStoreId as string;
+    } else if (currentStoreId) {
+      // Present but malformed — warn loudly so typos surface immediately rather
+      // than as a wall of 404s from every tenant route.
+      console.error(
+        `[axios] ⚠️ currentStoreId in localStorage is NOT a valid 24-char ObjectId ` +
+        `(got "${currentStoreId}", length ${currentStoreId.length}). ` +
+        `All tenant API calls will 404 until a valid ID is set.`
+      );
     }
+    // Otherwise send no store header at all. On the platform host that is
+    // correct: platform routes (/auth, /onboarding, /plans, /stores) are not
+    // tenant-scoped, and guessing a tenant here is exactly the old bug.
   }
 
   return config;

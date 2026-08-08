@@ -314,7 +314,11 @@ export default function StorefrontLayout() {
   const { store } = state;
 
   return (
-    <StorefrontProvider store={store} slug={slug!}>
+    // `key={slug}` forces a full remount when the shopper moves between two
+    // storefronts in-SPA. Without it React Router reuses this subtree across
+    // param changes, and any state seeded from the old slug — the scoped axios
+    // instance, cached queries, in-flight requests — leaks into the new tenant.
+    <StorefrontProvider key={slug} store={store} slug={slug!}>
       {/* Applies the merchant's chosen presentation theme to this storefront.
           Wraps only the layout, so nothing outside /s/:slug is affected, and it
           renders no DOM of its own — the tree below is unchanged. */}

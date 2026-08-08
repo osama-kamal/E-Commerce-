@@ -1,6 +1,7 @@
 import { createSlice, createAsyncThunk, PayloadAction } from '@reduxjs/toolkit';
 import { Store } from '../types';
 import axios from 'axios';
+import { getHostTenant } from '../api/activeTenant';
 
 // ── Persistence helpers ───────────────────────────────────────────────────────
 
@@ -47,13 +48,18 @@ const initialState: StoreState = {
 /** Fetch the current store from the backend and refresh the cached copy. */
 export const fetchCurrentStore = createAsyncThunk('store/fetchCurrent', async () => {
   // Priority order for resolving which store to load:
-  //   1. currentStoreId in localStorage (explicit store the user last selected)
-  //   2. storeId embedded in the JWT (the store this account actually belongs to)
-  //   3. VITE_STORE_ID env var (legacy fallback for single-tenant deployments)
+  //   1. Host tenant — this deployment's domain belongs to a store, so that
+  //      store wins over anything a previous session left in storage.
+  //   2. currentStoreId in localStorage (the store the user last selected in
+  //      the admin switcher)
+  //   3. storeId embedded in the JWT (the store this account belongs to)
   //
-  // Using the JWT storeId as #2 prevents a stale VITE_STORE_ID (which equals
-  // the platform store) from loading the wrong store for vendor accounts.
-  let storeId = localStorage.getItem('currentStoreId');
+  // There is deliberately no env-var fallback any more. `VITE_STORE_ID` sat at
+  // the bottom of this list and meant that on the platform's own domain every
+  // visitor loaded one hardcoded tenant. Resolving to NOTHING is the correct
+  // answer on a platform host: there is no current store, and pages that need
+  // one say so rather than silently showing someone else's shop.
+  let storeId = getHostTenant()?.storeId ?? localStorage.getItem('currentStoreId');
 
   if (!storeId) {
     // Try to extract storeId from the JWT payload
@@ -66,12 +72,8 @@ export const fetchCurrentStore = createAsyncThunk('store/fetchCurrent', async ()
         }
       }
     } catch {
-      // Malformed token — fall through to env var
+      // Malformed token — no store to load
     }
-  }
-
-  if (!storeId) {
-    storeId = import.meta.env.VITE_STORE_ID;
   }
 
   if (!storeId) return null;

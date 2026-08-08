@@ -3,9 +3,6 @@
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "installCommand": "npm install",
-  "env": {
-    "VITE_STORE_ID": "6a03b5108bdcd392044d1c37"
-  },
   "rewrites": [
     {
       "source": "/api/:path*",
