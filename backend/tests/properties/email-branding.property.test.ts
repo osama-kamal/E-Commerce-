@@ -1,28 +1,45 @@
 /**
- * Property 1: Bug Condition — Hardcoded "Ecommerce Store" Branding in All Email Types
+ * Every email must carry the TENANT's branding, not the platform's.
  *
  * **Validates: Requirements 1.1, 1.2, 1.3, 1.4, 1.5, 1.6**
  *
- * CRITICAL: This test MUST FAIL on unfixed code — failure confirms the bug exists.
- * DO NOT attempt to fix the test or the code when it fails.
+ * ── History ───────────────────────────────────────────────────────────────────
+ * Written as a bug-reproduction test: all five send methods ignored `storeId`
+ * and rendered the platform name, so every merchant's customers received email
+ * branded "Ecommerce Store". The header used to say the test MUST FAIL, and that
+ * failing was the point.
  *
- * GOAL: Surface counterexamples that demonstrate that all five send methods ignore
- * storeId and render "Ecommerce Store" instead of the real store name.
+ * The bug was fixed — `fetchStoreBranding` resolves the store and the templates
+ * render `store.name`. But this file kept failing afterwards for an unrelated
+ * reason: it captured outbound mail by spying on **nodemailer's** `sendMail`,
+ * and the service had migrated to the **Resend** SDK. `nodemailer` is not even a
+ * dependency any more. So the spy was never called, `getCapturedHtml()` threw on
+ * an empty mock, and the suite reported a branding bug that no longer existed —
+ * for months, in a permanently-red CI.
  *
- * When the fix is applied (task 3), this same test will PASS — confirming the fix works.
+ * It now mocks the transport the service actually uses, so a failure here means
+ * what it says again.
  */
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 
 // ── Mocks (must be declared before module imports) ────────────────────────────
 
-// Capture sendMail arguments so we can inspect the rendered HTML
-const mockSendMail = jest.fn<() => Promise<{ messageId: string }>>().mockResolvedValue({ messageId: 'test-id' });
-const mockVerify = jest.fn<() => Promise<boolean>>().mockResolvedValue(true);
+// Capture the payload handed to Resend so the rendered HTML can be inspected.
+const mockSend = jest
+  .fn<() => Promise<{ data: { id: string }; error: null }>>()
+  .mockResolvedValue({ data: { id: 'test-id' }, error: null });
 
-// NOTE: no `jest.mock('nodemailer', ...)` — EmailService uses the Resend SDK
-// and never imported nodemailer, so the mock was inert. The dependency has been
-// removed from package.json (unused, high-severity advisory).
+jest.mock('resend', () => ({
+  Resend: jest.fn().mockImplementation(() => ({
+    emails: { send: (...args: unknown[]) => mockSend(...(args as [])) },
+  })),
+}));
+
+// EmailService reads this in its constructor and stays disabled without it —
+// a disabled service returns before ever calling the transport, which would
+// leave the capture empty for a second, equally invisible reason.
+process.env.RESEND_API_KEY = 'test-resend-key';
 
 // Mock Store.findById to return "Acme Shop" store data
 jest.mock('../../src/modules/stores/store.model', () => ({
@@ -92,22 +109,21 @@ const paymentData: PaymentEmailData = {
 // ── Helper ────────────────────────────────────────────────────────────────────
 
 /**
- * Returns the HTML string from the most recent sendMail call.
- * Throws if sendMail was not called.
+ * Returns the HTML from the most recent send.
+ * Fails loudly if nothing was sent — an empty capture must never read as a pass.
  */
 function getCapturedHtml(): string {
-  expect(mockSendMail).toHaveBeenCalled();
-  const calls = mockSendMail.mock.calls;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  expect(mockSend).toHaveBeenCalled();
+  const calls = mockSend.mock.calls;
   const lastCall = calls[calls.length - 1] as unknown as [{ html: string }];
   return lastCall[0].html;
 }
 
-// ── Property 1: Bug Condition — Store-Branded Email Content ───────────────────
+// ── Store-branded email content ───────────────────────────────────────────────
 
-describe('Property 1: Bug Condition — Hardcoded "Ecommerce Store" Branding in All Email Types', () => {
+describe('every email type renders the tenant store name, not the platform name', () => {
   beforeEach(() => {
-    mockSendMail.mockClear();
+    mockSend.mockClear();
   });
 
   /**
