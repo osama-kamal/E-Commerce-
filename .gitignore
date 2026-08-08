@@ -34,3 +34,10 @@ Thumbs.db
 .idea/
 *.swp
 *.swo
+
+# ── Migration rollback artifacts ─────────────────────────────────────────────
+# Written by repair:owners and repair:store-owner. They contain live store ids,
+# slugs, names and a ready-to-run restore command — operational output of a
+# production run, not source. Keep them on disk, out of the repo.
+owner-consolidation-rollback-*.json
+rollback-store-owner-*.json
