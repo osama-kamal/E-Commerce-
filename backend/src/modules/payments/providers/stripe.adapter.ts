@@ -23,6 +23,7 @@ import { Payment } from '../payment.model';
 import { User } from '../../auth/user.model';
 import { Types } from 'mongoose';
 import { logger } from '../../../utils/logger';
+import { minorUnitExponent } from '../../checkout/currency';
 import { emailService } from '../../../services/email.service';
 import {
   handleSubscriptionCreated,
@@ -35,9 +36,30 @@ import type {
   IPaymentProvider,
   InitiatePaymentParams,
   InitiatePaymentResult,
+  RefundPaymentParams,
+  RefundPaymentResult,
   ProviderEvent,
   PaymentProviderKey,
 } from './payment-provider.interface';
+
+/**
+ * Stripe's own constraint on three-decimal currencies (KWD, BHD, OMR, JOD, TND,
+ * IQD, LYD): the amount must be submitted in the minor unit but be **evenly
+ * divisible by 10**, because Stripe settles those currencies to two decimal
+ * places. `toMinorUnits` produces the arithmetically correct figure; this
+ * truncates it to something Stripe will actually accept.
+ *
+ * Truncates rather than rounds up, so the customer is never charged more than
+ * the order says. The discarded remainder is at most one thousandth of a unit.
+ *
+ * Applied at the adapter boundary, not in `checkout/currency.ts` — this is a
+ * quirk of one gateway, and baking it into the shared money helper would give
+ * every other caller (Paymob, the ledger, reporting) a subtly wrong number.
+ */
+function toStripeAmount(amountInSmallestUnit: number, currency: string): number {
+  if (minorUnitExponent(currency) !== 3) return amountInSmallestUnit;
+  return Math.floor(amountInSmallestUnit / 10) * 10;
+}
 
 export class StripeAdapter implements IPaymentProvider {
   readonly name: PaymentProviderKey = 'stripe';
@@ -64,7 +86,7 @@ export class StripeAdapter implements IPaymentProvider {
 
     const paymentIntent = await stripe.paymentIntents.create(
       {
-        amount: amountInSmallestUnit,
+        amount: toStripeAmount(amountInSmallestUnit, currency),
         currency,
         metadata: { orderId, customerId },
       },
@@ -86,6 +108,41 @@ export class StripeAdapter implements IPaymentProvider {
         clientSecret: paymentIntent.client_secret,
         paymentIntentId: paymentIntent.id,
       },
+    };
+  }
+
+  // ── refundPayment ────────────────────────────────────────────────────────
+
+  async refundPayment(params: RefundPaymentParams): Promise<RefundPaymentResult> {
+    const { providerPaymentId, amountInSmallestUnit, currency, idempotencyKey, reason } = params;
+
+    // Amount is always supplied, even for a "full" refund. Omitting it lets
+    // Stripe decide the figure, which would diverge from the ledger the caller
+    // already reserved against — and on a partially-refunded intent Stripe's
+    // idea of "full" is the remainder, not the original total.
+    const refund = await stripe.refunds.create(
+      {
+        payment_intent: providerPaymentId,
+        // Same three-decimal constraint as the charge — a refund Stripe rejects
+        // for scale would strand the reservation the caller already made.
+        amount: toStripeAmount(amountInSmallestUnit, currency),
+        // Stripe accepts only a fixed vocabulary here, and a free-text merchant
+        // reason is not part of it. The human reason is kept on our own Refund
+        // record; this field is only for Stripe's fraud tooling.
+        ...(reason === 'fraudulent' || reason === 'duplicate'
+          ? { reason: reason as 'fraudulent' | 'duplicate' }
+          : {}),
+        metadata: { ...(reason ? { merchantReason: reason.slice(0, 500) } : {}) },
+      },
+      { idempotencyKey }
+    );
+
+    // Stripe reports `pending` for methods that settle asynchronously. The
+    // caller must not treat that as failure — the money is on its way and
+    // `charge.refunded` confirms it.
+    return {
+      providerRefundId: refund.id,
+      status: refund.status === 'succeeded' ? 'succeeded' : 'pending',
     };
   }
 
@@ -180,6 +237,10 @@ export class StripeAdapter implements IPaymentProvider {
     const typeMap: Record<string, ProviderEvent['type']> = {
       'payment_intent.succeeded':          'payment.succeeded',
       'payment_intent.payment_failed':     'payment.failed',
+      // Fires for refunds we issued AND for ones a merchant made directly in
+      // the Stripe dashboard. Reconciling the latter is what keeps the local
+      // ledger from drifting away from what Stripe actually did.
+      'charge.refunded':                   'refund.succeeded',
       'customer.subscription.created':     'subscription.created',
       'customer.subscription.updated':     'subscription.updated',
       'customer.subscription.deleted':     'subscription.deleted',
@@ -230,6 +291,10 @@ export class StripeAdapter implements IPaymentProvider {
         orderId: new Types.ObjectId(orderId),
         customerId: new Types.ObjectId(customerId),
         stripePaymentIntentId: intent.id,
+        // Explicit provider fields so refunds know which gateway to call and
+        // with what reference, instead of inferring it from a prefixed string.
+        provider: 'stripe',
+        providerPaymentId: intent.id,
         amount: intent.amount,
         currency: intent.currency,
         status: 'succeeded',
@@ -248,6 +313,9 @@ export class StripeAdapter implements IPaymentProvider {
     }
 
     order.status = 'processing';
+    // The money has arrived — record it on the payment axis so the order is
+    // refundable. Fulfilment and payment move together only at this moment.
+    order.paymentStatus = 'paid';
     await order.save();
 
     const storeId = order.storeId.toString();

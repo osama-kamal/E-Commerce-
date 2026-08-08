@@ -32,8 +32,27 @@ describe('formatCurrency', () => {
     expect(formatCurrency(-1234.56)).toBe('-$1,234.56');
   });
 
-  it('always shows two fraction digits', () => {
+  it('shows two fraction digits for a two-decimal currency', () => {
     expect(formatCurrency(5)).toBe('$5.00');
+  });
+
+  // Decimal places come from the currency's ISO 4217 exponent, not a constant.
+  // Pinning it to 2 rendered "¥5,000.00" for a currency with no sub-unit, and
+  // truncated the third decimal of the Gulf dinars.
+  it('shows no fraction digits for a zero-decimal currency', () => {
+    expect(formatCurrency(5000, 'JPY')).toBe('¥5,000');
+    expect(formatCurrency(12500, 'KRW')).toContain('12,500');
+    expect(formatCurrency(12500, 'KRW')).not.toContain('.00');
+  });
+
+  it('shows three fraction digits for a three-decimal currency', () => {
+    const kwd = formatCurrency(5, 'KWD');
+    expect(kwd).toContain('5.000');
+  });
+
+  it('still agrees with the server on a two-decimal currency', () => {
+    expect(formatCurrency(19.99, 'USD')).toBe('$19.99');
+    expect(formatCurrency(250, 'EGP')).toContain('250.00');
   });
 
   it('falls back gracefully on an invalid code instead of throwing', () => {
