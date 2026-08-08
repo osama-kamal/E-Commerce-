@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, FormEvent } from 'react';
+import { useState, useEffect, useMemo, useRef, FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { loadStripe } from '@stripe/stripe-js';
 import { Elements, CardElement, useStripe, useElements } from '@stripe/react-stripe-js';
@@ -7,17 +7,19 @@ import { yupResolver } from '@hookform/resolvers/yup';
 import * as yup from 'yup';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  Banknote, Check, CheckCircle2, CreditCard, FlaskConical, Info, Lock, Tag,
+  Banknote, Check, CheckCircle2, CreditCard, FlaskConical, Info, Lock, Tag, Truck,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { ordersApi } from '../api/orders';
-import { paymentsApi } from '../api/payments';
+import { createOrdersApi } from '../api/orders';
+import { createPaymentsApi } from '../api/payments';
+import { createShippingQuoteApi } from '../api/shipping';
 import { useAppSelector, useAppDispatch } from '../hooks/useAppDispatch';
+import { useTenant } from '../hooks/useTenant';
 import { validateCouponThunk, removeCoupon } from '../store/couponSlice';
 import { resolveCheckoutMode } from '../utils/checkoutMode';
 import { isTrustedPaymobOrigin } from '../utils/paymobOrigin';
 import { formatCurrency } from '../utils/format';
-import { ShippingAddress } from '../types';
+import { ShippingAddress, ShippingQuote, OrderTotals } from '../types';
 
 // ── Provider type ─────────────────────────────────────────────────────────────
 type OnlineProvider = 'stripe' | 'paymob';
@@ -191,13 +193,147 @@ function StripePaymentStep({
 
 // ── Main checkout form ────────────────────────────────────────────────────────
 
+/**
+ * Delivery-method picker.
+ *
+ * Re-quotes the server on every selection rather than adjusting a local total,
+ * so the figure on screen is always one the server produced and will honour.
+ */
+function DeliveryOptions({
+  quote, loading, selectedRateId, currency, onSelect,
+}: {
+  quote: ShippingQuote | null;
+  loading: boolean;
+  selectedRateId: string | null;
+  currency: string;
+  onSelect: (rateId: string) => void;
+}) {
+  if (loading) {
+    return (
+      <p className="text-xs text-gray-500 dark:text-gray-400">Checking delivery options…</p>
+    );
+  }
+  if (!quote) return null;
+
+  if (!quote.shipsToDestination) {
+    return (
+      <p role="alert" className="text-xs text-red-600 dark:text-red-400">
+        We don&rsquo;t currently deliver to that country. Try a different address, or contact the
+        store.
+      </p>
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      {quote.options.map(opt => {
+        const selected = opt.rateId === selectedRateId;
+        return (
+          <label
+            key={opt.rateId}
+            className={`flex cursor-pointer items-center gap-3 rounded-xl border p-3 transition-all ${
+              selected
+                ? 'border-gray-900 bg-gray-50 shadow-soft dark:border-white dark:bg-gray-800'
+                : 'border-gray-200 hover:border-gray-300 dark:border-gray-700 dark:hover:border-gray-600'
+            }`}
+          >
+            <input
+              type="radio"
+              name="shippingRate"
+              value={opt.rateId}
+              checked={selected}
+              onChange={() => onSelect(opt.rateId)}
+              className="sr-only"
+            />
+            <Truck className="h-4 w-4 shrink-0 text-gray-500 dark:text-gray-400" aria-hidden="true" />
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-gray-900 dark:text-white">{opt.name}</p>
+              {opt.description && (
+                <p className="truncate text-xs text-gray-500 dark:text-gray-400">{opt.description}</p>
+              )}
+            </div>
+            <span className="ml-auto text-sm font-semibold text-gray-900 dark:text-white">
+              {opt.amount === 0 ? 'Free' : formatCurrency(opt.amount, currency)}
+            </span>
+          </label>
+        );
+      })}
+    </div>
+  );
+}
+
+/**
+ * Money breakdown.
+ *
+ * Every figure comes from the server. Tax is shown as a separate added line
+ * only when the store prices tax-exclusively; on an inclusive catalogue the tax
+ * is already inside the total and is annotated rather than added, because
+ * adding it would overstate what the customer pays.
+ */
+function TotalsBreakdown({ totals, currency }: { totals: OrderTotals; currency: string }) {
+  const inclusive = totals.taxLines.some(l => l.inclusive);
+
+  return (
+    <div className="space-y-1 text-sm text-gray-600 dark:text-gray-400">
+      <div className="flex justify-between">
+        <span>Subtotal</span><span>{formatCurrency(totals.subtotal, currency)}</span>
+      </div>
+
+      {totals.discountTotal > 0 && (
+        <div className="flex justify-between text-green-600 dark:text-green-400">
+          <span>Discount</span><span>−{formatCurrency(totals.discountTotal, currency)}</span>
+        </div>
+      )}
+
+      <div className="flex justify-between">
+        <span>Shipping</span>
+        <span>
+          {totals.shippingTotal === 0 ? 'Free' : formatCurrency(totals.shippingTotal, currency)}
+        </span>
+      </div>
+
+      {!inclusive && totals.taxLines.map(line => (
+        <div key={line.name} className="flex justify-between">
+          <span>{line.name} ({line.rate}%)</span>
+          <span>{formatCurrency(line.amount, currency)}</span>
+        </div>
+      ))}
+
+      <div className="flex justify-between border-t pt-1 font-semibold text-gray-900 dark:border-gray-700 dark:text-white">
+        <span>Total</span><span>{formatCurrency(totals.grandTotal, currency)}</span>
+      </div>
+
+      {inclusive && totals.taxTotal > 0 && (
+        <p className="text-xs text-gray-400">
+          Includes {formatCurrency(totals.taxTotal, currency)}{' '}
+          {totals.taxLines.map(l => l.name).join(' + ')}
+        </p>
+      )}
+    </div>
+  );
+}
+
 function CheckoutForm() {
   const navigate = useNavigate();
   const dispatch = useAppDispatch();
   const cart = useAppSelector(s => s.cart.cart);
+
+  // This component renders on the main site AND inside /s/:slug, so every
+  // tenant-dependent value comes from `useTenant()` rather than from Redux or
+  // ambient storage. Reading `currentStore` here would have shown the platform
+  // store's currency to a shopper checking out on a merchant's storefront —
+  // the same class of mismatch as the routing bug itself.
+  const tenant = useTenant();
   // Amounts must be rendered in the store's currency. The UI previously printed
   // a literal "$" regardless, so an EGP store quoted dollars and billed pounds.
-  const currency = useAppSelector(s => s.currentStore.current?.currency) ?? 'USD';
+  const currency = tenant.currency;
+
+  // API clients bound to THIS tenant's axios instance. Placing an order,
+  // quoting delivery and taking payment all previously went through the global
+  // singleton, whose tenant came from whatever was left in sessionStorage.
+  const orders = useMemo(() => createOrdersApi(tenant.api), [tenant.api]);
+  const payments = useMemo(() => createPaymentsApi(tenant.api), [tenant.api]);
+  const shipping = useMemo(() => createShippingQuoteApi(tenant.api), [tenant.api]);
   const { discount, code: couponCode, label: couponLabel, loading: couponLoading, error: couponError } = useAppSelector(s => s.coupon);
 
   const [step, setStep] = useState<Step>(0);
@@ -221,12 +357,64 @@ function CheckoutForm() {
   // Ensures that clicking "Continue to Payment" twice creates only one order.
   const idempotencyKey = useState(() => `checkout_${Date.now()}_${Math.random().toString(36).slice(2)}`)[0];
 
-  const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<AddressForm>({
+  const { register, handleSubmit, watch, formState: { errors, isSubmitting } } = useForm<AddressForm>({
     resolver: yupResolver(addressSchema),
     defaultValues: { country: 'US' },
   });
 
-  const finalTotal = savedTotal > 0 ? savedTotal : Math.max(0, (cart?.subtotal ?? 0) - discount);
+  // ── Shipping quote ─────────────────────────────────────────────────────────
+  // Re-fetched whenever the destination, the coupon, or the chosen method
+  // changes. The server prices it against the stored cart, so nothing here
+  // needs (or is allowed) to compute money locally.
+  const [quote, setQuote] = useState<ShippingQuote | null>(null);
+  const [quoteLoading, setQuoteLoading] = useState(false);
+  const [shippingRateId, setShippingRateId] = useState<string | null>(null);
+
+  const country = watch('country');
+  const state = watch('state');
+
+  useEffect(() => {
+    const trimmed = (country ?? '').trim();
+    // Country codes are 2 letters; anything shorter is mid-typing and would
+    // produce a pointless 422 on every keystroke.
+    if (trimmed.length !== 2) { setQuote(null); return; }
+
+    let cancelled = false;
+    setQuoteLoading(true);
+
+    const handle = window.setTimeout(() => {
+      shipping
+        .quote(trimmed, state || undefined, couponCode ?? undefined, shippingRateId ?? undefined)
+        .then(res => {
+          if (cancelled) return;
+          const data = res.data.data;
+          setQuote(data);
+          // Adopt the server's choice when we had none, or when ours is no
+          // longer offered for this destination.
+          const stillValid = data.options.some(o => o.rateId === shippingRateId);
+          if (!stillValid) setShippingRateId(data.selectedRateId);
+        })
+        .catch(() => { if (!cancelled) setQuote(null); })
+        .finally(() => { if (!cancelled) setQuoteLoading(false); });
+    }, 350);
+
+    return () => { cancelled = true; window.clearTimeout(handle); };
+    // `shipping` is memoised on the tenant's axios instance, so it is stable
+    // within a tenant and changes only if the tenant does — which SHOULD
+    // re-quote, since the rates belong to the merchant.
+  }, [country, state, couponCode, shippingRateId, shipping]);
+
+  /**
+   * The amount shown and charged.
+   *
+   * Priority: the placed order's own total → the live server quote → the bare
+   * cart subtotal as a pre-quote placeholder. Never computed from parts on the
+   * client; shipping and tax only ever arrive from the server.
+   */
+  const finalTotal =
+    savedTotal > 0
+      ? savedTotal
+      : quote?.totals.grandTotal ?? Math.max(0, (cart?.subtotal ?? 0) - discount);
 
   const handleApplyCoupon = async () => {
     const code = couponInput.trim();
@@ -255,11 +443,20 @@ function CheckoutForm() {
 
     setOrderLoading(true);
     try {
-      const currentTotal = Math.max(0, (cart?.subtotal ?? 0) - discount);
-      setSavedTotal(currentTotal);
+      // Optimistic placeholder only — overwritten below with the server's
+      // authoritative total once the order comes back.
+      setSavedTotal(quote?.totals.grandTotal ?? Math.max(0, (cart?.subtotal ?? 0) - discount));
       setSavedItems(cart?.items ?? []);
 
-      const orderRes = await ordersApi.place(data as ShippingAddress, paymentMethod, couponCode ?? undefined, idempotencyKey);
+      const orderRes = await orders.place(
+        data as ShippingAddress,
+        paymentMethod,
+        couponCode ?? undefined,
+        idempotencyKey,
+        // Only the ID travels. The server re-derives the postage from the rate
+        // record, so this cannot be used to discount delivery.
+        shippingRateId ?? undefined
+      );
       const order = orderRes.data.data;
       const oid = order._id;
       setOrderId(oid);
@@ -273,14 +470,14 @@ function CheckoutForm() {
       if (paymentMethod === 'cod') { setStep(2); return; }
 
       if (onlineProvider === 'paymob') {
-        const paymobRes = await paymentsApi.initiatePaymob(oid);
+        const paymobRes = await payments.initiatePaymob(oid);
         setPaymobIframeUrl(paymobRes.data.data.iframeUrl);
         setStep(1);
         return;
       }
 
       if (!TEST_MODE) {
-        const intentRes = await paymentsApi.createIntent(oid);
+        const intentRes = await payments.createIntent(oid);
         setClientSecret(intentRes.data.data.clientSecret);
       }
       setStep(1);
@@ -289,12 +486,12 @@ function CheckoutForm() {
       if (msg.includes('different store')) {
         toast.error('Your cart has items from another store. Clearing cart…', { duration: 4000 });
         try {
-          const { cartApi } = await import('../api/cart');
-          const res = await cartApi.clear();
+          const { createCartApi } = await import('../api/cart');
+          const res = await createCartApi(tenant.api).clear();
           const { setCart } = await import('../store/cartSlice');
           dispatch(setCart(res.data.data));
-          navigate('/cart');
-        } catch { navigate('/cart'); }
+          navigate(tenant.path('/cart'));
+        } catch { navigate(tenant.path('/cart')); }
       }
     } finally {
       setOrderLoading(false);
@@ -321,7 +518,9 @@ function CheckoutForm() {
 
   const handleFinish = () => {
     toast.success('Order placed successfully!');
-    navigate(`/orders/${orderId}?success=1`);
+    // Tenant-relative: sending a storefront shopper to the bare /orders/:id
+    // would drop them onto the main site, where the order does not exist.
+    navigate(tenant.path(`/orders/${orderId}?success=1`));
   };
 
   // Guard: redirect to cart if it becomes empty during checkout.
@@ -329,7 +528,7 @@ function CheckoutForm() {
   // causes "Cannot update a component while rendering a different component".
   const cartIsEmpty = !cart || cart.items.length === 0;
   useEffect(() => {
-    if (cartIsEmpty) navigate('/cart');
+    if (cartIsEmpty) navigate(tenant.path('/cart'));
   }, [cartIsEmpty, navigate]);
 
   if (cartIsEmpty) return null;
@@ -400,6 +599,25 @@ function CheckoutForm() {
                     paymentMethod === 'cod' ? 'Place Order (Cash on Delivery)' : 'Continue to Payment →'
                   )}
                 </button>
+
+                {/* ── Delivery method ── */}
+                {/* Sits directly under the address because it depends on it —
+                    the options and their prices change with the destination. */}
+                <div className="border-t dark:border-gray-700 pt-4 space-y-3">
+                  <p className="text-sm font-medium text-gray-700 dark:text-gray-300">Delivery Method</p>
+                  <DeliveryOptions
+                    quote={quote}
+                    loading={quoteLoading}
+                    selectedRateId={shippingRateId}
+                    currency={currency}
+                    onSelect={setShippingRateId}
+                  />
+                  {!quote && !quoteLoading && (
+                    <p className="text-xs text-gray-400">
+                      Enter your country above to see delivery options.
+                    </p>
+                  )}
+                </div>
 
                 {/* ── Payment Method ── */}
                 <div className="border-t dark:border-gray-700 pt-4">
@@ -524,15 +742,23 @@ function CheckoutForm() {
                     </div>
                   )}
 
-                  <div className="text-sm space-y-1 text-gray-600 dark:text-gray-400">
-                    <div className="flex justify-between"><span>Subtotal</span><span>{formatCurrency(cart?.subtotal ?? 0, currency)}</span></div>
-                    {discount > 0 && (
-                      <div className="flex justify-between text-green-600 dark:text-green-400"><span>Discount</span><span>−{formatCurrency(discount, currency)}</span></div>
-                    )}
-                    <div className="flex justify-between font-semibold text-gray-900 dark:text-white border-t dark:border-gray-700 pt-1">
-                      <span>Total</span><span>{formatCurrency(Math.max(0, (cart?.subtotal ?? 0) - discount), currency)}</span>
+                  {/* Totals come from the server quote once a destination is
+                      known. Before that only the subtotal is knowable, so the
+                      placeholder says so rather than showing a total that will
+                      change once shipping and tax land. */}
+                  {quote ? (
+                    <TotalsBreakdown totals={quote.totals} currency={currency} />
+                  ) : (
+                    <div className="space-y-1 text-sm text-gray-600 dark:text-gray-400">
+                      <div className="flex justify-between">
+                        <span>Subtotal</span>
+                        <span>{formatCurrency(cart?.subtotal ?? 0, currency)}</span>
+                      </div>
+                      <p className="text-xs text-gray-400">
+                        Shipping and tax are calculated once you enter a delivery address.
+                      </p>
                     </div>
-                  </div>
+                  )}
                 </div>
               </form>
             </motion.div>
