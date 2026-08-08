@@ -1,4 +1,9 @@
+// MUST stay first — the Sentry SDK instruments express/mongoose as they load,
+// so anything imported above this line runs uninstrumented. See instrument.ts.
+import './instrument';
+
 import { config } from './config/index';
+import { captureError, flushSentry } from './config/sentry';
 import { connectDatabase } from './config/database';
 import { connectRedis } from './config/redis';
 import { logger } from './utils/logger';
@@ -87,6 +92,10 @@ async function bootstrap(): Promise<void> {
       try {
         const { disconnectDatabase } = await import('./config/database');
         const { disconnectRedis } = await import('./config/redis');
+        // Flushed FIRST, and before the process can exit. Sentry transmits in
+        // the background, so an unflushed report dies with the container —
+        // losing precisely the crash that caused the shutdown.
+        await flushSentry();
         await disconnectDatabase();
         await disconnectRedis();
         logger.info('Server shut down cleanly');
@@ -106,12 +115,17 @@ async function bootstrap(): Promise<void> {
   process.on('SIGTERM', () => shutdown('SIGTERM'));
   process.on('SIGINT',  () => shutdown('SIGINT'));
 
+  // Both are reported explicitly rather than left to Sentry's global handlers,
+  // so they carry the same `errorCode` tagging as request errors and stay
+  // greppable alongside the log line.
   process.on('unhandledRejection', (reason) => {
     logger.error('Unhandled promise rejection', { reason });
+    captureError(reason, { errorCode: 'UNHANDLED_REJECTION' });
   });
 
   process.on('uncaughtException', (err) => {
     logger.error('Uncaught exception', { error: err });
+    captureError(err, { errorCode: 'UNCAUGHT_EXCEPTION' });
     shutdown('uncaughtException').catch(() => process.exit(1));
   });
 }

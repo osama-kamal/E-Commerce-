@@ -158,6 +158,28 @@ const envSchema = z.object({
   CLOUDINARY_CLOUD_NAME: z.string().optional(),
   CLOUDINARY_API_KEY: z.string().optional(),
   CLOUDINARY_API_SECRET: z.string().optional(),
+
+  // ── Sentry — error tracking (OPTIONAL) ──────────────────────────────────────
+  // Absent DSN means the SDK is never initialised and every Sentry call is a
+  // no-op, so development and CI run untouched. Set this in production: without
+  // it there is no signal that a 500 ever happened beyond a log file nobody
+  // watches.
+  SENTRY_DSN: z.string().optional(),
+
+  // Fraction of requests traced for performance data, 0–1. Defaults to 0:
+  // tracing is billed per transaction and is not needed for error tracking, so
+  // it is opt-in rather than a surprise on the invoice.
+  SENTRY_TRACES_SAMPLE_RATE: z
+    .string()
+    .default('0')
+    .transform((v) => {
+      const parsed = Number.parseFloat(v);
+      return Number.isFinite(parsed) ? Math.min(Math.max(parsed, 0), 1) : 0;
+    }),
+
+  // Groups issues by deploy so a regression can be tied to what shipped.
+  // Railway exposes the commit SHA as RAILWAY_GIT_COMMIT_SHA.
+  SENTRY_RELEASE: z.string().optional(),
 });
 
 // ── Parse & validate ───────────────────────────────────────────────────────────
@@ -202,6 +224,7 @@ const optionalWarnings: Array<{ key: keyof typeof config; feature: string }> = [
   { key: 'EMAIL_USER',             feature: 'Transactional email (SMTP fallback)' },
   { key: 'RESEND_API_KEY',         feature: 'Transactional email (Resend)' },
   { key: 'CLOUDINARY_CLOUD_NAME',  feature: 'Cloudinary image uploads' },
+  { key: 'SENTRY_DSN',             feature: 'Error tracking (Sentry) — NO crash reporting without this' },
 ];
 
 const missing = optionalWarnings.filter(({ key }) => !config[key]);
@@ -251,4 +274,7 @@ export const {
   PAYMOB_INTEGRATION_ID_CARD,
   PAYMOB_INTEGRATION_ID_WALLET,
   PAYMOB_IFRAME_ID,
+  SENTRY_DSN,
+  SENTRY_TRACES_SAMPLE_RATE,
+  SENTRY_RELEASE,
 } = config;
