@@ -190,85 +190,149 @@ export async function register(
   return { user, tokens: { accessToken, refreshToken: rawRefresh } };
 }
 
-export async function login(
-  storeId: string | null,
-  email: string,
-  password: string
-): Promise<{ user: IUser; tokens: AuthTokens }> {
-  let user: IUser | null = null;
-
-  if (storeId) {
-    // Store-scoped lookup (normal flow when X-Store-ID is present)
-    user = await User.findOne({
-      storeId: new Types.ObjectId(storeId),
-      email: email.toLowerCase(),
-    }).select('+passwordHash') as IUser | null;
-
-    // If the store-scoped user is a customer (or lower-privileged), check whether
-    // this email has a higher-privileged account (super-admin or admin) in any store.
-    // Privilege order: super-admin > admin > customer.
-    if (user?.role === 'customer') {
-      const privilegedUser = await User.findOne({
-        email: email.toLowerCase(),
-        role: { $in: ['super-admin', 'admin'] },
-      }).select('+passwordHash').sort({ createdAt: 1 }) as IUser | null;
-
-      if (privilegedUser) {
-        const valid = await bcrypt.compare(password, privilegedUser.passwordHash);
-        if (valid) user = privilegedUser;
-      }
-    }
-
-    // If no store-scoped user found at all, fall back to global privileged lookup
-    if (!user) {
-      user = await User.findOne({
-        email: email.toLowerCase(),
-        role: { $in: ['super-admin', 'admin'] },
-      }).select('+passwordHash').sort({ createdAt: 1 }) as IUser | null;
-    }
-  } else {
-    // Global lookup — prefer highest privilege level.
-    // super-admin > admin > customer
-    user = await User.findOne({
-      email: email.toLowerCase(),
-      role: 'super-admin',
-    }).select('+passwordHash').sort({ createdAt: 1 }) as IUser | null;
-
-    if (!user) {
-      user = await User.findOne({
-        email: email.toLowerCase(),
-        role: 'admin',
-      }).select('+passwordHash').sort({ createdAt: 1 }) as IUser | null;
-    }
-
-    // Fallback: any role (e.g. customer logging in from main site)
-    if (!user) {
-      user = await User.findOne({
-        email: email.toLowerCase(),
-      }).select('+passwordHash').sort({ createdAt: 1 }) as IUser | null;
-    }
-  }
-
-  if (!user) {
-    throw createError('Invalid email or password', 401, 'UNAUTHORIZED');
-  }
-
-  if (!user.isActive) {
-    throw createError('Account is deactivated', 401, 'UNAUTHORIZED');
-  }
-
-  const valid = await bcrypt.compare(password, user.passwordHash);
-  if (!valid) {
-    throw createError('Invalid email or password', 401, 'UNAUTHORIZED');
-  }
-
+/** Issues a session for an already-authenticated account. */
+async function issueSession(user: IUser): Promise<{ user: IUser; tokens: AuthTokens }> {
   const userId = (user._id as Types.ObjectId).toString();
-  const resolvedStoreId = user.storeId.toString();
-  const accessToken = signAccessToken(user._id as Types.ObjectId, user.role, resolvedStoreId);
+  const accessToken = signAccessToken(
+    user._id as Types.ObjectId,
+    user.role,
+    user.storeId.toString()
+  );
   const rawRefresh = generateRawRefreshToken(userId);
   await storeRefreshToken(userId, rawRefresh);
 
   return { user, tokens: { accessToken, refreshToken: rawRefresh } };
+}
+
+/**
+ * Storefront sign-in. Resolves within ONE store and nowhere else.
+ *
+ * ── What this replaces ────────────────────────────────────────────────────────
+ * Login used to fall back through a chain of GLOBAL by-email lookups: any
+ * super-admin, then any admin, then the oldest account of any role. Combined
+ * with a route-mounting bug that meant `req.store` was never populated (see
+ * auth.tenant.routes.ts), that chain ran for every login in the system.
+ *
+ * Two things followed, both proven in `login-tenant-scope.integration.test.ts`:
+ *
+ *   • A shopper's password on store A could authenticate an ADMIN account
+ *     belonging to store B — one compromised credential crossing tenants.
+ *   • More often, a customer whose address collided with any older or more
+ *     privileged account could not sign in to their own store AT ALL, because
+ *     only the other account's hash was ever compared.
+ *
+ * The unique index is `{ storeId, email }`, so one address legitimately holds
+ * separate accounts in separate stores. This function now honours that: the
+ * store decides which account, full stop. Merchants and operators sign in
+ * through `platformLogin` instead.
+ */
+export async function login(
+  storeId: string,
+  email: string,
+  password: string
+): Promise<{ user: IUser; tokens: AuthTokens }> {
+  if (!storeId || !Types.ObjectId.isValid(storeId)) {
+    // Refusing beats guessing. Resolving a store-less login globally is the
+    // exact behaviour that produced the cross-tenant escalation.
+    throw createError('Store context is required to sign in', 400, 'BAD_REQUEST');
+  }
+
+  const user = (await User.findOne({
+    storeId: new Types.ObjectId(storeId),
+    email: email.toLowerCase(),
+  }).select('+passwordHash')) as IUser | null;
+
+  // Deliberately identical failures for "no such account here" and "wrong
+  // password" — distinguishing them turns the endpoint into a per-store
+  // membership oracle.
+  if (!user) {
+    throw createError('Invalid email or password', 401, 'UNAUTHORIZED');
+  }
+  if (!user.isActive) {
+    throw createError('Account is deactivated', 401, 'UNAUTHORIZED');
+  }
+  if (!(await bcrypt.compare(password, user.passwordHash))) {
+    throw createError('Invalid email or password', 401, 'UNAUTHORIZED');
+  }
+
+  return issueSession(user);
+}
+
+/**
+ * Upper bound on accounts examined during a platform sign-in.
+ *
+ * Each candidate costs one bcrypt comparison (~250 ms at 12 rounds), so an
+ * address with many rows would otherwise be a cheap way to tie up a worker.
+ * In a healthy dataset this is 1; more than that means duplicate admin rows,
+ * which `repair:owners` consolidates.
+ */
+const MAX_PLATFORM_CANDIDATES = 5;
+
+/**
+ * Platform sign-in for merchants and platform operators.
+ *
+ * Store-independent by design: a merchant may own several stores, and which one
+ * they are managing is chosen afterwards in the store switcher rather than by
+ * whichever URL they happened to open. Customers never authenticate here —
+ * only `admin` and `super-admin` accounts are considered.
+ *
+ * ── Resolving duplicates ──────────────────────────────────────────────────────
+ * Historically a repeat signup could mint several admin rows for one address
+ * (the unique index is per-store), so candidates are ranked deterministically:
+ * super-admin first, then admins that actually OWN a store, then oldest.
+ *
+ * Ranking alone is not enough, though. Those duplicates may carry DIFFERENT
+ * password hashes, and picking one row then rejecting a valid password would
+ * lock a merchant out of their own account. So candidates are tried in order
+ * and the one whose password matches wins — bounded by MAX_PLATFORM_CANDIDATES.
+ */
+export async function platformLogin(
+  email: string,
+  password: string
+): Promise<{ user: IUser; tokens: AuthTokens }> {
+  const candidates = (await User.find({
+    email: email.toLowerCase(),
+    role: { $in: ['super-admin', 'admin'] },
+  })
+    .select('+passwordHash')
+    .sort({ createdAt: 1 })
+    .limit(MAX_PLATFORM_CANDIDATES)) as IUser[];
+
+  if (candidates.length === 0) {
+    throw createError('Invalid email or password', 401, 'UNAUTHORIZED');
+  }
+
+  // Which candidates own a store — preferred, because that is the account the
+  // store switcher and every ownership check will resolve against.
+  const { Store } = await import('../stores/store.model');
+  const ownerIds = new Set(
+    (
+      await Store.find({ ownerId: { $in: candidates.map((c) => c._id) } })
+        .select('ownerId')
+        .lean()
+    ).map((s) => s.ownerId.toString())
+  );
+
+  const ranked = [...candidates].sort((a, b) => {
+    if (a.role !== b.role) return a.role === 'super-admin' ? -1 : 1;
+    const aOwns = ownerIds.has((a._id as Types.ObjectId).toString());
+    const bOwns = ownerIds.has((b._id as Types.ObjectId).toString());
+    if (aOwns !== bOwns) return aOwns ? -1 : 1;
+    return a.createdAt.getTime() - b.createdAt.getTime();
+  });
+
+  for (const candidate of ranked) {
+    if (!(await bcrypt.compare(password, candidate.passwordHash))) continue;
+
+    // Checked only AFTER the password matches, so a deactivated account cannot
+    // be distinguished from a non-existent one without the correct credential.
+    if (!candidate.isActive) {
+      throw createError('Account is deactivated', 401, 'UNAUTHORIZED');
+    }
+    return issueSession(candidate);
+  }
+
+  throw createError('Invalid email or password', 401, 'UNAUTHORIZED');
 }
 
 export async function refresh(rawRefreshToken: string): Promise<AuthTokens> {

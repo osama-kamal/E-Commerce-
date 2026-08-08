@@ -21,7 +21,14 @@ import mongoose, { Types } from 'mongoose';
 import { MongoMemoryReplSet } from 'mongodb-memory-server';
 
 import { placeOrder } from '../../src/modules/orders/order.service';
-import { createStore, updateStore, getPlanCapabilities } from '../../src/modules/stores/store.service';
+import {
+  createStore,
+  updateStore,
+  adminUpdateStore,
+  getPlanCapabilities,
+  assertAssignableCustomDomain,
+} from '../../src/modules/stores/store.service';
+import { config } from '../../src/config/index';
 import { Order } from '../../src/modules/orders/order.model';
 import { Product } from '../../src/modules/products/product.model';
 import { Cart } from '../../src/modules/cart/cart.model';
@@ -248,27 +255,50 @@ describe('maxStores', () => {
 // ── customDomain ────────────────────────────────────────────────────────────
 
 describe('customDomain', () => {
-  it('refuses a custom domain on the free plan', async () => {
-    const ownerId = new Types.ObjectId();
-    const store = await makeStore('free', ownerId);
+  // The owner path no longer accepts this field at all. `resolveStoreByHost`
+  // matches customDomain ahead of everything else, so a self-serve write was
+  // enough for one tenant to capture the platform's own hostname.
+  it('refuses a custom domain from the store owner, whatever the plan', async () => {
+    for (const plan of ['free', 'starter', 'pro', 'enterprise'] as const) {
+      const ownerId = new Types.ObjectId();
+      const store = await makeStore(plan, ownerId);
 
-    await expect(
-      updateStore(store._id!.toString(), ownerId.toString(), { customDomain: 'shop.example.com' })
-    ).rejects.toMatchObject({ code: 'PLAN_LIMIT_EXCEEDED' });
+      await expect(
+        updateStore(store._id!.toString(), ownerId.toString(), { customDomain: 'shop.example.com' })
+      ).rejects.toMatchObject({ statusCode: 403, code: 'FORBIDDEN' });
 
-    const after = await Store.findById(store._id).lean();
-    expect(after!.customDomain).toBeUndefined();
+      const after = await Store.findById(store._id).lean();
+      expect(after!.customDomain).toBeUndefined();
+    }
   });
 
-  it('allows a custom domain on the starter plan', async () => {
-    const ownerId = new Types.ObjectId();
-    const store = await makeStore('starter', ownerId);
+  it('lets a super-admin connect a domain for a store on a paid plan', async () => {
+    const store = await makeStore('starter', new Types.ObjectId());
 
-    const updated = await updateStore(
-      store._id!.toString(), ownerId.toString(), { customDomain: 'shop.example.com' }
-    );
+    const updated = await adminUpdateStore(store._id!.toString(), {
+      customDomain: 'shop.example.com',
+    });
 
     expect(updated.customDomain).toBe('shop.example.com');
+  });
+
+  it('keeps the paid-capability boundary on the admin path', async () => {
+    const store = await makeStore('free', new Types.ObjectId());
+
+    await expect(
+      adminUpdateStore(store._id!.toString(), { customDomain: 'shop.example.com' })
+    ).rejects.toMatchObject({ code: 'PLAN_LIMIT_EXCEEDED' });
+  });
+
+  it('refuses a domain already connected to another store', async () => {
+    const first = await makeStore('pro', new Types.ObjectId());
+    const second = await makeStore('pro', new Types.ObjectId());
+
+    await adminUpdateStore(first._id!.toString(), { customDomain: 'taken.example.com' });
+
+    await expect(
+      adminUpdateStore(second._id!.toString(), { customDomain: 'taken.example.com' })
+    ).rejects.toMatchObject({ statusCode: 409, code: 'CONFLICT' });
   });
 
   it('still allows other edits on the free plan', async () => {
@@ -277,6 +307,47 @@ describe('customDomain', () => {
 
     const updated = await updateStore(store._id!.toString(), ownerId.toString(), { name: 'Renamed' });
     expect(updated.name).toBe('Renamed');
+  });
+});
+
+// ── Platform-hostname guard ─────────────────────────────────────────────────
+//
+// The reserved-subdomain list in resolveStoreByHost guards the SUBDOMAIN branch
+// only, and custom domains are matched before it ever runs. These pin the
+// separate guard that closes that gap.
+
+describe('assertAssignableCustomDomain', () => {
+  const platformHost = new URL(config.FRONTEND_URL).hostname;
+
+  it('refuses the platform hostname itself', () => {
+    expect(() => assertAssignableCustomDomain(platformHost)).toThrow(/platform hostname/i);
+  });
+
+  it('refuses a subdomain of the platform, covering api/admin without listing them', () => {
+    for (const label of ['api', 'admin', 'www', 'anything']) {
+      expect(() => assertAssignableCustomDomain(`${label}.${platformHost}`)).toThrow(
+        /platform hostname/i
+      );
+    }
+  });
+
+  it('refuses loopback names', () => {
+    expect(() => assertAssignableCustomDomain('localhost')).toThrow(/platform hostname/i);
+    expect(() => assertAssignableCustomDomain('127.0.0.1')).toThrow(/platform hostname/i);
+  });
+
+  it('is not fooled by case or surrounding whitespace', () => {
+    expect(() => assertAssignableCustomDomain(`  ${platformHost.toUpperCase()}  `)).toThrow(
+      /platform hostname/i
+    );
+  });
+
+  it('does not refuse a hostname that merely ends with similar text', () => {
+    expect(assertAssignableCustomDomain(`not${platformHost}`)).toBe(`not${platformHost}`);
+  });
+
+  it('accepts and normalises a genuine third-party domain', () => {
+    expect(assertAssignableCustomDomain('  Shop.Acme.COM ')).toBe('shop.acme.com');
   });
 });
 
