@@ -86,7 +86,10 @@ services:
         # Left empty by default: with no valid key the checkout disables card
         # payment instead of showing a bypass. Set a real pk_… to test Stripe.
         VITE_STRIPE_PUBLISHABLE_KEY: ${VITE_STRIPE_PUBLISHABLE_KEY:-}
-        VITE_STORE_ID: ${VITE_STORE_ID:-}
+        # No VITE_STORE_ID: the tenant is resolved at runtime from the hostname.
+        # On localhost every host is the platform, so reach a storefront at
+        # /s/<slug>, or set VITE_DEV_STORE_SLUG for a dev build that serves one
+        # store at the root.
     depends_on:
       - backend
     ports:

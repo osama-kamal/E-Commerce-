@@ -4,7 +4,9 @@ A multi-tenant e-commerce platform where each vendor gets an isolated storefront
 
 Built with **React 18 + TypeScript** on the front end and **Node.js + Express + MongoDB** on the back end, the platform covers the commerce lifecycle it implements today: onboarding a store, listing products, taking payments through two gateways, moving orders through a status pipeline, and billing vendors on a subscription plan.
 
-Tenancy is enforced at every layer. Stores are resolved per request from a header, subdomain, or custom domain; every query is scoped by `storeId`; and cross-tenant access is blocked by a JWT guard and covered by a dedicated isolation test suite.
+Tenancy is enforced at every layer. Stores are resolved per request from a hostname, header, or path; every query is scoped by `storeId`; and cross-tenant access is blocked by a JWT guard and covered by a dedicated isolation test suite.
+
+Money is computed in one place. A single pure engine derives subtotal, discount, shipping, tax and grand total at checkout, and a matching engine prorates them back out on refund — so a quote, an invoice and a refund cannot disagree.
 
 > **Status:** actively developed. A security, production-hardening, bug-fix, and UI/UX pass has been completed — see [Current Project Status](#-current-project-status) and [Known Limitations](#-known-limitations) for an honest account of what is and is not finished.
 
@@ -46,26 +48,33 @@ This is a **SaaS storefront platform**, not a single shop. One deployment serves
 - Vendors are billed on a subscription plan (`free` / `starter` / `pro` / `enterprise`) with limits enforced server-side.
 - A platform operator (`super-admin`) can list every tenant, override plans, and impersonate a store for support.
 
-The backend is a **modular monolith** in TypeScript (`strict` mode) with 19 feature modules. The frontend is a Vite-built React SPA with route-level code splitting, served either by nginx (Docker) or Vercel.
+The backend is a **modular monolith** in TypeScript (`strict` mode) with 23 feature modules. The frontend is a Vite-built React SPA with route-level code splitting, served either by nginx (Docker) or Vercel.
+
+Which tenant a request belongs to is resolved from the **hostname** at runtime, so one build serves the platform on its own domain and the correct storefront on every merchant domain. There is no build-time store binding.
 
 ---
 
 ## ✨ Main Features
 
 ### Storefront & Commerce
-- **Multi-tenant storefronts** — resolved by `X-Store-ID` header, `X-Store-Slug` header, subdomain, or custom domain
+- **Multi-tenant storefronts** — resolved at runtime from the **hostname** (custom domain or subdomain), or by path at `/s/:slug`. The platform's own domain serves the platform, not a shop — see [DOMAINS.md](DOMAINS.md)
 - **Product catalogue** — nested categories, sizes, discounts, image galleries, ratings
 - **Search & filtering** — regex substring search across name and description, category, price range, in-stock, on-sale, plus sorting and pagination
 - **Cart** — per-store carts with size-aware line items and server-side price/stock validation
-- **Checkout** — 3-step flow (shipping → payment → confirmation) with server-derived totals
+- **Checkout** — shipping address → delivery method → payment → confirmation, with every figure computed server-side
+- **Shipping** — delivery zones by country, flat / free-over-threshold / price-tier rates, and a quote endpoint priced against the server-side cart
+- **Tax** — destination-based rates with optional per-rate coverage of shipping, supporting both **tax-inclusive** (EU/UK/MENA) and **tax-exclusive** (US) pricing
 - **Coupons** — percentage and fixed discounts, minimum order value, expiry, atomic usage limits
-- **Orders** — status pipeline (`pending → processing → shipped → delivered`, `cancelled`), customer cancellation with stock restoration
+- **Orders** — two independent axes: fulfilment (`pending → processing → shipped → delivered`, `cancelled`) and payment (`unpaid → paid → partially_refunded → refunded`), so a delivered order can also be refunded
+- **Refunds** — merchant-initiated, line-level, with discount and tax prorated across returned items; optional shipping refund and restocking
 - **Wishlist** (with move-to-cart), **product comparison**, and **reviews** gated on a verified delivered purchase
 
 ### Payments
 - **Stripe** — PaymentIntents with client-side confirmation and signature-verified webhooks
 - **Paymob** — MENA gateway with HMAC-verified callbacks and a sandboxed hosted-iframe flow
-- **Subscription billing** — Stripe-driven plan lifecycle with a 7-day dunning grace period before suspension
+- **Refund execution** — through the same provider abstraction as charges, with an atomic reservation on the order ledger so a gateway failure cannot leave an order looking refunded, and concurrent refunds cannot exceed the total
+- **Refund reconciliation** — `charge.refunded` confirms refunds issued here *and* records ones a merchant made directly in the Stripe dashboard, so the ledger cannot drift from the gateway
+- **Subscription billing** — Stripe-driven plan lifecycle with a 7-day dunning grace period before suspension, **enforced server-side**: a suspended store is read-only and a lapsed plan falls back to free limits
 - **Reservation expiry** — abandoned online checkouts are auto-cancelled every 5 minutes and their stock released (cash-on-delivery orders are exempt)
 
 ### Vendor Dashboard
@@ -208,13 +217,14 @@ Request
 E-Commerce/
 ├── backend/
 │   ├── src/
-│   │   ├── modules/                  # 19 feature modules
+│   │   ├── modules/                  # 23 feature modules
 │   │   │   ├── admin/                # Vendor dashboard + platform store management
 │   │   │   ├── analytics/            # Sales trends, AOV, conversion, customer metrics
 │   │   │   ├── auth/                 # Register, login, refresh, logout, password reset
 │   │   │   ├── cart/                 # Per-store carts (has repository layer)
 │   │   │   ├── categories/           # Nested category tree
 │   │   │   ├── chatbot/              # OpenAI assistant + rule-based fallback
+│   │   │   ├── checkout/             # Pure money engine (subtotal/discount/shipping/tax)
 │   │   │   ├── coupons/              # Discount codes with atomic usage claims
 │   │   │   ├── newsletter/           # Subscriber list & broadcasts
 │   │   │   ├── onboarding/           # Public store + owner signup
@@ -224,17 +234,21 @@ E-Commerce/
 │   │   │   ├── plans/                # Plan display configuration
 │   │   │   ├── products/             # Catalogue, bulk ops, image management (has repository layer)
 │   │   │   ├── recommendations/      # Related, trending & personalised products
+│   │   │   ├── refunds/              # Refund engine, ledger reservation, reconciliation
 │   │   │   ├── reports/              # Inventory / sales / product-performance + CSV export
 │   │   │   ├── reviews/              # Verified-purchase reviews
+│   │   │   ├── shipping/             # Zones, rates, quote endpoint
 │   │   │   ├── stores/               # Tenant CRUD, settings, token minting, plan capabilities
 │   │   │   ├── support/              # Enterprise sales enquiries
+│   │   │   ├── tax/                  # Destination-based tax rates
 │   │   │   └── users/                # Wishlist
 │   │   ├── middleware/               # authenticate, validate, rateLimiter, upload,
-│   │   │                             # resolveStore, errorHandler, notFound
+│   │   │                             # resolveStore, enforceSubscription,
+│   │   │                             # errorHandler, notFound
 │   │   ├── services/                 # cache, cloudinary, email, email.templates, image
 │   │   ├── config/                   # env schema, database, redis, stripe, cloudinary, planLimits
 │   │   ├── scripts/                  # Index migrations & maintenance tasks
-│   │   ├── utils/                    # jwt, logger, response, escapeHtml
+│   │   ├── utils/                    # jwt, logger, response, escapeHtml, revenue
 │   │   ├── app.ts                    # Express wiring
 │   │   └── server.ts                 # Bootstrap, scheduled jobs, graceful shutdown
 │   ├── tests/
@@ -391,14 +405,21 @@ Backend variables are declared and validated by a Zod schema in [`backend/src/co
 
 | Variable | Required | Purpose |
 |---|---|---|
-| `VITE_STORE_ID` | **Yes** | 24-character store ObjectId this frontend instance serves |
-| `VITE_STORE_SLUG` | No | Human-readable slug alternative to the ObjectId |
 | `VITE_STRIPE_PUBLISHABLE_KEY` | **Yes for card payments** | Stripe publishable key. Inlined at **build** time — without a valid key a production build disables card payment rather than offering a bypass (see `src/utils/checkoutMode.ts`) |
 | `VITE_API_URL` | Local dev / Docker build | Backend URL for the Vite dev proxy |
+| `VITE_DEV_STORE_SLUG` | No, **dev only** | Makes the root behave like one store's storefront on localhost. Ignored in any production build (`src/utils/devStoreOverride.ts`) |
 
-These four are the complete set of `VITE_` variables the codebase reads. `VITE_STORE_ID`, `VITE_STORE_SLUG`, and `VITE_STRIPE_PUBLISHABLE_KEY` are read by `src/`; `VITE_API_URL` is read by `vite.config.ts`.
+These three are the complete set of `VITE_` variables the codebase reads.
+`VITE_STRIPE_PUBLISHABLE_KEY` and `VITE_DEV_STORE_SLUG` are read by `src/`;
+`VITE_API_URL` is read by `vite.config.ts`.
 
-> A key counts as usable only when it starts with `pk_`, is longer than 30 characters, and does not contain `000000000000` (`src/utils/checkoutMode.ts`). `VITE_STORE_ID` must be a 24-character hex ObjectId or `src/api/axios.ts` withholds the `X-Store-ID` header and every tenant route returns 404.
+> **There is no production store variable.** `VITE_STORE_ID` and
+> `VITE_STORE_SLUG` are gone. They bound the frontend to a single store at build
+> time, which meant the platform's own domain served one hardcoded tenant. The
+> tenant is now resolved at runtime from the hostname — see
+> [DOMAINS.md](DOMAINS.md).
+
+> A Stripe key counts as usable only when it starts with `pk_`, is longer than 30 characters, and does not contain `000000000000` (`src/utils/checkoutMode.ts`).
 
 ---
 
@@ -437,10 +458,15 @@ Secrets go in `backend/.env` — Compose loads it via `env_file` (marked `requir
 `VITE_*` variables are inlined at **build** time, so they are passed as build args:
 
 ```bash
-VITE_STRIPE_PUBLISHABLE_KEY=pk_test_xxx VITE_STORE_ID=your24charobjectidhere00 docker compose up --build client
+VITE_STRIPE_PUBLISHABLE_KEY=pk_test_xxx docker compose up --build client
 ```
 
-> Compose forwards only `VITE_STRIPE_PUBLISHABLE_KEY` and `VITE_STORE_ID` to the client build. `client/Dockerfile` also accepts a `VITE_API_URL` build arg, but Compose does not pass it — the containerised client reaches the API through the nginx `/api` proxy instead. There is no build arg for `VITE_STORE_SLUG` at all.
+No store variable is passed: one image serves the platform on the platform's
+domain and the correct storefront on each tenant domain, resolved at runtime
+from the hostname. On localhost every host is the platform, so reach a
+storefront at `/s/<slug>`.
+
+> Compose forwards only `VITE_STRIPE_PUBLISHABLE_KEY` to the client build. `client/Dockerfile` also accepts a `VITE_API_URL` build arg, but Compose does not pass it — the containerised client reaches the API through the nginx `/api` proxy instead.
 
 ---
 
@@ -476,7 +502,9 @@ cd backend && npm run seed
 
 ### Migrations
 
-Mongoose adds missing indexes but **never drops obsolete ones**, so these must run once per environment:
+Mongoose adds missing indexes but **never drops obsolete ones**, and schema defaults apply on *create*, not on read — so documents written before a field existed keep coming back without it. These run once per environment.
+
+**Index migrations**
 
 ```bash
 cd backend && npm run migrate:payment-intent-index
@@ -488,6 +516,24 @@ cd backend && npm run migrate:order-idempotency-index
 
 The first removes the obsolete unique index on `payments.stripePaymentIntentId` and reports orders left `pending` despite a succeeded payment. The second replaces the order idempotency index with a partial-filter version.
 
+**Data backfills**
+
+Each supports `--dry-run`, which reports what it would change and writes nothing. Run that first.
+
+```bash
+cd backend && npm run migrate:store-theme
+cd backend && npm run migrate:trial-ends-at -- --dry-run
+cd backend && npm run migrate:order-totals   -- --dry-run
+cd backend && npm run migrate:payment-status -- --dry-run
+```
+
+| Script | Fills | Notes |
+|---|---|---|
+| `migrate:store-theme` | `store.theme` | Cosmetic — `resolveTheme()` already normalises missing values at read time |
+| `migrate:trial-ends-at` | `store.trialEndsAt` | **Gates subscription enforcement.** Until it runs, stores read as un-migrated and are never restricted. Non-paid stores get a fresh grace window (default 14 days, `--days=N`) rather than `createdAt + 7d`, so nobody is evicted the moment it deploys |
+| `migrate:order-totals` | `order.subtotal`, `shippingTotal`, `taxTotal` | Reconstructs `subtotal = totalAmount + discountAmount`. `totalAmount` is untouched, and with zero shipping and tax every historical revenue figure is unchanged — verify with `--dry-run` |
+| `migrate:payment-status` | `order.paymentStatus`, `refundedTotal` | Classifies by succeeded-`Payment` evidence first, falling back to fulfilment state. Errs toward `paid`: marking a genuinely-paid order `unpaid` would make it unrefundable, whereas the reverse merely fails at the gateway |
+
 ### Maintenance scripts
 
 ```bash
@@ -498,6 +544,20 @@ cd backend && npm run optimize-images
 cd backend && npm run update-images
 ```
 
+**Identity diagnostics** — read-only, safe to run against production:
+
+```bash
+cd backend && npm run report:identity-collisions
+```
+
+Lists every email holding accounts in more than one store, marks which one login reaches, and separates accounts that were previously **shadowed and unreachable** from merchants who must now sign in at the platform host. Run it before or after switching login over — the affected users are worth knowing either way.
+
+```bash
+cd backend && npm run repair:owners
+```
+
+Consolidates duplicate *privileged* rows for one address onto a single owning account. Dry-runs by default; pass `--apply` to write, and it emits a rollback file.
+
 ### Available scripts
 
 | Backend | Client |
@@ -506,7 +566,8 @@ cd backend && npm run update-images
 | `npm test` · `test:watch` | `npm test` · `test:watch` |
 | `npm run lint` · `format` | `npm run lint` |
 | `npm run seed` · `create-indexes` | — |
-| `npm run migrate:*` · `optimize-images` · `update-images` | — |
+| `npm run migrate:*` · `report:*` · `repair:*` | — |
+| `npm run optimize-images` · `update-images` | — |
 
 ---
 
@@ -556,17 +617,25 @@ All endpoints are versioned under `/api/v1`. Tenant-scoped routes require a stor
 ### Authentication
 | Method | Endpoint | Description |
 |---|---|---|
-| `POST` | `/auth/register` | Create a customer account |
-| `POST` | `/auth/login` | Authenticate; returns an access token + refresh cookie |
-| `POST` | `/auth/refresh` | Rotate tokens via the httpOnly cookie |
-| `POST` | `/auth/logout` | Revoke the refresh token |
-| `POST` | `/auth/forgot-password` | Request a reset link |
-| `POST` | `/auth/reset-password/:token` | Complete a reset (clears all sessions) |
+Two surfaces, deliberately separate. A **shopper** authenticates against one store; a **merchant or operator** authenticates against their own account and picks a store afterwards.
+
+| Method | Endpoint | Store context | Description |
+|---|---|---|---|
+| `POST` | `/auth/register` | Required | Create a customer account in the resolved store |
+| `POST` | `/auth/login` | **Required** | Customer sign-in, scoped strictly to `{ storeId, email }`. Returns **400** without a store rather than resolving globally |
+| `POST` | `/auth/platform/login` | None | Merchant / operator sign-in. Considers only `admin` and `super-admin` accounts |
+| `POST` | `/auth/refresh` | None | Rotate tokens via the httpOnly cookie |
+| `POST` | `/auth/logout` | None | Revoke the refresh token |
+| `POST` | `/auth/forgot-password` | Required | Request a reset link for an account in this store |
+| `POST` | `/auth/reset-password/:token` | None | Complete a reset (clears all sessions) |
+
+> **Why two endpoints.** Login used to resolve globally by email — preferring any super-admin, then any admin, then the oldest account of any role. Because `authRoutes` was mounted at `/api/v1/auth` *before* the tenant router, that global path ran for **every** login: a shopper's password on one store could authenticate an admin account on another, and, more often, a customer whose address collided with any other account could not sign in to their own store at all. The two route sets are now disjoint, so `/auth/login` falls through to the tenant mount and arrives with a resolved store.
 
 ### Stores
 | Method | Endpoint | Description |
 |---|---|---|
-| `GET` | `/stores/current` | Resolve the active store + plan capabilities |
+| `GET` | `/stores/resolve?host=` | Which store (if any) serves a hostname. Returns `{ store: null }` with **200** for a platform host — that is the expected answer, not an error |
+| `GET` | `/stores/current` | Resolve the active store + plan capabilities + subscription state |
 | `GET` | `/stores/by-slug/:slug` | Public store lookup |
 | `GET` | `/stores/mine` · `/stores/:id` | Stores owned by the caller |
 | `POST` | `/stores` | Create a store (plan-limited) |
@@ -585,9 +654,23 @@ All endpoints are versioned under `/api/v1`. Tenant-scoped routes require a stor
 | `GET` | `/products/:id` · `/products/:id/recommendations` | Detail and related products |
 | `POST` `PUT` `DELETE` | `/products/…` | Admin CRUD, bulk update/delete, image management |
 | `GET` `POST` `PUT` `DELETE` | `/cart` · `/cart/items/:productId` | Cart operations |
-| `POST` `GET` | `/orders` · `/orders/:id` | Place an order (server-derived totals) and read history |
+| `POST` `GET` | `/orders` · `/orders/:id` | Place an order (server-derived totals) and read history. Accepts `shippingRateId` — never an amount |
 | `PUT` | `/orders/:id/cancel` | Cancel a pending order (restores stock) |
 | `GET` `PUT` `DELETE` | `/orders/admin/all` · `/orders/admin/:id/status` · `/orders/admin/bulk/*` | Admin order management |
+| `POST` | `/shipping/quote` | Delivery options **and** the full money breakdown for a destination, priced against the caller's own cart |
+| `GET` `POST` `PUT` `DELETE` | `/shipping/zones` · `/shipping/rates` | Admin shipping configuration |
+| `GET` `POST` `PUT` `DELETE` | `/tax/rates` | Admin tax rates. No public read — a shopper learns tax through a quote or an order |
+
+### Refunds
+| Method | Endpoint | Description |
+|---|---|---|
+| `POST` | `/orders/admin/:id/refunds/preview` | What a refund would return. Moves no money |
+| `POST` | `/orders/admin/:id/refunds` | Issue a refund. Takes **which items**, never an amount — the server prices it from the order's stored breakdown |
+| `GET` | `/orders/admin/:id/refunds` | Refund history for an order |
+
+### Merchandising & engagement
+| Method | Endpoint | Description |
+|---|---|---|
 | `POST` | `/coupons/validate` | Validate a discount code (rate-limited) |
 | `GET` `POST` `PUT` `DELETE` | `/coupons` | Admin coupon CRUD |
 | `GET` `POST` `DELETE` | `/reviews/products/:productId` | Read, submit, delete reviews |
@@ -601,7 +684,7 @@ All endpoints are versioned under `/api/v1`. Tenant-scoped routes require a stor
 |---|---|---|
 | `POST` | `/payments/intent` | Create a Stripe PaymentIntent |
 | `POST` | `/payments/paymob/initiate` | Start a Paymob session |
-| `POST` | `/payments/webhook` | Stripe webhook (signature verified, idempotent) |
+| `POST` | `/payments/webhook` | Stripe webhook (signature verified, idempotent). Handles `charge.refunded`, which also reconciles refunds made in the Stripe dashboard |
 | `POST` | `/payments/paymob/webhook` | Paymob webhook (HMAC verified) |
 
 ### Dashboard & platform
@@ -650,6 +733,50 @@ Password reset clears every stored refresh token for that user. Legacy bcrypt-ha
 | Impersonate a store | ❌ | ❌ | ✅ |
 
 Placing an order requires authentication (`POST /orders` is behind `authenticateJWT`), so **guest checkout is not supported**.
+
+### One definition of revenue
+
+```
+revenue = totalAmount − tax − refunds
+```
+
+counted when an order is **paid**, not when it is fulfilled.
+
+| Component | Treatment | Why |
+|---|---|---|
+| Goods + discounts | included, net | What was actually sold |
+| Shipping charged | **included** | Real revenue offsetting a real carrier cost |
+| Tax | **excluded** | Collected for a revenue authority and remitted — a liability, never income |
+| Refunds | **subtracted** | Money returned was never earned |
+
+Recognition keys on `paymentStatus`, not fulfilment status. That is what makes a card sale and a cash sale count identically: a cash-on-delivery order counts when the merchant marks it paid, not the moment it is placed. A paid order that is later cancelled still counts — it stops counting when it is *refunded*.
+
+Both sides of the subtraction are on the same basis. `refundedTotal` is gross, so the order also tracks `refundedTaxTotal`; without it a fully-refunded order reports **negative** revenue.
+
+> **This replaced four disagreeing definitions.** The dashboard summed succeeded `Payment.amount`, which excludes every cash-on-delivery sale because COD creates no payment row. Two product tables summed list prices, so a coupon never reduced them. Analytics summed `totalAmount − taxTotal`. None subtracted refunds — a merchant could refund an entire order and watch reported revenue not move.
+>
+> Everything now goes through [`utils/revenue.ts`](backend/src/utils/revenue.ts). Payments are reconciliation only; `tenant-first-aggregation.test.ts` asserts revenue is never derived from them again.
+
+Safe to deploy before `migrate:payment-status`: an order with no `paymentStatus` falls back to the old fulfilment rule, so historical figures are identical until the backfill runs.
+
+### Tenant-first aggregation
+
+Every aggregation in a tenant-scoped service must filter by `storeId` in its **first** stage, and must not `$lookup` another collection before doing so.
+
+The dashboard's revenue query used to match `{ status: 'succeeded' }` with no tenant filter, join the entire orders collection, and only then filter by store. Its *output* was correctly scoped — nothing leaked — but every merchant's dashboard load did platform-wide work, and filtering tenancy last means one careless edit turns a slow query into a cross-tenant disclosure.
+
+`tenant-first-aggregation.test.ts` scans the source and fails CI on the shape. Deliberate platform-wide sweeps (the abandoned-checkout job) are listed explicitly with a reason.
+
+### Identity is per-store
+
+The unique index on users is `{ storeId, email }`, not `{ email }` — so one address legitimately holds **separate accounts in separate stores**. Somebody can shop at two unrelated shops with the same email, or own one store and buy from another.
+
+Authentication honours that:
+
+- **Storefront login** resolves only within the store being signed into. There is no cross-store fallback, and no password from another tenant will work.
+- **Platform login** considers only privileged accounts, and never a customer.
+
+Where one address holds several *privileged* rows — possible historically, because a repeat signup could mint another admin — platform login ranks them (super-admin, then an admin that owns a store, then oldest) and tries each until a password matches, so no merchant identity is shadowed by another. Run `npm run repair:owners` to consolidate those rows, and `npm run report:identity-collisions` to see which addresses are affected before changing anything.
 
 ### Subscription plans
 
@@ -762,17 +889,23 @@ cd client && npm test
 
 ### Backend
 
-**345 tests across 31 suite files — 335 passing, 10 failing** (verified with `npm test` in `backend/`; ~195 s wall time). 27 integration suites run Supertest against a real in-memory MongoDB, with replica sets where transactions are involved; 4 property-based/unit suites use `fast-check`. Jest runs with `--runInBand`.
+**536 tests across 43 suite files — 526 passing, 10 failing** (verified with `npm test` in `backend/`; ~235 s wall time). Integration suites run Supertest against a real in-memory MongoDB, with replica sets where transactions are involved; property-based and pure-unit suites use `fast-check` or plain Jest. Jest runs with `--runInBand`.
 
 | | Passed | Failed | Total |
 |---|---:|---:|---:|
-| Suites | 28 | 3 | 31 |
-| Tests | 335 | 10 | 345 |
+| Suites | 40 | 3 | 43 |
+| Tests | 526 | 10 | 536 |
 
 | Area | Suites |
 |---|---|
-| Multi-tenant isolation | `tenant-isolation`, `tenant-scoped-indexes` |
+| Multi-tenant isolation | `tenant-isolation`, `tenant-scoped-indexes`, `login-tenant-scope`, `tenant-first-aggregation` |
+| Host → store resolution | `host-resolution` |
 | Platform authorisation | `platform-admin-authz`, `store-token-minting` |
+| Subscription enforcement | `subscription-enforcement` |
+| Money engine (pure) | `money-engine`, `refund-math` |
+| Revenue definition | `revenue-definition` |
+| Tax & shipping at checkout | `tax-shipping-checkout` |
+| Refunds | `refunds` |
 | Checkout pricing & coupons | `order-discount`, `coupon-max-uses`, `order-currency` |
 | Inventory correctness | `stock-lifecycle`, `pending-order-expiry` |
 | Payments & webhooks | `webhook-idempotency`, `payment-provider`, `paymob-provider`, `subscription-lifecycle` |
@@ -787,22 +920,35 @@ cd client && npm test
 | Image pipeline | `image-service` |
 | Scaffolding | `scaffolding.property` |
 
-> **Known baseline:** the backend suite does **not** run fully green on a clean checkout. All 10 failures are concentrated in the email-branding suites (e.g. `tests/properties/email-branding.property.test.ts`), where the mailer mock is never invoked and the assertions on store-name branding in email HTML therefore fail. Treat **10 failing / 335 passing** as the baseline and compare against it rather than expecting an all-green run.
+> **Known baseline: the backend suite does not run green on a clean checkout.** Compare against **10 failing / 526 passing** rather than expecting an all-green run. The failures fall into two unrelated groups, and neither is a product defect:
 >
-> Jest also reports that it "did not exit one second after the test run has completed" — some asynchronous handle is not being torn down. This does not affect results but is worth fixing.
+> - **`email-branding-unit` + `email-branding.property` (7 failures)** — every assertion is `expect(mockSendMail).toHaveBeenCalled()` receiving zero calls. The transport moved from nodemailer to the Resend SDK; the mock was removed but the assertions that depended on it were left in place, so they can no longer pass. **This is a real coverage hole, not just noise** — those tests existed to pin that transactional emails carry the *tenant's* store name rather than a hardcoded default, and that property is currently unverified.
+> - **`scaffolding.property` (3 failures)** — the suite never connects `mongodb-memory-server`, so `resolveStore` buffers for 10 s per request and the `fast-check` runs exceed Jest's 30 s timeout. A harness problem, not an assertion failure.
+>
+> Related: `resolveStore` runs before the 404 handler, so **any** request to an unmatched path costs a database round-trip. Visible in that suite's logs as `stores.findOne()` timeouts on `/api/v1/nonexistent`, and worth fixing on its own merits.
+>
+> **`plan-limits` is date-fragile.** Its "previous month" case seeds orders with `setMonth(getMonth() - 1)`, which overflows on the 29th–31st (June 31 → July 1) and lands them inside the current month. It fails on roughly three days a month and passes the rest.
+>
+> Jest also reports that it "did not exit one second after the test run has completed" — an async handle is not torn down. Results are unaffected.
 
 ### Frontend
 
-**65 tests across 6 files — all passing** (verified with `npm test` in `client/`):
+**115 tests across 10 files — all passing** (verified with `npm test` in `client/`):
 
 | File | Tests | Covers |
 |---|---:|---|
+| `components/Modal.test.tsx` | 23 | Focus trap, Escape/backdrop close, ARIA wiring |
 | `utils/paymobOrigin.test.ts` | 21 | Paymob postMessage origin validation |
 | `utils/checkoutMode.test.ts` | 14 | Publishable-key resolution and card-payment gating |
+| `tenant-routing.test.tsx` | 10 | Storefront checkout stays in-tenant; scoped axios follows the slug; cart cache is namespaced |
+| `site-mode.test.tsx` | 10 | Platform vs storefront resolution; failure falls back to platform, never a guessed tenant |
 | `utils/format.test.ts` | 9 | Currency and value formatting |
 | `hooks/useDarkMode.test.ts` | 9 | Theme-switch fade scoping and cleanup |
 | `store/logout.test.ts` | 7 | Logout / session teardown |
+| `hooks/useTrialStatus.test.ts` | 7 | Trial state read from the server, never recomputed from `createdAt` |
 | `routing.remount.test.tsx` | 5 | Per-route layout wrapping and remount behaviour |
+
+> **Still thin where it matters most.** There is no end-to-end test of browse → cart → checkout → order, so the highest-risk path in the product is covered only by its backend units. That gap is what allowed the storefront checkout to resolve against the wrong tenant undetected.
 
 ### Continuous integration
 
@@ -820,7 +966,7 @@ This project is **feature-complete for its core commerce flows and hardened, but
 |---|---|---|
 | Type safety | ✅ | `strict` TypeScript on both tiers; `tsc --noEmit` gates CI |
 | Core commerce flows | ✅ | Catalogue, cart, checkout, orders, coupons, reviews, wishlist |
-| Multi-tenancy | ✅ | Enforced at query, token, and index level; covered by tests |
+| Multi-tenancy | ✅ | Enforced at query, token, index and **login** level; covered by tests |
 | Payments | ✅ | Stripe + Paymob, both with verified webhooks |
 | Subscription billing | ✅ | Plan lifecycle with 7-day dunning |
 | Security hardening | ✅ | See [Security Improvements Completed](#-security-improvements-completed) |
@@ -831,15 +977,22 @@ This project is **feature-complete for its core commerce flows and hardened, but
 | Graceful shutdown | ✅ | SIGTERM/SIGINT with connection draining and a 10 s force-exit guard |
 | Dependency vulnerabilities | ✅ | 0 in backend production dependencies |
 | CI | ⚠️ Partial | Type-check/test/build gate; **lint is advisory** |
-| Backend test suite | ⚠️ Partial | 335/345 passing; 10 known email-branding failures on a clean checkout |
+| Backend test suite | ⚠️ Partial | 526/536 passing; 10 known failures on a clean checkout (7 stale email-branding, 3 harness) |
 | Accessibility | ⚠️ Partial | Forms remediated; focus management and contrast audit outstanding |
-| Repository layer | ⚠️ Partial | Present in 3 of 19 modules (`cart`, `orders`, `products`) |
+| Repository layer | ⚠️ Partial | Present in 3 of 23 modules (`cart`, `orders`, `products`) |
 | `.env.example` files | ✅ | Both synchronised with the code; every variable names its consuming file |
 | Env schema hygiene | ⚠️ Partial | 7 of 39 schema variables are declared but consumed by nothing (see limitation 10) |
 | Error tracking | ❌ | Not configured |
 | Backup strategy | ❌ | Not documented or automated |
 | API specification | ❌ | No OpenAPI/Swagger contract |
-| Shipping, tax, refunds | ❌ | Not implemented |
+| Shipping & tax | ✅ | Zones, rates, destination tax; inclusive and exclusive pricing |
+| Refunds | ✅ | Line-level, tax-prorated, ledger-reserved, webhook-reconciled |
+| Payment vs fulfilment state | ✅ | Separate axes — a delivered order can also be refunded |
+| Subscription enforcement | ✅ | Server-side gate; suspended stores are read-only. **Inert until `migrate:trial-ends-at` runs** |
+| Tenant resolution | ✅ | Runtime, host-based. No build-time store binding |
+| Returns (RMA) workflow | ❌ | Merchant-initiated refunds only; no customer-facing return request |
+| Disputes / chargebacks | ❌ | `charge.dispute.created` is not subscribed to |
+| End-to-end tests | ❌ | No browse → checkout → order coverage |
 
 ---
 
@@ -847,10 +1000,10 @@ This project is **feature-complete for its core commerce flows and hardened, but
 
 Stated plainly so nobody discovers these the hard way:
 
-1. **The backend test suite is not green on a clean checkout.** 10 of 345 tests fail (3 of 31 suites), all in the email-branding area. This is a known baseline, not a fresh regression.
+1. **The backend test suite is not green on a clean checkout.** 10 of 536 tests fail across 3 of 43 suites — 7 stale email-branding assertions orphaned by the Resend migration (a real coverage hole: per-tenant email branding is currently unverified) and 3 harness timeouts in `scaffolding.property`. A known baseline, not a fresh regression. `plan-limits` is additionally date-fragile and fails on the 29th–31st of a month.
 2. **Lint does not gate CI.** Both lint steps are `continue-on-error: true` pending a cleanup of existing lint debt.
-3. **No shipping-cost or tax calculation.** The order model has no shipping or tax fields; totals are item subtotal minus discount.
-4. **No refund workflow.** Nothing in the codebase issues refunds through either gateway. (`is_refunded` in the Paymob adapter is only an HMAC field name.)
+3. **Shipping and tax are implemented but unconfigured out of the box.** A store with no zones charges no delivery and accepts every destination; a store with no tax rates charges no tax. Both are deliberate defaults, but a merchant must set them up before the features do anything.
+4. **Refunds are merchant-initiated only, and `migrate:payment-status` must run first.** An order with no `paymentStatus` reads as `unpaid` and is refused as unrefundable.
 5. **Inventory is a single scalar per product.** Sizes exist on the catalogue, but per-variant stock cannot be represented.
 6. **No guest checkout.** `POST /orders` requires authentication.
 7. **`apiAccess` is declared but unenforced.** Pro and Enterprise plans advertise it; there is no API-key mechanism to gate.
@@ -860,13 +1013,17 @@ Stated plainly so nobody discovers these the hard way:
 11. **`PAYMOB_IFRAME_ID` has a misleading fallback.** When unset, the adapter substitutes `PAYMOB_INTEGRATION_ID_CARD` into the iframe URL. The two IDs are different values, so this generally produces a broken iframe rather than a clear error.
 12. **Blank environment values break startup.** An empty `KEY=` is a present value, so schema defaults do not apply: `MONGODB_URI=` and `ADMIN_NOTIFY_EMAIL=` fail validation and exit, and `PORT=` parses to `NaN`. Comment lines out instead.
 13. **Paymob mobile-wallet payments are not implemented** — only the card integration is wired up.
-14. **The rule-based chatbot fallback quotes policies the platform does not implement** — free shipping over $50, a 30-day return window, and 5–7 day refunds are hardcoded response strings with no backing feature.
+14. **The rule-based chatbot fallback quotes a return policy the platform does not implement** — a 30-day return window is a hardcoded response string. Refunds are now real (merchant-initiated, line-level), but there is no customer-facing *returns* workflow behind that promise.
 15. **The chatbot fallback is not truly bilingual.** It recognises Arabic keywords but always answers in English.
 16. **`PUT /plans/:planId` accepts `admin` as well as `super-admin`** by design, so the frontend works with a store-scoped token during platform sessions. The stricter guard lives on the client route.
-17. **The Vercel rewrite target is hardcoded** to a Railway URL in `client/vercel.json`, because Vercel does not interpolate environment variables in rewrite destinations. `vercel.json` also pins a literal `VITE_STORE_ID`.
-18. **`VITE_STORE_SLUG` cannot be set for a Docker image build** — `client/Dockerfile` declares build args for `VITE_STORE_ID`, `VITE_API_URL`, and `VITE_STRIPE_PUBLISHABLE_KEY`, but not for the slug.
-19. **No error tracking and no documented backup/restore procedure.**
-20. **No OpenAPI specification** — the API tables in this README are hand-maintained.
+17. **The Vercel rewrite target is hardcoded** to a Railway URL in `client/vercel.json`, because Vercel does not interpolate environment variables in rewrite destinations.
+18. **Subdomain and custom-domain storefronts need DNS and TLS that do not exist yet.** Host resolution is implemented and tested, but a wildcard record plus certificate (and per-domain verification for custom domains) must be provisioned before either addressing form does anything. Until then every host resolves to platform mode and `/s/<slug>` is the working route — see [DOMAINS.md](DOMAINS.md).
+19. **Custom domains are not ownership-verified.** `customDomain` is currently an operator-set field; there is no challenge proving the merchant controls the domain before the platform serves it.
+20. **No customer-facing returns (RMA) workflow.** Merchants can issue line-level refunds from the admin, and out-of-band refunds made in the Stripe dashboard are reconciled — but a customer cannot request a return, and there is no approval queue or return-shipping step.
+21. **Chargebacks and disputes are not handled.** `charge.dispute.created` is not subscribed to, so a disputed payment is invisible to the platform.
+22. **Paymob refunds settle asynchronously and are not reconciled.** The refund is submitted and recorded as `pending`; unlike Stripe there is no callback handler to confirm it, so the status stays pending until someone checks the Paymob dashboard.
+23. **No error tracking and no documented backup/restore procedure.**
+24. **No OpenAPI specification** — the API tables in this README are hand-maintained.
 
 ---
 
@@ -874,19 +1031,24 @@ Stated plainly so nobody discovers these the hard way:
 
 Ordered roughly by how much each unblocks:
 
-- **Shipping & tax** — rate calculation and tax rules, including the order-model fields they need
-- **Refunds** — a refund workflow across both payment providers
-- **Error tracking & backups** — Sentry (or equivalent) plus an automated, rehearsed restore procedure
-- **Accessibility completion** — focus management, skip links, and a contrast audit
-- **Per-variant inventory** — stock per size rather than a single scalar
+- **Green test baseline** — restore the orphaned email-branding coverage (per-tenant branding is currently unverified), connect the DB in `scaffolding.property`, and fix the date-fragile `plan-limits` case. Gating on a red suite teaches everyone to ignore it
+- **DNS & TLS for tenant domains** — a wildcard record and certificate, plus per-domain verification, before subdomain or custom-domain storefronts do anything (see [DOMAINS.md](DOMAINS.md))
+- **Error tracking & backups** — Sentry (or equivalent) plus an automated, rehearsed restore procedure. Nothing currently reports a production failure
+- **Store-deletion cascade** — deleting a store leaves its products, orders, users and carts orphaned; no export, no erasure path
+- **Notifications** — the client's notification feed is simulated on a timer. Build it or remove it; the current state invents stock warnings
+- **Returns (RMA)** — customer-initiated return requests on top of the existing refund engine
+- **Disputes** — subscribe to `charge.dispute.created`; a chargeback is currently invisible
+- **Per-variant inventory** — stock per size rather than a single scalar, which also unblocks variant-level refunds
 - **Guest checkout** — order placement without an account
+- **Abandoned-cart recovery** — the cart data and the mailer both already exist
+- **SEO** — per-page metadata, structured data, sitemaps; storefronts are currently invisible to search
+- **Accessibility completion** — focus management, skip links, and a contrast audit
 - **API keys** — required before the `apiAccess` plan flag can mean anything
 - **OpenAPI specification** — a machine-readable contract to replace the hand-written tables here
-- **Repository layer** — extend from 3 modules to all 19
+- **Repository layer** — extend from 3 modules to all 23
 - **Env schema cleanup** — drop the 7 unconsumed variables, or wire up the features they imply (SMTP fallback, Paymob wallet payments)
 - **Redis read path** — either validate refresh tokens against Redis or stop writing to it
 - **Lint debt cleanup** — so the CI lint steps can stop being advisory
-- **Green test baseline** — fix the 10 email-branding failures and the open handle keeping Jest alive after the run
 
 See [ROADMAP.md](./ROADMAP.md) for additional feature-level planning.
 
