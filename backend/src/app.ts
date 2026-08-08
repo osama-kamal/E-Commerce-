@@ -20,10 +20,12 @@ import { CORS_ORIGINS } from './config/index';
 import { notFound } from './middleware/notFound';
 import { errorHandler } from './middleware/errorHandler';
 import { resolveStore } from './middleware/resolveStore';
+import { enforceSubscription } from './middleware/enforceSubscription';
 // authLimiter lives in its own file to avoid circular imports with auth.routes.ts
 export { authLimiter } from './middleware/rateLimiter';
 
 import authRoutes from './modules/auth/auth.routes';
+import authTenantRoutes from './modules/auth/auth.tenant.routes';
 import categoryRoutes from './modules/categories/category.routes';
 import productRoutes from './modules/products/product.routes';
 import cartRoutes from './modules/cart/cart.routes';
@@ -38,6 +40,8 @@ import newsletterRoutes from './modules/newsletter/newsletter.routes';
 import recommendationsRoutes from './modules/recommendations/recommendations.routes';
 import chatbotRoutes from './modules/chatbot/chatbot.routes';
 import couponRoutes from './modules/coupons/coupon.routes';
+import shippingRoutes from './modules/shipping/shipping.routes';
+import taxRoutes from './modules/tax/tax.routes';
 import storeRoutes from './modules/stores/store.routes';
 import onboardingRoutes from './modules/onboarding/onboarding.routes';
 import supportRoutes from './modules/support/support.routes';
@@ -185,10 +189,26 @@ app.use('/api/v1/admin', globalAdminRouter);
 
 // ── Store-scoped API routes ───────────────────────────────────────────────────
 // All routes below require a store context resolved from X-Store-ID / X-Store-Slug / subdomain.
+//
+// ⚠️  ROUTE PLACEMENT IS A BILLING CONTROL.
+// Everything mounted on this router is subject to `enforceSubscription` below.
+// The routes that let a merchant PAY — /stores/:id/upgrade-request, /plans,
+// /stores/mine, /stores/current — are deliberately mounted ABOVE, outside this
+// router, so a suspended store can always reach the checkout that restores it.
+// Moving any of them down here would lock non-paying merchants out of paying.
+// `subscription-enforcement.integration.test.ts` pins this.
 const tenantRouter = express.Router();
 tenantRouter.use(resolveStore);
+// Reads stay open on a restricted store; writes and new orders get HTTP 402.
+// Mounted here rather than per-route so no future endpoint can forget the gate.
+tenantRouter.use(enforceSubscription);
 
-tenantRouter.use('/auth', authRoutes);
+// Store-scoped auth (customer register/login/forgot-password). The
+// store-INDEPENDENT auth routes are mounted above at the same public prefix;
+// the two route sets are disjoint so a request for /auth/login falls through
+// that mount and arrives here with `req.store` resolved. See the header of
+// auth.tenant.routes.ts for what went wrong when they overlapped.
+tenantRouter.use('/auth', authTenantRoutes);
 tenantRouter.use('/categories', categoryRoutes);
 tenantRouter.use('/products', productRoutes);
 tenantRouter.use('/cart', cartRoutes);
@@ -202,6 +222,8 @@ tenantRouter.use('/newsletter', newsletterRoutes);
 tenantRouter.use('/recommendations', recommendationsRoutes);
 tenantRouter.use('/chatbot', chatbotRoutes);
 tenantRouter.use('/coupons', couponRoutes);
+tenantRouter.use('/shipping', shippingRoutes);
+tenantRouter.use('/tax', taxRoutes);
 
 app.use('/api/v1', tenantRouter);
 
