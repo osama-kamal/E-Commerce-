@@ -143,3 +143,32 @@ export function fromMinorUnits(minorAmount: number, currency: string): number {
   }
   return shiftDecimal(Math.round(minorAmount), -minorUnitExponent(currency));
 }
+
+/**
+ * Formats a major-unit amount for display to a human.
+ *
+ * Separate from the gateway conversions above: those produce integers for a
+ * payment API, this produces a string for a person. Both must agree on the
+ * exponent, which is why they live in the same module.
+ *
+ * `Intl` supplies the symbol, separators and decimal places from the currency
+ * itself, so JPY renders "¥5,000" with no sub-unit and KWD renders "KWD 5.000"
+ * with three. Anything that hardcodes a "$" or `toFixed(2)` is wrong for most of
+ * the world and, on this platform, wrong for the store it is talking about.
+ *
+ * Falls back to "CODE 1,234.56" for a code Intl does not recognise rather than
+ * throwing — this is called from response-rendering paths where an exception
+ * would cost the whole reply.
+ */
+export function formatMoney(amount: number, currency: string): string {
+  const code = (currency || 'USD').trim().toUpperCase();
+  try {
+    return new Intl.NumberFormat('en-US', { style: 'currency', currency: code }).format(amount);
+  } catch {
+    const exponent = minorUnitExponent(code);
+    return `${code} ${new Intl.NumberFormat('en-US', {
+      minimumFractionDigits: exponent,
+      maximumFractionDigits: exponent,
+    }).format(amount)}`;
+  }
+}

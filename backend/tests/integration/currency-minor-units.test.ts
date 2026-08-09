@@ -20,6 +20,7 @@ import {
   minorUnitFactor,
   toMinorUnits,
   fromMinorUnits,
+  formatMoney,
   isSupportedCurrency,
   SUPPORTED_CURRENCIES,
 } from '../../src/modules/checkout/currency';
@@ -152,6 +153,42 @@ describe('round-trip stability', () => {
         expect(Number(major.toFixed(exponent))).toBe(major);
       }
     }
+  });
+});
+
+describe('formatMoney — display, not gateway', () => {
+  // The server had no money formatter at all, so the chatbot rendered every
+  // price with a hardcoded "$" and toFixed(2). An EGP store quoted dollars, and
+  // a JPY price gained two decimal places that do not exist in the currency.
+
+  it('uses the currency\'s own symbol and decimal places', () => {
+    expect(formatMoney(1234.5, 'USD')).toBe('$1,234.50');
+    expect(formatMoney(99.99, 'GBP')).toBe('£99.99');
+    expect(formatMoney(250, 'EGP')).toContain('250.00');
+    expect(formatMoney(250, 'EGP')).not.toContain('$');
+  });
+
+  it('renders a zero-decimal currency with no sub-unit', () => {
+    expect(formatMoney(5000, 'JPY')).toBe('¥5,000');
+    expect(formatMoney(5000, 'JPY')).not.toContain('.00');
+  });
+
+  it('renders a three-decimal currency with three places', () => {
+    expect(formatMoney(5, 'KWD')).toContain('5.000');
+  });
+
+  it('agrees with minorUnitExponent on how many places to show', () => {
+    for (const code of ['USD', 'EGP', 'JPY', 'KRW', 'KWD', 'BHD']) {
+      const decimals = (formatMoney(1, code).split('.')[1] ?? '').replace(/\D/g, '').length;
+      expect(decimals).toBe(minorUnitExponent(code));
+    }
+  });
+
+  it('falls back rather than throwing on an unknown code', () => {
+    // Called from response-rendering paths, where an exception costs the whole
+    // reply rather than one number.
+    expect(() => formatMoney(10, 'ZZZ')).not.toThrow();
+    expect(formatMoney(10, 'ZZZ')).toContain('10.00');
   });
 });
 
