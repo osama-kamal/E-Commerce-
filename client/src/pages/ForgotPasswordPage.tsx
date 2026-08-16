@@ -1,17 +1,25 @@
 import { useState, FormEvent } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { authApi } from '../api/auth';
+import { storeSlugFromRedirect, withRedirect } from '../utils/storeRedirect';
 
 export default function ForgotPasswordPage() {
+  const [searchParams] = useSearchParams();
   const [email, setEmail] = useState('');
   const [sent, setSent] = useState(false);
   const [loading, setLoading] = useState(false);
+
+  // The reset is issued for ONE store's account (an address may hold several).
+  // The store rides in ?redirect=/s/:slug from the storefront; without it the
+  // server cannot resolve which account to reset. See utils/storeRedirect.
+  const redirect = searchParams.get('redirect') ?? '';
+  const storeSlug = storeSlugFromRedirect(redirect);
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setLoading(true);
     try {
-      await authApi.forgotPassword(email);
+      await authApi.forgotPassword(email, storeSlug ?? undefined);
       setSent(true);
     } finally {
       setLoading(false);
@@ -46,7 +54,7 @@ export default function ForgotPasswordPage() {
           </form>
         )}
         <p className="mt-4 text-sm text-center">
-          <Link to="/login" className="text-primary-600 hover:underline">Back to login</Link>
+          <Link to={withRedirect('/login', redirect)} className="text-primary-600 hover:underline">Back to login</Link>
         </p>
       </div>
     </div>

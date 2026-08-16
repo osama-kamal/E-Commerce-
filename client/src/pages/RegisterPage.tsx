@@ -1,4 +1,4 @@
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { yupResolver } from '@hookform/resolvers/yup';
 import * as yup from 'yup';
@@ -6,6 +6,7 @@ import toast from 'react-hot-toast';
 import { authApi } from '../api/auth';
 import { setCredentials } from '../store/authSlice';
 import { useAppDispatch } from '../hooks/useAppDispatch';
+import { storeSlugFromRedirect, withRedirect } from '../utils/storeRedirect';
 
 const schema = yup.object({
   email: yup.string().email('Enter a valid email').required('Email is required'),
@@ -20,6 +21,14 @@ type FormData = yup.InferType<typeof schema>;
 export default function RegisterPage() {
   const dispatch = useAppDispatch();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+
+  // The store this sign-up belongs to, carried in ?redirect=/s/:slug from the
+  // storefront. `/register` is a top-level route, so a brand-new visitor has no
+  // other store context — without this the request sends no tenant and the
+  // server rejects the sign-up 400. See utils/storeRedirect.
+  const redirect = searchParams.get('redirect') ?? '';
+  const storeSlug = storeSlugFromRedirect(redirect);
 
   const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<FormData>({
     resolver: yupResolver(schema),
@@ -27,12 +36,19 @@ export default function RegisterPage() {
 
   const onSubmit = async (data: FormData) => {
     try {
-      const res = await authApi.register(data.email, data.password);
+      const res = await authApi.register(data.email, data.password, storeSlug ?? undefined);
       // refreshToken is now set as an httpOnly cookie by the backend — not in the response body
       const { user, accessToken } = res.data.data;
+
+      // Keep subsequent requests on this store (the interceptor reads this).
+      if ((user as any).storeId) {
+        localStorage.setItem('currentStoreId', (user as any).storeId);
+      }
+
       dispatch(setCredentials({ user, accessToken }));
       toast.success('Account created!');
-      navigate('/');
+      // Back to the shop they signed up on, not the platform root.
+      navigate(storeSlug ? `/s/${storeSlug}` : '/');
     } catch {
       // toast fired by interceptor
     }
@@ -88,7 +104,7 @@ export default function RegisterPage() {
         </form>
         <p className="mt-4 text-sm text-center text-gray-600 dark:text-gray-400">
           Already have an account?{' '}
-          <Link to="/login" className="text-primary-600 hover:underline">Sign in</Link>
+          <Link to={withRedirect('/login', redirect)} className="text-primary-600 hover:underline">Sign in</Link>
         </p>
       </div>
     </div>

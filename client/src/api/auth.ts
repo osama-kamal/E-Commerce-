@@ -23,9 +23,21 @@ type Session = { data: { user: User; accessToken: string } };
  * sending the store context is required rather than something to work around.
  */
 export const authApi = {
-  register: (email: string, password: string) =>
+  /**
+   * Customer sign-up on a storefront.
+   *
+   * Store-scoped exactly like `login`: the server registers into `{ storeId,
+   * email }`, so the request must carry the store. `storeSlug` is supplied by the
+   * shared `/register` page (outside the `/s/:slug` tree, where the interceptor
+   * has no `sf_active_slug`); without it a brand-new visitor — who has no
+   * `currentStoreId` yet — sends no tenant at all and the server rejects the
+   * sign-up 400, so no shopper could ever create an account on a storefront.
+   */
+  register: (email: string, password: string, storeSlug?: string) =>
     api.post<{ data: { user: User; accessToken: string; refreshToken: string } }>(
-      '/auth/register', { email, password }
+      '/auth/register',
+      { email, password },
+      storeSlug ? { headers: { 'X-Store-Slug': storeSlug } } : undefined
     ),
 
   /**
@@ -74,8 +86,18 @@ export const authApi = {
   // value that was always null and the request never went out.
   logout: () => api.post('/auth/logout'),
 
-  /** Store-scoped: the same address may hold accounts in several stores. */
-  forgotPassword: (email: string) => api.post('/auth/forgot-password', { email }),
+  /**
+   * Store-scoped: the same address may hold accounts in several stores, so a
+   * reset is issued for ONE store's account. `storeSlug` carries the tenant from
+   * the shared `/forgot-password` page; without it the server cannot tell which
+   * store's account to reset and returns 400.
+   */
+  forgotPassword: (email: string, storeSlug?: string) =>
+    api.post(
+      '/auth/forgot-password',
+      { email },
+      storeSlug ? { headers: { 'X-Store-Slug': storeSlug } } : undefined
+    ),
 
   /** The reset token identifies one account on its own — no store context. */
   resetPassword: (token: string, password: string) =>

@@ -7,6 +7,7 @@ import { authApi } from '../api/auth';
 import { setCredentials, logout } from '../store/authSlice';
 import { useAppDispatch } from '../hooks/useAppDispatch';
 import { useTenant } from '../hooks/useTenant';
+import { storeSlugFromRedirect, withRedirect } from '../utils/storeRedirect';
 
 const schema = yup.object({
   email: yup.string().email('Enter a valid email').required('Email is required'),
@@ -33,7 +34,7 @@ export default function LoginPage() {
    * arbitrary redirect value must not be trusted to pick the auth endpoint.
    */
   const redirect = searchParams.get('redirect') ?? '';
-  const redirectSlug = /^\/s\/([^/?#]+)/.exec(redirect)?.[1] ?? null;
+  const redirectSlug = storeSlugFromRedirect(redirect);
   const storeSlug = tenant.slug ?? redirectSlug;
   const isStorefrontLogin = tenant.isStorefront || redirectSlug !== null;
 
@@ -143,9 +144,12 @@ export default function LoginPage() {
             </button>
           </form>
           <div className="mt-4 text-sm text-center text-gray-600 dark:text-gray-400">
-            <Link to="/forgot-password" className="text-amber-600 hover:text-amber-700 hover:underline dark:text-amber-400">Forgot password?</Link>
+            {/* Carry the redirect so the store context survives the hop — a bare
+                /register or /forgot-password loses the storefront and drops the
+                shopper onto the tenant-less platform form. */}
+            <Link to={withRedirect('/forgot-password', redirect)} className="text-amber-600 hover:text-amber-700 hover:underline dark:text-amber-400">Forgot password?</Link>
             <span className="mx-2">·</span>
-            <Link to="/register" className="text-amber-600 hover:text-amber-700 hover:underline dark:text-amber-400">Create account</Link>
+            <Link to={withRedirect('/register', redirect)} className="text-amber-600 hover:text-amber-700 hover:underline dark:text-amber-400">Create account</Link>
           </div>
         </div>
       </div>
