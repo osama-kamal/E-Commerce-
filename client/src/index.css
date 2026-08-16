@@ -40,8 +40,36 @@
     }
   }
 
+  /* ── Page ground ───────────────────────────────────────────────────────────
+     The ground lives on <html>, NOT <body>, and that placement is load-bearing.
+
+     Every theme sets `html[data-store-theme='…'] { background-color: … }`. When
+     <body> also painted an opaque background it covered the canvas, so a theme's
+     ground never reached the screen — the only reason theme changes looked like
+     they "did nothing" to the page behind the cards. Leaving <body> transparent
+     lets html's colour propagate to the canvas, which is the standard cascade
+     and what makes the theme rules effective.
+
+     White rather than the previous gray-50: a neutral white ground is what makes
+     product photography read accurately, and it is the base the `default` theme
+     is defined as. Themes that want a tinted ground (luxury's bone, modern's
+     slate) set their own. */
+  html {
+    @apply bg-white;
+  }
+
+  /* `html.dark`, NOT `dark:bg-gray-950`.
+     Tailwind's class dark-mode compiles `dark:` to `.dark &`, which requires
+     `.dark` to be an ANCESTOR of the styled element. useDarkMode puts `.dark` on
+     <html> itself, so `.dark html` matches nothing and the ground stayed white
+     in dark mode. This was not a problem while the ground lived on <body>, which
+     is a descendant. An explicit compound selector is the correct form here. */
+  html.dark {
+    @apply bg-gray-950;
+  }
+
   body {
-    @apply bg-gray-50 text-gray-900 antialiased dark:bg-gray-950 dark:text-gray-100;
+    @apply text-gray-900 antialiased dark:text-gray-100;
     /* `cv11` gives Inter the single-storey lowercase g/l that reads better at
        small sizes; `ss01` enables the tighter alternates used at display sizes.
        Both are no-ops on the fallback stack. */
@@ -111,6 +139,24 @@
   .card {
     @apply bg-white/95 backdrop-blur-md rounded-2xl shadow-elevated border border-gray-200/70
            dark:bg-gray-900/85 dark:border-gray-800/80 dark:backdrop-blur-md;
+  }
+
+  /* ── Storefront horizontal shell ───────────────────────────────────────────
+     The one place the storefront's content width is defined. The navbar, hero
+     copy, hero indicators, catalogue and footer all use it, so the chrome can
+     never stop lining up with the content — four copies of the same literal is
+     exactly how that drift happened before.
+
+     No max-width: the storefront runs edge to edge. It used to cap at 1600px,
+     which on a wide monitor left several hundred pixels of dead margin down
+     both sides of the page while the catalogue was squeezed into the middle.
+     The column count in StorefrontHomePage's GRID_CLASS is what keeps cards a
+     sane size as the page gets wider — not a container cap.
+
+     The marketing site is deliberately NOT on this class; it caps its sections
+     at 1440px, which is right for reading-width prose and wrong for a grid. */
+  .storefront-shell {
+    @apply w-full mx-auto px-4 sm:px-6 lg:px-8;
   }
 
   /* ── Surfaces ──────────────────────────────────────────────────────────────

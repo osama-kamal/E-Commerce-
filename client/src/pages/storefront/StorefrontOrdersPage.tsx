@@ -7,11 +7,11 @@
 
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Package } from 'lucide-react';
+import { AlertTriangle, Package } from 'lucide-react';
 import { CardGridSkeleton } from '../../components/Skeleton';
 import { useStorefront } from '../../contexts/StorefrontContext';
 import { useAppSelector } from '../../hooks/useAppDispatch';
-import { Order } from '../../types';
+import { Order, PaginatedResponse } from '../../types';
 
 const STATUS_COLORS: Record<string, string> = {
   pending:    'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400',
@@ -28,17 +28,40 @@ export default function StorefrontOrdersPage() {
 
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  // Bumped by Retry. The effect's other deps do not change on a retry, so
+  // without this the button would clear the error and then never refetch.
+  const [reloadNonce, setReloadNonce] = useState(0);
 
   useEffect(() => {
     if (!isAuthenticated) {
       navigate(`/login?redirect=/s/${slug}/orders`, { replace: true });
       return;
     }
-    sfApi.get<{ data: Order[] }>('/orders')
-      .then(res => setOrders(res.data.data))
-      .catch(() => {})
+
+    setError(null);
+
+    /**
+     * GET /orders is PAGINATED, so the payload is
+     * `{ data: { data: Order[], total, page, totalPages } }` — two levels, not
+     * one. This read `res.data.data` and handed the wrapper object to
+     * `setOrders`, which made `orders.length === 0` false (it is `undefined`)
+     * and sent an object into `orders.map()`. The TypeError unmounted the tree,
+     * so the page rendered blank rather than showing an order or an empty
+     * state. The main-site OrdersPage always unwrapped both levels; only this
+     * copy was short. Typing the response as PaginatedResponse<Order> is what
+     * stops it coming back — the wrong depth is now a compile error.
+     */
+    sfApi.get<{ data: PaginatedResponse<Order> }>('/orders')
+      .then(res => setOrders(res.data.data.data))
+      // A blanket swallow is why this failure was invisible: a 401, a 500 and
+      // "you have never ordered" all rendered the same empty state.
+      .catch(err => {
+        setError(err?.response?.data?.message ?? 'Could not load your orders.');
+        setOrders([]);
+      })
       .finally(() => setLoading(false));
-  }, [isAuthenticated, navigate, sfApi, slug]);
+  }, [isAuthenticated, navigate, sfApi, slug, reloadNonce]);
 
   if (!isAuthenticated) return null;
 
@@ -54,6 +77,24 @@ export default function StorefrontOrdersPage() {
 
       {loading ? (
         <CardGridSkeleton count={4} lines={2} className="space-y-4" label="Loading your orders…" />
+      ) : error ? (
+        <div className="surface py-24 text-center">
+          <div className="mx-auto mb-6 flex h-20 w-20 items-center justify-center rounded-2xl bg-gray-100 dark:bg-gray-800">
+            <AlertTriangle className="h-9 w-9 text-gray-400" strokeWidth={1.5} aria-hidden="true" />
+          </div>
+          <h2 className="mb-2 text-2xl font-bold tracking-tight text-gray-900 dark:text-white">
+            Could not load your orders
+          </h2>
+          <p className="mx-auto mb-8 max-w-sm text-sm leading-relaxed text-gray-500 dark:text-gray-400">
+            {error}
+          </p>
+          <button
+            onClick={() => { setLoading(true); setReloadNonce(n => n + 1); }}
+            className="btn-secondary px-6"
+          >
+            Retry
+          </button>
+        </div>
       ) : orders.length === 0 ? (
         <div className="surface py-24 text-center">
           <div className="mx-auto mb-6 flex h-20 w-20 items-center justify-center rounded-2xl bg-gray-100 dark:bg-gray-800">
