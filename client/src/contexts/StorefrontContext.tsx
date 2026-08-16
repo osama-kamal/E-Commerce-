@@ -17,6 +17,7 @@
 
 import React, { createContext, useContext, useEffect, useMemo } from 'react';
 import axios, { AxiosInstance } from 'axios';
+import { attachAuthRefresh } from '../api/axios';
 import { Store } from '../types';
 
 // ── Shared sessionStorage key ─────────────────────────────────────────────────
@@ -46,6 +47,13 @@ export function createStorefrontApi(slug: string): AxiosInstance {
     }
     return config;
   });
+
+  // Same silent-refresh-on-401 the main instance has. Without it every
+  // authenticated storefront call (cart, checkout, orders) died with a 401 once
+  // the 15-minute access token expired — the shopper clicked "Add to cart" and
+  // nothing happened. attachAuthRefresh retries on THIS instance, preserving the
+  // X-Store-Slug header above.
+  attachAuthRefresh(instance);
 
   return instance;
 }

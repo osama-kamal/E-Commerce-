@@ -1,4 +1,4 @@
-import axios from 'axios';
+import axios, { AxiosInstance } from 'axios';
 import toast from 'react-hot-toast';
 import { store } from '../store';
 import { getHostTenant } from './activeTenant';
@@ -81,68 +81,92 @@ function processQueue(error: unknown, token: string | null) {
   failedQueue = [];
 }
 
-api.interceptors.response.use(
-  (res) => res,
-  async (error) => {
-    const original = error.config;
-    const status = error.response?.status;
-    const message: string = error.response?.data?.message ?? 'Something went wrong';
+/**
+ * Attaches silent-refresh-on-401 to an axios instance.
+ *
+ * Exported because the storefront runs on a SEPARATE axios instance — `sfApi`,
+ * created per tenant with the `X-Store-Slug` header baked in (see
+ * StorefrontContext). That instance only ever had a request interceptor, so
+ * every authenticated storefront call — add to cart, update/remove item,
+ * checkout, orders — silently 401'd once the 15-minute access token expired:
+ * no refresh, no re-login prompt, the shopper clicked "Add to cart" and nothing
+ * happened. Sharing this fixes all of them.
+ *
+ * The retry replays on the ORIGINATING `instance`, not a hardcoded one, so a
+ * refreshed storefront request keeps its `X-Store-Slug` rather than being sent
+ * tenant-less. The refresh state (`isRefreshing`/`failedQueue`) is module-level,
+ * so a burst of 401s across both instances triggers ONE refresh and the rest
+ * queue behind it.
+ */
+export function attachAuthRefresh(instance: AxiosInstance) {
+  instance.interceptors.response.use(
+    (res) => res,
+    async (error) => {
+      const original = error.config;
+      const status = error.response?.status;
+      const message: string = error.response?.data?.message ?? 'Something went wrong';
 
-    // Auth endpoints (login, register, reset-password) legitimately return 401
-    // for bad credentials — don't attempt a silent token refresh for those.
-    const isAuthEndpoint = original.url &&
-      (original.url.includes('/auth/login') ||
-       original.url.includes('/auth/register') ||
-       original.url.includes('/auth/reset-password') ||
-       original.url.includes('/auth/forgot-password'));
+      // Auth endpoints (login, register, reset-password) legitimately return 401
+      // for bad credentials — don't attempt a silent token refresh for those.
+      const isAuthEndpoint = original.url &&
+        (original.url.includes('/auth/login') ||
+         original.url.includes('/auth/register') ||
+         original.url.includes('/auth/reset-password') ||
+         original.url.includes('/auth/forgot-password'));
 
-    if (status === 401 && !original._retry && !isAuthEndpoint) {
-      if (isRefreshing) {
-        // Another refresh is already in flight — queue this request
-        return new Promise((resolve, reject) => {
-          failedQueue.push({ resolve, reject });
-        }).then((token) => {
-          original.headers.Authorization = `Bearer ${token}`;
-          return api(original);
-        });
+      if (status === 401 && !original._retry && !isAuthEndpoint) {
+        if (isRefreshing) {
+          // Another refresh is already in flight — queue this request, then
+          // replay it on THIS instance so its tenant header survives.
+          return new Promise((resolve, reject) => {
+            failedQueue.push({ resolve, reject });
+          }).then((token) => {
+            original.headers.Authorization = `Bearer ${token}`;
+            return instance(original);
+          });
+        }
+
+        original._retry = true;
+        isRefreshing = true;
+
+        try {
+          // The refresh token is sent automatically via the httpOnly cookie.
+          // No body payload needed — withCredentials handles the cookie.
+          const { data } = await axios.post(
+            '/api/v1/auth/refresh',
+            {},
+            { withCredentials: true }
+          );
+
+          const { accessToken } = data.data;
+          // Backend rotates the refresh cookie server-side — we only handle the
+          // new access token. setTokens persists it to localStorage too, so
+          // sfApi's request interceptor (which reads localStorage) picks it up.
+          store.dispatch(setTokens({ accessToken }));
+          processQueue(null, accessToken);
+          original.headers.Authorization = `Bearer ${accessToken}`;
+          return instance(original);
+        } catch (err) {
+          processQueue(err, null);
+          store.dispatch(logout());
+          return Promise.reject(err);
+        } finally {
+          isRefreshing = false;
+        }
       }
 
-      original._retry = true;
-      isRefreshing = true;
-
-      try {
-        // The refresh token is sent automatically via the httpOnly cookie.
-        // No body payload needed — withCredentials handles the cookie.
-        const { data } = await axios.post(
-          '/api/v1/auth/refresh',
-          {},
-          { withCredentials: true }
-        );
-
-        const { accessToken } = data.data;
-        // Backend rotates the refresh cookie server-side — we only handle the new access token
-        store.dispatch(setTokens({ accessToken }));
-        processQueue(null, accessToken);
-        original.headers.Authorization = `Bearer ${accessToken}`;
-        return api(original);
-      } catch (err) {
-        processQueue(err, null);
-        store.dispatch(logout());
-        return Promise.reject(err);
-      } finally {
-        isRefreshing = false;
+      // Show toast for all errors except 401s that are being retried via refresh.
+      // Auth endpoint 401s (wrong password, etc.) should always show the error message.
+      const willRetry = status === 401 && !original._retry && !isAuthEndpoint;
+      if (!willRetry) {
+        toast.error(message);
       }
-    }
 
-    // Show toast for all errors except 401s that are being retried via refresh.
-    // Auth endpoint 401s (wrong password, etc.) should always show the error message.
-    const willRetry = status === 401 && !original._retry && !isAuthEndpoint;
-    if (!willRetry) {
-      toast.error(message);
+      return Promise.reject(error);
     }
+  );
+}
 
-    return Promise.reject(error);
-  }
-);
+attachAuthRefresh(api);
 
 export default api;
