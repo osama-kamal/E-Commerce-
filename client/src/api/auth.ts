@@ -34,9 +34,21 @@ export const authApi = {
    * Uses the shared instance so the interceptor attaches the tenant — by slug
    * inside `/s/:slug`, by id on a host-resolved storefront. Without it the
    * server returns 400 rather than guessing, which is the point.
+   *
+   * `storeSlug` is passed by the shared `/login` page, which lives OUTSIDE the
+   * `/s/:slug` route tree: there the interceptor has no `sf_active_slug` to read
+   * (StorefrontProvider isn't mounted), so the caller supplies the store the
+   * shopper came from and we set the header explicitly. The interceptor only
+   * writes `X-Store-Slug` when it has a slug of its own, so this is not
+   * overwritten. Omitted when already inside a storefront, where the interceptor
+   * resolves the tenant on its own.
    */
-  login: (email: string, password: string) =>
-    api.post<Session>('/auth/login', { email, password }),
+  login: (email: string, password: string, storeSlug?: string) =>
+    api.post<Session>(
+      '/auth/login',
+      { email, password },
+      storeSlug ? { headers: { 'X-Store-Slug': storeSlug } } : undefined
+    ),
 
   /**
    * Merchant and operator sign-in on the platform host.

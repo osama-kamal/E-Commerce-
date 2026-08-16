@@ -1,4 +1,4 @@
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { yupResolver } from '@hookform/resolvers/yup';
 import * as yup from 'yup';
@@ -19,6 +19,23 @@ export default function LoginPage() {
   const dispatch = useAppDispatch();
   const navigate = useNavigate();
   const tenant = useTenant();
+  const [searchParams] = useSearchParams();
+
+  /**
+   * Which store this sign-in belongs to.
+   *
+   * `/login` is a top-level route, so a shopper who clicked "Login" on a
+   * storefront arrives here OUTSIDE the `/s/:slug` tree — `useTenant()` no longer
+   * sees the store, and without this the page fell through to the platform
+   * (merchant) endpoint and rejected every customer with a 401. The store the
+   * shopper came from is carried in `?redirect=/s/:slug`; we read the slug back
+   * out of it. Only a `/s/:slug` redirect counts as a storefront login — an
+   * arbitrary redirect value must not be trusted to pick the auth endpoint.
+   */
+  const redirect = searchParams.get('redirect') ?? '';
+  const redirectSlug = /^\/s\/([^/?#]+)/.exec(redirect)?.[1] ?? null;
+  const storeSlug = tenant.slug ?? redirectSlug;
+  const isStorefrontLogin = tenant.isStorefront || redirectSlug !== null;
 
   const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<FormData>({
     resolver: yupResolver(schema),
@@ -37,9 +54,10 @@ export default function LoginPage() {
       //
       // Sending a shopper down the platform path (or the reverse) is what the
       // old single-endpoint login did implicitly, and it let one tenant's
-      // password reach another tenant's account.
-      const res = tenant.isStorefront
-        ? await authApi.login(data.email, data.password)
+      // password reach another tenant's account. `storeSlug` covers the shared
+      // `/login` page, where the store is known only from the redirect.
+      const res = isStorefrontLogin
+        ? await authApi.login(data.email, data.password, storeSlug ?? undefined)
         : await authApi.platformLogin(data.email, data.password);
       const { user, accessToken } = res.data.data;
 
@@ -51,10 +69,13 @@ export default function LoginPage() {
       dispatch(setCredentials({ user, accessToken }));
       toast.success('Welcome back!');
 
-      // On a storefront, a customer belongs in the shop they just signed into —
-      // `tenant.path` keeps them inside the tenant tree rather than dropping
-      // them on the platform's own root.
-      navigate(user.role === 'customer' ? tenant.path('/') : '/admin');
+      // A customer belongs in the shop they just signed into, never the platform
+      // root. `storeSlug` is set both inside `/s/:slug` and on the shared
+      // `/login` page (from the redirect), so this returns them to their store
+      // in either case; `tenant.path('/')` is the fallback for a host-resolved
+      // storefront that has no slug. Merchants go to the admin dashboard.
+      const customerHome = storeSlug ? `/s/${storeSlug}` : tenant.path('/');
+      navigate(user.role === 'customer' ? customerHome : '/admin');
     } catch (err: any) {
       const msg: string =
         err?.response?.data?.message ??
