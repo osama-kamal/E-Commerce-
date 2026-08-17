@@ -363,8 +363,25 @@ export async function updateUserRole(
   if (!Types.ObjectId.isValid(userId)) {
     throw createError('Invalid user ID', 400, 'BAD_REQUEST');
   }
-  const user = await User.findOneAndUpdate(
-    { _id: userId, storeId: new Types.ObjectId(storeId) },
+
+  // A super-admin's role cannot be changed through this endpoint. It is guarded
+  // only by authorizeRole('admin'), so without this any store admin could demote
+  // the platform's most privileged account to customer — and the two-option UI
+  // that feeds it renders a super-admin as "customer", making that a one-click
+  // accident with no way back from the same screen. Refuse before writing, and
+  // scope the lookup to the store so an admin cannot touch another tenant's user.
+  const target = await User.findOne({
+    _id: userId,
+    storeId: new Types.ObjectId(storeId),
+  }).select('role').lean();
+
+  if (!target) throw createError('User not found', 404, 'NOT_FOUND');
+  if (target.role === 'super-admin') {
+    throw createError("A super-admin's role cannot be changed", 403, 'FORBIDDEN');
+  }
+
+  const user = await User.findByIdAndUpdate(
+    userId,
     { role },
     { new: true }
   ).select('email role isActive createdAt').lean();
