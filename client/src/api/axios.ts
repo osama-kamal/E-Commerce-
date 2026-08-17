@@ -1,7 +1,27 @@
-import axios from 'axios';
+import axios, { AxiosInstance } from 'axios';
 import toast from 'react-hot-toast';
-import { store } from '../store';
-import { logout, setTokens } from '../store/authSlice';
+import { getHostTenant } from './activeTenant';
+
+/**
+ * The Redux store and auth actions, resolved lazily.
+ *
+ * Importing them at module load created a cycle — store → authSlice → api/auth →
+ * api/axios → store — which every slice that imports an api module fed into, and
+ * which surfaced as "Cannot access 'authReducer' before initialization" whenever
+ * Vite hot-reloaded anything in the chain. This layer must not depend on the
+ * store at load time. The request interceptor reads the token straight from
+ * localStorage (kept in lockstep with Redux by every auth reducer), and the only
+ * place that must dispatch — the 401 handler — pulls the store in at call time,
+ * long after every module has initialised. The dynamic import is cached, so the
+ * hot path pays nothing after the first refresh.
+ */
+async function getAuth() {
+  const [{ store }, slice] = await Promise.all([
+    import('../store'),
+    import('../store/authSlice'),
+  ]);
+  return { store, setTokens: slice.setTokens, logout: slice.logout };
+}
 
 const api = axios.create({
   baseURL: '/api/v1',
@@ -12,59 +32,61 @@ const api = axios.create({
 });
 
 // ── Request interceptor ───────────────────────────────────────────────────────
-// Attach access token + store context to every request.
-// Falls back to localStorage in case Redux store hasn't hydrated yet (page refresh).
+// Attach access token + store context to every request. The token is read from
+// localStorage rather than Redux so this layer stays free of a store import (see
+// getAuth above); every auth reducer keeps localStorage in lockstep with state.
 api.interceptors.request.use((config) => {
-  const token = store.getState().auth.accessToken ?? localStorage.getItem('accessToken');
+  const token = localStorage.getItem('accessToken');
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }
 
   // Multi-tenant: attach the store identifier so the backend can resolve the tenant.
   //
-  // Priority order:
-  //  1. Storefront slug in sessionStorage (set by StorefrontProvider while inside /s/:slug)
-  //     This MUST take precedence — otherwise VITE_STORE_ID would always win and
-  //     override it with the platform store's ID, breaking storefront cart/wishlist.
-  //  2. currentStoreId in localStorage (vendor admin session — explicit user selection)
-  //  3. VITE_STORE_ID env var (legacy single-store fallback, only when nothing else is set)
-  //  4. VITE_STORE_SLUG env var (build-time slug, last resort)
+  // Priority, most specific first:
+  //   1. Path storefront (/s/:slug) — the route the user is literally on.
+  //   2. Host tenant — this deployment's own domain maps to a store. Resolved
+  //      once at boot by SiteProvider and held in memory, never in storage.
+  //   3. Admin-selected store — a merchant working in /admin on the platform
+  //      host, where the store comes from the switcher rather than the URL.
+  //
+  // `VITE_STORE_ID` used to sit at the bottom of this list, which meant that on
+  // the platform's own domain EVERY request resolved to one hardcoded tenant.
+  // It is gone: a store is now reachable only by a route or a host that
+  // genuinely belongs to it. The dev-only override lives in SiteContext, where
+  // it is gated on a development build and cannot leak into production.
+  //
+  // Host outranks the admin selection deliberately: a shopper on
+  // shop.acme.com must see Acme even if that browser once administered another
+  // store and left `currentStoreId` behind.
 
-  const storefrontSlug = sessionStorage.getItem('sf_active_slug');
+  const pathStorefrontSlug = sessionStorage.getItem('sf_active_slug');
+  const hostTenant = getHostTenant();
 
-  if (storefrontSlug) {
-    // Inside a /s/:slug storefront — always use the slug, ignore everything else
-    config.headers['X-Store-Slug'] = storefrontSlug;
+  const isValidObjectId = (id: string | undefined | null): boolean =>
+    typeof id === 'string' && /^[a-f\d]{24}$/i.test(id);
+
+  if (pathStorefrontSlug) {
+    config.headers['X-Store-Slug'] = pathStorefrontSlug;
+  } else if (hostTenant) {
+    config.headers['X-Store-ID'] = hostTenant.storeId;
   } else {
     const currentStoreId = localStorage.getItem('currentStoreId');
-    const envStoreId = import.meta.env.VITE_STORE_ID as string | undefined;
-    const storeSlug = import.meta.env.VITE_STORE_SLUG as string | undefined;
 
-    const storeId: string | undefined = currentStoreId || envStoreId;
-
-    // Guard: only send X-Store-ID if it's a valid 24-char MongoDB ObjectId.
-    // Intentionally returns boolean (not a type predicate) so TypeScript does not
-    // narrow storeId to never in the else-branch, which would break .length access.
-    const isValidObjectId = (id: string | undefined | null): boolean =>
-      typeof id === 'string' && /^[a-f\d]{24}$/i.test(id);
-
-    if (isValidObjectId(storeId)) {
-      config.headers['X-Store-ID'] = storeId as string;
-    } else {
-      if (storeId) {
-        // The ID is present but invalid — warn loudly so typos are caught immediately.
-        // A bad ID means resolveStore will skip it and return 404 for all tenant routes.
-        console.error(
-          `[axios] ⚠️ currentStoreId in localStorage is NOT a valid 24-char ObjectId ` +
-          `(got "${storeId}", length ${storeId.length}). ` +
-          `All API calls will return 404 until a valid ID is set. ` +
-          `Fix: localStorage.setItem('currentStoreId', 'YOUR_24_CHAR_ID')`
-        );
-      }
-      if (storeSlug) {
-        config.headers['X-Store-Slug'] = storeSlug;
-      }
+    if (isValidObjectId(currentStoreId)) {
+      config.headers['X-Store-ID'] = currentStoreId as string;
+    } else if (currentStoreId) {
+      // Present but malformed — warn loudly so typos surface immediately rather
+      // than as a wall of 404s from every tenant route.
+      console.error(
+        `[axios] ⚠️ currentStoreId in localStorage is NOT a valid 24-char ObjectId ` +
+        `(got "${currentStoreId}", length ${currentStoreId.length}). ` +
+        `All tenant API calls will 404 until a valid ID is set.`
+      );
     }
+    // Otherwise send no store header at all. On the platform host that is
+    // correct: platform routes (/auth, /onboarding, /plans, /stores) are not
+    // tenant-scoped, and guessing a tenant here is exactly the old bug.
   }
 
   return config;
@@ -79,68 +101,94 @@ function processQueue(error: unknown, token: string | null) {
   failedQueue = [];
 }
 
-api.interceptors.response.use(
-  (res) => res,
-  async (error) => {
-    const original = error.config;
-    const status = error.response?.status;
-    const message: string = error.response?.data?.message ?? 'Something went wrong';
+/**
+ * Attaches silent-refresh-on-401 to an axios instance.
+ *
+ * Exported because the storefront runs on a SEPARATE axios instance — `sfApi`,
+ * created per tenant with the `X-Store-Slug` header baked in (see
+ * StorefrontContext). That instance only ever had a request interceptor, so
+ * every authenticated storefront call — add to cart, update/remove item,
+ * checkout, orders — silently 401'd once the 15-minute access token expired:
+ * no refresh, no re-login prompt, the shopper clicked "Add to cart" and nothing
+ * happened. Sharing this fixes all of them.
+ *
+ * The retry replays on the ORIGINATING `instance`, not a hardcoded one, so a
+ * refreshed storefront request keeps its `X-Store-Slug` rather than being sent
+ * tenant-less. The refresh state (`isRefreshing`/`failedQueue`) is module-level,
+ * so a burst of 401s across both instances triggers ONE refresh and the rest
+ * queue behind it.
+ */
+export function attachAuthRefresh(instance: AxiosInstance) {
+  instance.interceptors.response.use(
+    (res) => res,
+    async (error) => {
+      const original = error.config;
+      const status = error.response?.status;
+      const message: string = error.response?.data?.message ?? 'Something went wrong';
 
-    // Auth endpoints (login, register, reset-password) legitimately return 401
-    // for bad credentials — don't attempt a silent token refresh for those.
-    const isAuthEndpoint = original.url &&
-      (original.url.includes('/auth/login') ||
-       original.url.includes('/auth/register') ||
-       original.url.includes('/auth/reset-password') ||
-       original.url.includes('/auth/forgot-password'));
+      // Auth endpoints (login, register, reset-password) legitimately return 401
+      // for bad credentials — don't attempt a silent token refresh for those.
+      const isAuthEndpoint = original.url &&
+        (original.url.includes('/auth/login') ||
+         original.url.includes('/auth/register') ||
+         original.url.includes('/auth/reset-password') ||
+         original.url.includes('/auth/forgot-password'));
 
-    if (status === 401 && !original._retry && !isAuthEndpoint) {
-      if (isRefreshing) {
-        // Another refresh is already in flight — queue this request
-        return new Promise((resolve, reject) => {
-          failedQueue.push({ resolve, reject });
-        }).then((token) => {
-          original.headers.Authorization = `Bearer ${token}`;
-          return api(original);
-        });
+      if (status === 401 && !original._retry && !isAuthEndpoint) {
+        if (isRefreshing) {
+          // Another refresh is already in flight — queue this request, then
+          // replay it on THIS instance so its tenant header survives.
+          return new Promise((resolve, reject) => {
+            failedQueue.push({ resolve, reject });
+          }).then((token) => {
+            original.headers.Authorization = `Bearer ${token}`;
+            return instance(original);
+          });
+        }
+
+        original._retry = true;
+        isRefreshing = true;
+
+        try {
+          // The refresh token is sent automatically via the httpOnly cookie.
+          // No body payload needed — withCredentials handles the cookie.
+          const { data } = await axios.post(
+            '/api/v1/auth/refresh',
+            {},
+            { withCredentials: true }
+          );
+
+          const { accessToken } = data.data;
+          // Backend rotates the refresh cookie server-side — we only handle the
+          // new access token. setTokens persists it to localStorage too, so both
+          // request interceptors (which read localStorage) pick it up.
+          const { store, setTokens } = await getAuth();
+          store.dispatch(setTokens({ accessToken }));
+          processQueue(null, accessToken);
+          original.headers.Authorization = `Bearer ${accessToken}`;
+          return instance(original);
+        } catch (err) {
+          processQueue(err, null);
+          const { store, logout } = await getAuth();
+          store.dispatch(logout());
+          return Promise.reject(err);
+        } finally {
+          isRefreshing = false;
+        }
       }
 
-      original._retry = true;
-      isRefreshing = true;
-
-      try {
-        // The refresh token is sent automatically via the httpOnly cookie.
-        // No body payload needed — withCredentials handles the cookie.
-        const { data } = await axios.post(
-          '/api/v1/auth/refresh',
-          {},
-          { withCredentials: true }
-        );
-
-        const { accessToken } = data.data;
-        // Backend rotates the refresh cookie server-side — we only handle the new access token
-        store.dispatch(setTokens({ accessToken }));
-        processQueue(null, accessToken);
-        original.headers.Authorization = `Bearer ${accessToken}`;
-        return api(original);
-      } catch (err) {
-        processQueue(err, null);
-        store.dispatch(logout());
-        return Promise.reject(err);
-      } finally {
-        isRefreshing = false;
+      // Show toast for all errors except 401s that are being retried via refresh.
+      // Auth endpoint 401s (wrong password, etc.) should always show the error message.
+      const willRetry = status === 401 && !original._retry && !isAuthEndpoint;
+      if (!willRetry) {
+        toast.error(message);
       }
-    }
 
-    // Show toast for all errors except 401s that are being retried via refresh.
-    // Auth endpoint 401s (wrong password, etc.) should always show the error message.
-    const willRetry = status === 401 && !original._retry && !isAuthEndpoint;
-    if (!willRetry) {
-      toast.error(message);
+      return Promise.reject(error);
     }
+  );
+}
 
-    return Promise.reject(error);
-  }
-);
+attachAuthRefresh(api);
 
 export default api;

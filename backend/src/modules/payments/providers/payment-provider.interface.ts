@@ -88,6 +88,14 @@ export interface ProviderEvent {
   type:
     | 'payment.succeeded'
     | 'payment.failed'
+    /**
+     * A refund settled at the provider.
+     *
+     * Also fires for refunds issued directly in the provider's dashboard, which
+     * this system never initiated — reconciling those is what stops the local
+     * ledger drifting from what the gateway actually did.
+     */
+    | 'refund.succeeded'
     | 'subscription.created'
     | 'subscription.updated'
     | 'subscription.deleted'
@@ -102,6 +110,55 @@ export interface ProviderEvent {
   customerId?: string;
   /** Extracted Vendbase store ID if present in the event metadata */
   storeId?: string;
+}
+
+/**
+ * Parameters for reversing a payment, in whole or in part.
+ */
+export interface RefundPaymentParams {
+  /** The provider's own payment reference, unprefixed (`pi_xxx`, Paymob transaction id). */
+  providerPaymentId: string;
+  /** Amount to return, in the smallest currency unit. */
+  amountInSmallestUnit: number;
+  /** ISO 4217, lowercase — matches the original charge. */
+  currency: string;
+  /**
+   * Makes a retried refund safe.
+   *
+   * Load-bearing: a refund request that times out but succeeded at the gateway
+   * must not send the money twice when the merchant clicks again.
+   */
+  idempotencyKey: string;
+  /** Free-text reason, forwarded where the provider supports it. */
+  reason?: string;
+}
+
+export interface RefundPaymentResult {
+  /** The provider's own refund reference. */
+  providerRefundId: string;
+  /**
+   * `succeeded` when the provider confirms synchronously, `pending` when it
+   * will confirm by webhook. Callers must treat `pending` as "money is on its
+   * way", not "nothing happened".
+   */
+  status: 'succeeded' | 'pending';
+}
+
+/**
+ * Thrown when a provider cannot reverse a payment at all.
+ *
+ * Distinct from a failed refund: this means the capability is absent, so the
+ * caller should tell the merchant to refund out-of-band rather than retry.
+ */
+export class RefundNotSupportedError extends Error {
+  constructor(provider: string, detail?: string) {
+    super(
+      `${provider} cannot process refunds through this integration` +
+      (detail ? `: ${detail}` : '') +
+      '. Refund the customer directly in the provider dashboard, then record it here.'
+    );
+    this.name = 'RefundNotSupportedError';
+  }
 }
 
 // ── Core interface ─────────────────────────────────────────────────────────────
@@ -127,6 +184,19 @@ export interface IPaymentProvider {
    * @throws {Error} if the provider API call fails or the order cannot be found.
    */
   initiatePayment(params: InitiatePaymentParams): Promise<InitiatePaymentResult>;
+
+  /**
+   * Reverses a payment, in whole or in part.
+   *
+   * The caller has already validated the amount against the order ledger; the
+   * adapter's job is to move the money and report the provider's reference.
+   *
+   * @throws {RefundNotSupportedError} when the integration cannot refund at all,
+   *   so the caller can advise refunding out-of-band instead of retrying.
+   * @throws {Error} when the provider rejects the refund. The caller releases
+   *   its reservation, so a failure must not leave the order looking refunded.
+   */
+  refundPayment(params: RefundPaymentParams): Promise<RefundPaymentResult>;
 
   /**
    * Verifies that an inbound webhook/callback originated from the provider

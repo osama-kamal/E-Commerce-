@@ -4,6 +4,7 @@ import { sendSuccess } from '../../utils/response';
 import { createError } from '../../middleware/errorHandler';
 import { paymentProviderFactory } from './providers/payment-provider.factory';
 import { Order } from '../orders/order.model';
+import { toMinorUnits } from '../checkout/currency';
 import { Types } from 'mongoose';
 import { logger } from '../../utils/logger';
 
@@ -84,8 +85,12 @@ export async function initiatePaymobPayment(
       orderId,
       customerId,
       storeId,
-      // Paymob expects amount in smallest currency unit (piastres for EGP)
-      amountInSmallestUnit: Math.round(order.totalAmount * 100),
+      // Paymob expects the amount in the smallest currency unit (piastres for
+      // EGP). Scaled through the shared helper rather than a literal 100 — the
+      // guard above pins this to EGP today, so the two agree, but if Paymob
+      // ever settles a three-decimal Gulf currency the literal would be wrong
+      // by 10× and nothing here would say so.
+      amountInSmallestUnit: toMinorUnits(order.totalAmount, orderCurrency),
       currency: 'egp',
       idempotencyKey: `paymob_order_${orderId}`,
     });

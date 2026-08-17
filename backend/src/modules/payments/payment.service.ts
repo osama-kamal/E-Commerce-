@@ -6,9 +6,11 @@ import { StripeWebhookEvent } from './stripeWebhookEvent.model';
 import { User } from '../auth/user.model';
 import { createError } from '../../middleware/errorHandler';
 import { logger } from '../../utils/logger';
+import { toMinorUnits } from '../checkout/currency';
 import { Types } from 'mongoose';
 import { emailService } from '../../services/email.service';
 import * as orderRepo from '../orders/order.repository';
+import { reconcileStripeRefund } from '../refunds/refund-reconciler';
 import {
   handleSubscriptionCreated,
   handleSubscriptionUpdated,
@@ -46,15 +48,18 @@ export async function createPaymentIntent(
     );
   }
 
-  // Amount in cents — Stripe requires smallest currency unit
-  const amountInCents = Math.round(order.totalAmount * 100);
+  // Smallest currency unit, scaled by the ORDER's currency rather than a
+  // hardcoded 100 — see checkout/currency.ts. A ¥ order was previously charged
+  // 100× and a KWD order 10× under.
+  const orderCurrency = (order.currency ?? 'USD').toUpperCase();
+  const amountInMinorUnits = toMinorUnits(order.totalAmount, orderCurrency);
 
   const paymentIntent = await stripe.paymentIntents.create(
     {
-      amount: amountInCents,
+      amount: amountInMinorUnits,
       // Charge in the currency the order was actually placed in. This was
       // hardcoded 'usd' regardless of the store's currency.
-      currency: (order.currency ?? 'USD').toLowerCase(),
+      currency: orderCurrency.toLowerCase(),
       metadata: {
         orderId: orderId,
         customerId: customerId,
@@ -189,6 +194,14 @@ export async function handleWebhook(
         await handlePaymentFailed(event);
         break;
 
+      // Confirms refunds this system issued, AND records refunds a merchant
+      // made directly in the Stripe dashboard. Without the second case the
+      // order's ledger silently diverges from what Stripe actually did, and the
+      // same money could be refunded again from here.
+      case 'charge.refunded':
+        await reconcileStripeRefund(event);
+        break;
+
       default:
         // Unhandled event type — acknowledge without processing.
         // This is normal; Stripe sends many event types we don't need.
@@ -279,6 +292,8 @@ async function handlePaymentSucceeded(event: Stripe.Event): Promise<void> {
       orderId: new Types.ObjectId(orderId),
       customerId: new Types.ObjectId(customerId),
       stripePaymentIntentId: intent.id,
+      provider: 'stripe',
+      providerPaymentId: intent.id,
       amount: intent.amount,
       currency: intent.currency,
       status: 'succeeded',
@@ -341,6 +356,8 @@ async function handlePaymentFailed(event: Stripe.Event): Promise<void> {
       orderId: new Types.ObjectId(orderId),
       customerId: new Types.ObjectId(customerId),
       stripePaymentIntentId: intent.id,
+      provider: 'stripe',
+      providerPaymentId: intent.id,
       amount: intent.amount,
       currency: intent.currency,
       status: 'failed',

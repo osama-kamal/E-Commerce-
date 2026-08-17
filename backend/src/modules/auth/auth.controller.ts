@@ -77,8 +77,36 @@ export async function loginHandler(
 ): Promise<void> {
   try {
     const { email, password } = req.body as { email: string; password: string };
-    const storeId = req.store?._id?.toString() ?? null;
-    const { user, tokens } = await authService.login(storeId, email, password);
+    // `getStoreId` rather than reading `req.store` directly. That direct read
+    // was the bug: this route is now mounted inside the tenant router so
+    // resolveStore populates it, but the helper also throws a clear 400 if the
+    // store context is ever missing again, instead of silently passing null
+    // into a global lookup.
+    const { user, tokens } = await authService.login(getStoreId(req), email, password);
+
+    setRefreshCookie(res, tokens.refreshToken);
+    sendSuccess(res, { user, accessToken: tokens.accessToken });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * Platform sign-in for merchants and platform operators.
+ *
+ * Takes no store context on purpose — see `authService.platformLogin`. Kept
+ * separate from `loginHandler` so the two authentication decisions cannot be
+ * confused in review; collapsing them into one endpoint is how the cross-tenant
+ * escalation got in.
+ */
+export async function platformLoginHandler(
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const { email, password } = req.body as { email: string; password: string };
+    const { user, tokens } = await authService.platformLogin(email, password);
 
     setRefreshCookie(res, tokens.refreshToken);
     sendSuccess(res, { user, accessToken: tokens.accessToken });

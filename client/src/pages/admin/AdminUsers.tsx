@@ -122,27 +122,39 @@ export default function AdminUsers() {
                     {/* Email */}
                     <td className="px-4 py-3 text-gray-900">{user.email}</td>
 
-                    {/* Role — inline dropdown */}
+                    {/* Role. A super-admin is shown as a read-only badge, never
+                        the two-option dropdown: the select could not represent
+                        'super-admin' (it rendered as "customer") and picking an
+                        option would have demoted the platform's top account with
+                        no way back from here. The server refuses the change too. */}
                     <td className="px-4 py-3">
-                      <select
-                        value={user.role}
-                        disabled={updatingRoleId === user._id}
-                        onChange={e => handleRoleChange(user, e.target.value as UserRole)}
-                        aria-label={`Change role for ${user.email}`}
-                        className={`
-                          text-xs px-2 py-1 rounded-full border font-medium capitalize cursor-pointer
-                          focus:outline-none focus:ring-2 focus:ring-indigo-400
-                          disabled:opacity-50 disabled:cursor-not-allowed
-                          ${user.role === 'admin'
-                            ? 'bg-purple-100 text-purple-700 border-purple-200'
-                            : 'bg-gray-100 text-gray-700 border-gray-200'}
-                        `}
-                      >
-                        <option value="customer">customer</option>
-                        <option value="admin">admin</option>
-                      </select>
-                      {updatingRoleId === user._id && (
-                        <span className="ml-2 text-xs text-gray-400">saving…</span>
+                      {user.role === 'super-admin' ? (
+                        <span className="text-xs px-2 py-1 rounded-full border font-medium capitalize bg-amber-100 text-amber-700 border-amber-200">
+                          super-admin
+                        </span>
+                      ) : (
+                        <>
+                          <select
+                            value={user.role}
+                            disabled={updatingRoleId === user._id}
+                            onChange={e => handleRoleChange(user, e.target.value as UserRole)}
+                            aria-label={`Change role for ${user.email}`}
+                            className={`
+                              text-xs px-2 py-1 rounded-full border font-medium capitalize cursor-pointer
+                              focus:outline-none focus:ring-2 focus:ring-indigo-400
+                              disabled:opacity-50 disabled:cursor-not-allowed
+                              ${user.role === 'admin'
+                                ? 'bg-purple-100 text-purple-700 border-purple-200'
+                                : 'bg-gray-100 text-gray-700 border-gray-200'}
+                            `}
+                          >
+                            <option value="customer">customer</option>
+                            <option value="admin">admin</option>
+                          </select>
+                          {updatingRoleId === user._id && (
+                            <span className="ml-2 text-xs text-gray-400">saving…</span>
+                          )}
+                        </>
                       )}
                     </td>
 

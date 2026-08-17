@@ -19,6 +19,16 @@ import {
   bulkUpdateOrderStatus,
   bulkDeleteOrders,
 } from './order.controller';
+import {
+  previewRefundSchema,
+  createRefundSchema,
+  listRefundsSchema,
+} from '../refunds/refund.schemas';
+import {
+  previewRefund,
+  createRefund,
+  listOrderRefunds,
+} from '../refunds/refund.controller';
 
 const router = Router();
 
@@ -91,6 +101,37 @@ router.put(
   authorizeRole('admin'),
   validate(updateStatusSchema),
   updateOrderStatus
+);
+
+// ── Refunds ────────────────────────────────────────────────────────────────────
+// Admin-only and tenant-scoped. `preview` is separate from `create` so the
+// merchant UI can show the exact figures the server will charge without the
+// client ever computing money — and without a mis-click moving funds.
+//
+// Registered under /admin/:id/… alongside the status route, so the same
+// bulk-vs-parameterised ordering caveat above applies to anything added later.
+router.post(
+  '/admin/:id/refunds/preview',
+  authenticateJWT,
+  authorizeRole('admin'),
+  validate(previewRefundSchema),
+  previewRefund
+);
+
+router.post(
+  '/admin/:id/refunds',
+  authenticateJWT,
+  authorizeRole('admin'),
+  validate(createRefundSchema),
+  createRefund
+);
+
+router.get(
+  '/admin/:id/refunds',
+  authenticateJWT,
+  authorizeRole('admin'),
+  validate(listRefundsSchema),
+  listOrderRefunds
 );
 
 export default router;

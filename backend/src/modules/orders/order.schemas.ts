@@ -14,11 +14,21 @@ const shippingAddressSchema = z.object({
 // any caller to zero out their own order total.
 // Unknown keys are stripped by Zod, so older clients that still send
 // `discountAmount` continue to work — the value is simply ignored.
+// ⚠️  `validate()` writes the PARSED body back onto the request, so any field
+// not declared here is silently dropped before the controller sees it. That is
+// what made `idempotencyKey` inert: the controller read it, the schema never
+// declared it, and the key the client generated per checkout session was
+// discarded — leaving only the 5-minute duplicate heuristic as double-submit
+// protection. Declaring a field here is what makes it *exist* downstream.
 export const placeOrderSchema = z.object({
   body: z.object({
     shippingAddress: shippingAddressSchema,
     paymentMethod: z.enum(['online', 'cod']).default('online'),
     couponCode: z.string().trim().min(1).max(64).optional(),
+    // Only the rate ID is accepted. The price is re-derived server-side from
+    // the rate record, so a tampered request cannot set its own postage.
+    shippingRateId: z.string().regex(/^[a-f\d]{24}$/i, 'Invalid shipping rate ID').optional(),
+    idempotencyKey: z.string().trim().min(8).max(128).optional(),
   }),
 });
 

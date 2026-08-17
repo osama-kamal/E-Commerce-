@@ -31,6 +31,8 @@ const STORE_NAV_LINKS = [
   { to: '/admin/users', label: '👥 Users' },
   { to: '/admin/newsletter', label: '📧 Newsletter' },
   { to: '/admin/coupons', label: '🏷️ Coupons' },
+  { to: '/admin/shipping', label: '🚚 Shipping' },
+  { to: '/admin/tax', label: '🧾 Tax' },
   { to: '/admin/pricing', label: '💎 Plans & Pricing' },
   { to: '/admin/settings', label: '⚙️ Settings' },
 ];
@@ -46,6 +48,11 @@ const IMPERSONATED_STORE_NAV_LINKS = [
   { to: '/admin/users', label: '👥 Users' },
   { to: '/admin/newsletter', label: '📧 Newsletter' },
   { to: '/admin/coupons', label: '🏷️ Coupons' },
+  // Shipping and tax are operational store config, not platform billing, so an
+  // impersonating platform admin gets them too — they are exactly what support
+  // is usually called about.
+  { to: '/admin/shipping', label: '🚚 Shipping' },
+  { to: '/admin/tax', label: '🧾 Tax' },
 ];
 
 // ── Platform admin detection ──────────────────────────────────────────────────
@@ -440,7 +447,12 @@ export default function AdminLayout() {
     navigate('/login');
   };
 
-  const { isExpired } = useTrialStatus();
+  // `isRestricted`, not "trial expired": trial end is now a downgrade to the
+  // free tier, not a lockout, so it must not wall the dashboard. Only a store
+  // the SERVER reports as restricted (suspended after failed payment) gets the
+  // wall — and the server enforces that independently, so this is presentation
+  // rather than the control itself.
+  const { isRestricted } = useTrialStatus();
   const location = useLocation();
 
   // Allow pricing page even when trial is expired so users can upgrade
@@ -674,7 +686,7 @@ export default function AdminLayout() {
         {/* Trial banner only shown to store admins, not platform admin */}
         {!isPlatformAdmin && <TrialBanner />}
 
-        {!isPlatformAdmin && isExpired && !isPricingPage ? (
+        {!isPlatformAdmin && isRestricted && !isPricingPage ? (
           <TrialExpiredWall />
         ) : (
           <div className="flex-1 overflow-y-auto">

@@ -99,6 +99,7 @@ process.env.PAYMOB_SECRET_KEY             = process.env.PAYMOB_SECRET_KEY       
 import { Order } from '../../src/modules/orders/order.model';
 import { Payment } from '../../src/modules/payments/payment.model';
 import { paymentProviderFactory } from '../../src/modules/payments/providers/payment-provider.factory';
+import { logger } from '../../src/utils/logger';
 import type { ProviderEvent } from '../../src/modules/payments/providers/payment-provider.interface';
 
 // ── Test constants ────────────────────────────────────────────────────────────
@@ -250,6 +251,164 @@ describe('PaymobAdapter — payment provider integration', () => {
     ).rejects.toThrow('HMAC signature mismatch');
 
     console.log('✅  verifyWebhookSignature: tampered HMAC correctly rejected');
+  });
+
+  // ── HMAC comparison is constant-time and total ──────────────────────────
+  //
+  // The comparison was `computedHmac !== receivedHmac`, which short-circuits at
+  // the first differing character and so leaks how many leading characters a
+  // candidate got right. It is now crypto.timingSafeEqual.
+  //
+  // timingSafeEqual THROWS on a length mismatch, and building its buffers with
+  // `Buffer.from(str, 'hex')` would silently truncate attacker-controlled input
+  // at the first non-hex character — so a junk signature could turn a clean
+  // rejection into an unhandled 500. These pin that every malformed shape is
+  // still just a rejection.
+
+  describe('HMAC comparison robustness', () => {
+    const malformed: Array<[string, string]> = [
+      ['non-hex characters', 'z'.repeat(128)],
+      ['mixed hex and non-hex', `${'a'.repeat(120)}zzzzzzzz`],
+      ['too short', 'abc123'],
+      ['too long', 'a'.repeat(200)],
+      ['empty string', ''],
+      ['whitespace', '   '],
+      ['a valid-length but wrong digest', 'b'.repeat(128)],
+    ];
+
+    it.each(malformed)('rejects %s without crashing', async (_label, badHmac) => {
+      const orderId = await seedPendingOrder();
+      const hmacSecret = process.env.PAYMOB_HMAC_SECRET!;
+      const { payload } = buildPaymobCallback(56001, orderId, true, hmacSecret);
+      const tampered = { ...payload, hmac: badHmac };
+
+      // Specifically the mismatch error — NOT "Input buffers must have the same
+      // byte length", which is what timingSafeEqual raises if fed unequal
+      // buffers, and not a TypeError from hex truncation.
+      await expect(
+        adapter.verifyWebhookSignature(Buffer.from(JSON.stringify(tampered)), {})
+      ).rejects.toThrow('Paymob webhook: HMAC signature mismatch');
+    });
+
+    it('still accepts a correct signature', async () => {
+      const orderId = await seedPendingOrder();
+      const hmacSecret = process.env.PAYMOB_HMAC_SECRET!;
+      const { payload } = buildPaymobCallback(56002, orderId, true, hmacSecret);
+
+      const event = await adapter.verifyWebhookSignature(
+        Buffer.from(JSON.stringify(payload)), {}
+      );
+      expect(event.type).toBe('payment.succeeded');
+    });
+
+    it('accepts a correct signature regardless of case', async () => {
+      // The adapter lowercases both sides before comparing; an uppercase digest
+      // from the provider must still verify.
+      const orderId = await seedPendingOrder();
+      const hmacSecret = process.env.PAYMOB_HMAC_SECRET!;
+      const { payload, hmac } = buildPaymobCallback(56003, orderId, true, hmacSecret);
+      const upper = { ...payload, hmac: hmac.toUpperCase() };
+
+      const event = await adapter.verifyWebhookSignature(
+        Buffer.from(JSON.stringify(upper)), {}
+      );
+      expect(event.type).toBe('payment.succeeded');
+    });
+
+    it('rejects a signature differing only in its final character', async () => {
+      // The case a short-circuiting compare distinguishes by timing.
+      const orderId = await seedPendingOrder();
+      const hmacSecret = process.env.PAYMOB_HMAC_SECRET!;
+      const { payload, hmac } = buildPaymobCallback(56004, orderId, true, hmacSecret);
+      const lastChar = hmac.slice(-1) === 'a' ? 'b' : 'a';
+      const nearMiss = { ...payload, hmac: hmac.slice(0, -1) + lastChar };
+
+      await expect(
+        adapter.verifyWebhookSignature(Buffer.from(JSON.stringify(nearMiss)), {})
+      ).rejects.toThrow('Paymob webhook: HMAC signature mismatch');
+    });
+  });
+
+  // ── Webhook logging must not carry card or signature data ───────────────
+  //
+  // `verifyWebhookSignature` used to run an unconditional INFO log on EVERY
+  // callback that dumped the whole field breakdown — `source_data.pan`, the
+  // cardholder `owner`, the full concatenated HMAC preimage and the received
+  // signature — straight into the persistent log file. It was debug
+  // instrumentation that shipped. These pin that it cannot come back.
+
+  describe('webhook logging hygiene', () => {
+    const captured: string[] = [];
+    let spies: jest.SpyInstance[] = [];
+
+    beforeEach(() => {
+      captured.length = 0;
+      const capture = (_msg: unknown, meta?: unknown) =>
+        // Serialise message AND metadata — the leak was entirely in the meta.
+        captured.push(`${String(_msg)} ${JSON.stringify(meta ?? {})}`) as unknown as void;
+
+      spies = (['info', 'warn', 'error', 'debug'] as const).map((level) =>
+        jest.spyOn(logger, level).mockImplementation(capture as never)
+      );
+    });
+
+    afterEach(() => {
+      spies.forEach((s) => s.mockRestore());
+    });
+
+    it('logs nothing sensitive while accepting a valid callback', async () => {
+      const orderId = await seedPendingOrder();
+      const hmacSecret = process.env.PAYMOB_HMAC_SECRET!;
+      const { payload, hmac } = buildPaymobCallback(55501, orderId, true, hmacSecret);
+
+      await adapter.verifyWebhookSignature(Buffer.from(JSON.stringify(payload)), {});
+
+      const log = captured.join('\n');
+      expect(log).not.toContain('2346');   // source_data.pan
+      expect(log).not.toContain(hmac);     // the signature
+      expect(log).not.toContain('MasterCard');
+      expect(log).not.toMatch(/preimage|concatenated/i);
+    });
+
+    it('logs a diagnostic on mismatch — field NAMES, never values', async () => {
+      const orderId = await seedPendingOrder();
+      const { payload } = buildPaymobCallback(55502, orderId, true, 'a-different-secret-entirely!!!!!');
+      const tampered = { ...payload, hmac: 'deadbeef00000000' };
+
+      await expect(
+        adapter.verifyWebhookSignature(Buffer.from(JSON.stringify(tampered)), {})
+      ).rejects.toThrow('HMAC signature mismatch');
+
+      const log = captured.join('\n');
+      // Useful: says what happened and against which transaction.
+      expect(log).toContain('HMAC signature mismatch');
+      expect(log).toContain('55502');
+      // Not useful, and not ours to keep.
+      expect(log).not.toContain('2346');
+      expect(log).not.toContain('deadbeef00000000');
+      expect(log).not.toContain('MasterCard');
+    });
+
+    it('names an empty field so a mismatch is diagnosable without values', async () => {
+      const orderId = await seedPendingOrder();
+      const hmacSecret = process.env.PAYMOB_HMAC_SECRET!;
+      const { payload } = buildPaymobCallback(55503, orderId, true, hmacSecret);
+
+      // Drop a field the signature covered — the realistic cause of a mismatch,
+      // e.g. a wallet transaction that carries no card block.
+      const obj = { ...(payload.obj as Record<string, unknown>) };
+      delete obj.source_data;
+
+      await expect(
+        adapter.verifyWebhookSignature(
+          Buffer.from(JSON.stringify({ ...payload, obj })), {}
+        )
+      ).rejects.toThrow('HMAC signature mismatch');
+
+      const log = captured.join('\n');
+      expect(log).toContain('source_data.pan');   // the NAME, to point at the fault
+      expect(log).not.toContain('2346');          // never the value
+    });
   });
 
   // ── Test 5: handleProviderEvent — payment.succeeded ─────────────────────

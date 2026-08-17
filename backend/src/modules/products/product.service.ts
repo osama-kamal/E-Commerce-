@@ -129,17 +129,25 @@ export async function createProduct(data: {
   // ── Plan limit check ──────────────────────────────────────────────────────
   const { Store } = await import('../stores/store.model');
   const { getPlanLimits } = await import('../../config/planLimits');
+  const { resolveSubscriptionAccess } = await import('../stores/subscription-access');
 
   const store = await Store.findById(data.storeId).lean();
   if (!store) throw createError('Store not found', 404, 'NOT_FOUND');
 
-  const limits = getPlanLimits(store.subscriptionPlan);
+  // Quotas follow the EFFECTIVE plan, never the declared one. `runDunningJob`
+  // suspends a store without touching `subscriptionPlan`, so a merchant who
+  // stopped paying still reads `subscriptionPlan: 'pro'` — reading that field
+  // directly granted unlimited products indefinitely after the last payment
+  // failed. The resolver maps a lapsed or suspended store back to free limits
+  // without destroying the record of what they were subscribed to.
+  const { effectivePlan } = resolveSubscriptionAccess(store);
+  const limits = getPlanLimits(effectivePlan);
 
   if (limits.maxProducts !== -1) {
     const currentCount = await productRepo.countProductsByStore(new Types.ObjectId(data.storeId));
     if (currentCount >= limits.maxProducts) {
       throw createError(
-        `Your ${store.subscriptionPlan} plan allows a maximum of ${limits.maxProducts} products. ` +
+        `Your ${effectivePlan} plan allows a maximum of ${limits.maxProducts} products. ` +
         `Upgrade your plan to add more products.`,
         403,
         'PLAN_LIMIT_EXCEEDED'

@@ -10,6 +10,13 @@ import * as productRepo from '../products/product.repository';
 import * as cartRepo from '../cart/cart.repository';
 import { couponService } from '../coupons/coupon.service';
 import { config } from '../../config/index';
+import { calculateOrderTotals } from '../checkout/money';
+import {
+  resolveSelectedRate,
+  getShippingOptions,
+  countActiveZones,
+} from '../shipping/shipping.service';
+import { matchTaxRates } from '../tax/tax.service';
 
 export async function bulkUpdateOrderStatus(storeId: string, ids: string[], status: OrderStatus): Promise<number> {
   const validIds = ids.filter(id => Types.ObjectId.isValid(id)).map(id => new Types.ObjectId(id));
@@ -30,7 +37,15 @@ export interface OrderDoc {
   storeId: Types.ObjectId;
   customerId: Types.ObjectId;
   items: { productId: Types.ObjectId; name: string; price: number; quantity: number }[];
+  /** Amount charged — grand total including shipping and (if exclusive) tax. */
   totalAmount: number;
+  subtotal: number;
+  discountAmount: number;
+  shippingTotal: number;
+  taxTotal: number;
+  taxLines: { name: string; rate: number; amount: number; inclusive: boolean }[];
+  shippingMethod?: { rateId?: Types.ObjectId; name: string; amount: number };
+  currency: string;
   status: OrderStatus;
   paymentMethod: PaymentMethod;
   paymentIntentId?: string;
@@ -52,7 +67,8 @@ export async function placeOrder(
   shippingAddress: IShippingAddress,
   paymentMethod: PaymentMethod = 'online',
   couponCode?: string,
-  idempotencyKey?: string
+  idempotencyKey?: string,
+  shippingRateId?: string
 ): Promise<OrderDoc> {
   const storeObjId    = new Types.ObjectId(storeId);
   const customerObjId = new Types.ObjectId(customerId);
@@ -60,15 +76,30 @@ export async function placeOrder(
   // Currency is snapshotted onto the order so historical amounts stay
   // interpretable if the store later switches currency.
   const { Store } = await import('../stores/store.model');
-  const storeConfig = await Store.findById(storeObjId).select('currency subscriptionPlan').lean();
+  // subscriptionStatus + trialEndsAt are projected alongside the plan because
+  // the quota below is resolved from the EFFECTIVE plan, which needs all three.
+  // pricesIncludeTax drives whether tax is added to or extracted from the
+  // catalogue prices — getting it from the store, never from the request.
+  const storeConfig = await Store.findById(storeObjId)
+    .select('currency subscriptionPlan subscriptionStatus trialEndsAt pricesIncludeTax')
+    .lean();
   const orderCurrency = (storeConfig?.currency ?? 'USD').toUpperCase();
+  const pricesIncludeTax = storeConfig?.pricesIncludeTax ?? false;
 
   // ── Plan quota ─────────────────────────────────────────────────────────────
   // maxOrdersPerMonth was declared on every plan and never read, so a free store
   // could take unlimited orders. Checked before any write so a store over quota
   // does not decrement stock or clear the cart.
+  //
+  // Resolved from the effective plan so a store whose subscription lapsed drops
+  // back to the free allowance instead of keeping its paid one. Note this is a
+  // quota, not the access gate: a `suspended` store is refused earlier, by
+  // enforceSubscription, before the request ever reaches this service.
   const { getPlanLimits } = await import('../../config/planLimits');
-  const orderLimit = getPlanLimits(storeConfig?.subscriptionPlan ?? 'free').maxOrdersPerMonth;
+  const { resolveSubscriptionAccess } = await import('../stores/subscription-access');
+  const orderLimit = getPlanLimits(
+    resolveSubscriptionAccess(storeConfig ?? {}).effectivePlan
+  ).maxOrdersPerMonth;
 
   if (orderLimit !== -1) {
     const now = new Date();
@@ -109,22 +140,15 @@ export async function placeOrder(
       }
     }
 
-    // Preview the coupon discount read-only (no usedCount increment) purely so the
-    // duplicate-order lookup below compares against the same total the real order
-    // will carry. The authoritative discount is claimed inside the transaction.
-    let previewDiscount = 0;
-    if (couponCode) {
-      try {
-        const preview = await couponService.validateCoupon(storeId, couponCode, checkTotal);
-        previewDiscount = preview.discount;
-      } catch {
-        // Invalid/expired coupon — skip the estimate. The transaction below
-        // performs the authoritative check and surfaces the real error.
-        previewDiscount = 0;
-      }
-    }
-
-    checkTotal = Math.max(0, Math.round((checkTotal - previewDiscount) * 100) / 100);
+    // Matched on SUBTOTAL, not the grand total.
+    //
+    // This used to reconstruct `subtotal − discount` and compare it against
+    // `order.totalAmount`. Now that totalAmount also carries shipping and tax,
+    // that reconstruction would never match a real order again and the guard
+    // would silently stop firing. The subtotal is a stabler identity for "the
+    // same basket" anyway: it does not move when the shopper changes delivery
+    // method, and it needs no coupon preview to compute.
+    checkTotal = Math.round(checkTotal * 100) / 100;
 
     const recentDuplicate = await orderRepo.findRecentPendingOrder(
       storeObjId, customerObjId, checkTotal, fiveMinutesAgo
@@ -178,14 +202,14 @@ export async function placeOrder(
       }
     }
 
-    let totalAmount = 0;
+    let subtotal = 0;
     const orderItems = cart.items.map((item) => {
       const product = productMap.get(item.productId.toString())!;
       const effectivePrice =
         product.discount > 0
           ? Math.round(product.price * (1 - product.discount / 100) * 100) / 100
           : product.price;
-      totalAmount += effectivePrice * item.quantity;
+      subtotal += effectivePrice * item.quantity;
       return {
         productId: item.productId,
         name: product.name,
@@ -194,9 +218,9 @@ export async function placeOrder(
         selectedSize: item.selectedSize ?? undefined,
       };
     });
-    totalAmount = Math.round(totalAmount * 100) / 100;
+    subtotal = Math.round(subtotal * 100) / 100;
 
-    return { cart, orderItems, totalAmount };
+    return { cart, orderItems, subtotal };
   };
 
   // ── Server-authoritative discount resolution ──────────────────────────────
@@ -218,23 +242,112 @@ export async function placeOrder(
     return Math.min(Math.max(0, applied.discount), subtotal);
   };
 
+  /**
+   * Turns validated cart lines into the full money breakdown.
+   *
+   * Shared by the transactional path and the standalone-MongoDB fallback so the
+   * two cannot drift — a divergence here would mean the amount charged depends
+   * on the database topology.
+   *
+   * Order of operations matters:
+   *   1. discount is claimed (this is what burns a coupon use)
+   *   2. shipping is priced against the DISCOUNTED goods total, so a coupon can
+   *      legitimately carry an order over a free-delivery threshold
+   *   3. tax is assessed on the destination
+   *
+   * Nothing here trusts the request: the discount comes from the coupon record,
+   * the shipping amount is re-derived from the rate document, and the tax rates
+   * come from the merchant's own table keyed on the delivery address.
+   */
+  const composeTotals = async (
+    orderItems: Array<{ price: number; quantity: number }>,
+    subtotal: number,
+    session?: mongoose.ClientSession
+  ) => {
+    const discountAmount = await resolveDiscount(subtotal, session);
+    const discountedGoods = Math.max(0, Math.round((subtotal - discountAmount) * 100) / 100);
+
+    // ── Delivery method is mandatory once the merchant configures shipping ──
+    //
+    // `shippingRateId` is optional on the wire, which on its own would make the
+    // entire feature opt-out: omit the field and get free delivery. These two
+    // guards close that, while staying backwards compatible.
+    //
+    //   • store has NO zones at all  → shipping is not configured. Charge
+    //     nothing and proceed, exactly as before this feature existed. Every
+    //     pre-existing store is in this state.
+    //   • store HAS zones but none serves this address → they do not deliver
+    //     there. Refuse rather than silently ship for free.
+    //   • store serves the address but nothing was chosen → make the shopper
+    //     choose instead of defaulting to the cheapest (or to nothing).
+    const availableOptions = await getShippingOptions(
+      storeObjId,
+      shippingAddress,
+      discountedGoods
+    );
+
+    if (!shippingRateId && availableOptions.length > 0) {
+      throw createError('Please choose a delivery method', 400, 'SHIPPING_METHOD_REQUIRED');
+    }
+
+    if (availableOptions.length === 0) {
+      const configured = await countActiveZones(storeObjId);
+      if (configured > 0) {
+        throw createError(
+          'This store does not deliver to the selected address',
+          400,
+          'DESTINATION_NOT_SERVED'
+        );
+      }
+    }
+
+    const shipping = await resolveSelectedRate(
+      storeObjId,
+      shippingAddress,
+      discountedGoods,
+      shippingRateId
+    );
+    const taxRates = await matchTaxRates(storeObjId, shippingAddress);
+
+    const totals = calculateOrderTotals({
+      items: orderItems.map((i) => ({ unitPrice: i.price, quantity: i.quantity })),
+      discountAmount,
+      shippingAmount: shipping?.amount ?? 0,
+      taxRates,
+      pricesIncludeTax,
+    });
+
+    return {
+      totals,
+      shippingMethod: shipping
+        ? { rateId: shipping.rateId, name: shipping.name, amount: shipping.amount }
+        : undefined,
+    };
+  };
+
   const session = await mongoose.startSession();
   try {
     let createdOrder: OrderDoc | null = null;
 
     await session.withTransaction(async () => {
-      const { cart, orderItems, totalAmount } = await validateAndBuild(session);
-      const discountAmount = await resolveDiscount(totalAmount, session);
-      const finalAmount = Math.max(0, Math.round((totalAmount - discountAmount) * 100) / 100);
+      const { cart, orderItems, subtotal } = await validateAndBuild(session);
+      const { totals, shippingMethod } = await composeTotals(orderItems, subtotal, session);
 
       const order = await orderRepo.createOrder(
         {
           storeId: storeObjId,
           customerId: customerObjId,
           items: orderItems,
-          totalAmount: finalAmount,
+          // `totalAmount` remains the amount CHARGED, so every payment path
+          // keeps working untouched — it just now includes shipping and tax.
+          totalAmount: totals.grandTotal,
+          subtotal: totals.subtotal,
+          discountAmount: totals.discountTotal,
+          shippingTotal: totals.shippingTotal,
+          taxTotal: totals.taxTotal,
+          taxLines: totals.taxLines,
+          ...(shippingMethod && { shippingMethod }),
           currency: orderCurrency,
-          discountAmount,
           couponCode,
           shippingAddress,
           paymentMethod,
@@ -279,17 +392,21 @@ export async function placeOrder(
     // ── Non-transactional fallback (Atlas M0 / standalone MongoDB) ───────────
     logger.warn('[placeOrder] Transactions not supported — using non-transactional fallback');
 
-    const { cart, orderItems, totalAmount } = await validateAndBuild();
-    const discountAmount = await resolveDiscount(totalAmount);
-    const finalAmount = Math.max(0, Math.round((totalAmount - discountAmount) * 100) / 100);
+    const { cart, orderItems, subtotal } = await validateAndBuild();
+    const { totals, shippingMethod } = await composeTotals(orderItems, subtotal);
 
     const order = await orderRepo.createOrder({
       storeId: storeObjId,
       customerId: customerObjId,
       items: orderItems,
-      totalAmount: finalAmount,
+      totalAmount: totals.grandTotal,
+      subtotal: totals.subtotal,
+      discountAmount: totals.discountTotal,
+      shippingTotal: totals.shippingTotal,
+      taxTotal: totals.taxTotal,
+      taxLines: totals.taxLines,
+      ...(shippingMethod && { shippingMethod }),
       currency: orderCurrency,
-      discountAmount,
       couponCode,
       shippingAddress,
       paymentMethod,

@@ -100,8 +100,12 @@ export default function StorefrontCartPage() {
               <p className="text-sm text-gray-500 dark:text-gray-400">Subtotal</p>
               <p className="text-2xl font-bold text-gray-900 dark:text-white">${cart.subtotal.toFixed(2)}</p>
             </div>
+            {/* Stays inside /s/:slug. Linking to the bare "/checkout" left the
+                storefront route tree, unmounting the provider that identifies
+                this tenant — the order was then placed against the platform's
+                own store rather than this merchant. */}
             <Link
-              to="/checkout"
+              to={`/s/${slug}/checkout`}
               className="btn-primary px-8 py-3 text-base w-full sm:w-auto text-center"
             >
               Proceed to Checkout

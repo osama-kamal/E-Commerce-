@@ -1,4 +1,4 @@
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { yupResolver } from '@hookform/resolvers/yup';
 import * as yup from 'yup';
@@ -6,6 +6,8 @@ import toast from 'react-hot-toast';
 import { authApi } from '../api/auth';
 import { setCredentials, logout } from '../store/authSlice';
 import { useAppDispatch } from '../hooks/useAppDispatch';
+import { useTenant } from '../hooks/useTenant';
+import { storeSlugFromRedirect, withRedirect } from '../utils/storeRedirect';
 
 const schema = yup.object({
   email: yup.string().email('Enter a valid email').required('Email is required'),
@@ -17,6 +19,24 @@ type FormData = yup.InferType<typeof schema>;
 export default function LoginPage() {
   const dispatch = useAppDispatch();
   const navigate = useNavigate();
+  const tenant = useTenant();
+  const [searchParams] = useSearchParams();
+
+  /**
+   * Which store this sign-in belongs to.
+   *
+   * `/login` is a top-level route, so a shopper who clicked "Login" on a
+   * storefront arrives here OUTSIDE the `/s/:slug` tree — `useTenant()` no longer
+   * sees the store, and without this the page fell through to the platform
+   * (merchant) endpoint and rejected every customer with a 401. The store the
+   * shopper came from is carried in `?redirect=/s/:slug`; we read the slug back
+   * out of it. Only a `/s/:slug` redirect counts as a storefront login — an
+   * arbitrary redirect value must not be trusted to pick the auth endpoint.
+   */
+  const redirect = searchParams.get('redirect') ?? '';
+  const redirectSlug = storeSlugFromRedirect(redirect);
+  const storeSlug = tenant.slug ?? redirectSlug;
+  const isStorefrontLogin = tenant.isStorefront || redirectSlug !== null;
 
   const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<FormData>({
     resolver: yupResolver(schema),
@@ -28,7 +48,18 @@ export default function LoginPage() {
       // where old credentials can race with the new ones being applied.
       dispatch(logout());
 
-      const res = await authApi.login(data.email, data.password);
+      // Two different authentication decisions, chosen by which surface the
+      // visitor is on. A shopper on a storefront authenticates against THAT
+      // store; a merchant on the platform host authenticates against their own
+      // account and picks a store afterwards in the switcher.
+      //
+      // Sending a shopper down the platform path (or the reverse) is what the
+      // old single-endpoint login did implicitly, and it let one tenant's
+      // password reach another tenant's account. `storeSlug` covers the shared
+      // `/login` page, where the store is known only from the redirect.
+      const res = isStorefrontLogin
+        ? await authApi.login(data.email, data.password, storeSlug ?? undefined)
+        : await authApi.platformLogin(data.email, data.password);
       const { user, accessToken } = res.data.data;
 
       // Persist the user's storeId so the axios interceptor sets X-Store-ID correctly
@@ -38,8 +69,14 @@ export default function LoginPage() {
 
       dispatch(setCredentials({ user, accessToken }));
       toast.success('Welcome back!');
-      // super-admin and admin both land on /admin; the sidebar adapts based on role
-      navigate(user.role === 'customer' ? '/' : '/admin');
+
+      // A customer belongs in the shop they just signed into, never the platform
+      // root. `storeSlug` is set both inside `/s/:slug` and on the shared
+      // `/login` page (from the redirect), so this returns them to their store
+      // in either case; `tenant.path('/')` is the fallback for a host-resolved
+      // storefront that has no slug. Merchants go to the admin dashboard.
+      const customerHome = storeSlug ? `/s/${storeSlug}` : tenant.path('/');
+      navigate(user.role === 'customer' ? customerHome : '/admin');
     } catch (err: any) {
       const msg: string =
         err?.response?.data?.message ??
@@ -107,9 +144,12 @@ export default function LoginPage() {
             </button>
           </form>
           <div className="mt-4 text-sm text-center text-gray-600 dark:text-gray-400">
-            <Link to="/forgot-password" className="text-amber-600 hover:text-amber-700 hover:underline dark:text-amber-400">Forgot password?</Link>
+            {/* Carry the redirect so the store context survives the hop — a bare
+                /register or /forgot-password loses the storefront and drops the
+                shopper onto the tenant-less platform form. */}
+            <Link to={withRedirect('/forgot-password', redirect)} className="text-amber-600 hover:text-amber-700 hover:underline dark:text-amber-400">Forgot password?</Link>
             <span className="mx-2">·</span>
-            <Link to="/register" className="text-amber-600 hover:text-amber-700 hover:underline dark:text-amber-400">Create account</Link>
+            <Link to={withRedirect('/register', redirect)} className="text-amber-600 hover:text-amber-700 hover:underline dark:text-amber-400">Create account</Link>
           </div>
         </div>
       </div>

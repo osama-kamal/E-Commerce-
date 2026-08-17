@@ -39,9 +39,12 @@ import type {
   IPaymentProvider,
   InitiatePaymentParams,
   InitiatePaymentResult,
+  RefundPaymentParams,
+  RefundPaymentResult,
   ProviderEvent,
   PaymentProviderKey,
 } from './payment-provider.interface';
+import { RefundNotSupportedError } from './payment-provider.interface';
 
 // ── Paymob API base URL ───────────────────────────────────────────────────────
 const PAYMOB_BASE_URL = 'https://accept.paymob.com';
@@ -87,6 +90,36 @@ function paymobPost<T>(path: string, body: unknown, authToken?: string): Promise
   });
 }
 
+/**
+ * Constant-time comparison of two hex digests.
+ *
+ * `===` on strings short-circuits at the first differing character, so the
+ * comparison takes longer the more leading characters a candidate gets right.
+ * That turns webhook verification into an oracle an attacker can walk one
+ * character at a time to forge a signature without the HMAC secret. Remote
+ * timing attacks over HTTP are noisy and impractical, but this is a payment
+ * authenticity check and the constant-time version costs nothing.
+ *
+ * Matches `digestsMatch` in auth/auth.service.ts, with one deliberate
+ * difference: the buffers are built as **utf8, not hex**. `receivedHmac` is
+ * attacker-controlled, and `Buffer.from(str, 'hex')` silently truncates at the
+ * first non-hex character — `Buffer.from('zz…', 'hex')` is an EMPTY buffer.
+ * `timingSafeEqual` then throws on the length mismatch rather than returning
+ * false, turning a malformed signature into an unhandled 500. Comparing the hex
+ * strings byte-for-byte as utf8 is equivalent in security terms and total over
+ * any input. The auth.service variant is safe as written because both of its
+ * operands are digests this codebase produced.
+ *
+ * The length check leaks only the length of a signature the caller already
+ * chose, which is not secret.
+ */
+function signaturesMatch(computed: string, received: string): boolean {
+  const a = Buffer.from(computed, 'utf8');
+  const b = Buffer.from(received, 'utf8');
+  if (a.length !== b.length) return false;
+  return crypto.timingSafeEqual(a, b);
+}
+
 // ── Adapter ───────────────────────────────────────────────────────────────────
 
 export class PaymobAdapter implements IPaymentProvider {
@@ -108,6 +141,63 @@ export class PaymobAdapter implements IPaymentProvider {
       throw new Error(`Paymob authentication failed: ${res.detail ?? JSON.stringify(res)}`);
     }
     return res.token;
+  }
+
+  // ── refundPayment ────────────────────────────────────────────────────────
+
+  /**
+   * Reverses a Paymob transaction via `/api/acceptance/void_refund/refund`.
+   *
+   * Paymob refunds are asynchronous: the endpoint accepts the request and the
+   * outcome arrives on the transaction callback. This therefore reports
+   * `pending`, and the caller must treat that as "money is on its way" rather
+   * than as a failure.
+   *
+   * There is no idempotency key in Paymob's API. A retried refund can
+   * double-refund at the gateway, so the caller's reservation on the order
+   * ledger — which refuses a second refund beyond the remaining balance — is
+   * the only protection. That is why `refundPayment` is called AFTER the
+   * reservation, never before.
+   */
+  async refundPayment(params: RefundPaymentParams): Promise<RefundPaymentResult> {
+    const { providerPaymentId, amountInSmallestUnit } = params;
+
+    if (!providerPaymentId) {
+      throw new RefundNotSupportedError(
+        'Paymob',
+        'no transaction id was recorded for this order'
+      );
+    }
+
+    const authToken = await this.authenticate();
+
+    const res = await paymobPost<{
+      id?: number | string;
+      success?: boolean | string;
+      message?: string;
+      detail?: string;
+    }>(
+      '/api/acceptance/void_refund/refund',
+      {
+        transaction_id: providerPaymentId,
+        amount_cents: String(amountInSmallestUnit),
+      },
+      authToken
+    );
+
+    // Paymob signals failure with a `message`/`detail` body rather than an HTTP
+    // status the helper would surface, so the body has to be inspected.
+    const accepted = res.success === true || res.success === 'true' || Boolean(res.id);
+    if (!accepted) {
+      throw new Error(
+        `Paymob refund rejected: ${res.message ?? res.detail ?? JSON.stringify(res)}`
+      );
+    }
+
+    return {
+      providerRefundId: String(res.id ?? `paymob_refund_${providerPaymentId}`),
+      status: 'pending',
+    };
   }
 
   /** Step 2: Register the order with Paymob and get a Paymob order ID. */
@@ -303,7 +393,11 @@ export class PaymobAdapter implements IPaymentProvider {
       'success',
     ];
 
-    const fieldValues: Record<string, string> = {};
+    // Names only — never the values. A field absent from the payload is the
+    // usual cause of a mismatch (Paymob adds or renames one, or a wallet
+    // transaction simply has no card fields), and the NAME is enough to
+    // diagnose that. See the failure branch below.
+    const missingFields: string[] = [];
 
     const concatenated = hmacFields.map((field) => {
       let value: string;
@@ -324,17 +418,9 @@ export class PaymobAdapter implements IPaymentProvider {
         value = raw == null ? '' : String(raw);
       }
 
-      fieldValues[field] = value;
+      if (value === '') missingFields.push(field);
       return value;
     }).join('');
-
-    // Log the exact concatenated string and field breakdown for debugging
-    logger.info('Paymob HMAC debug', {
-      receivedHmac: receivedHmac ?? '(none)',
-      concatenatedLength: concatenated.length,
-      concatenatedPreview: concatenated.slice(0, 300),
-      fieldValues,
-    });
 
     const computedHmac = crypto
       .createHmac('sha512', hmacSecret)
@@ -342,7 +428,25 @@ export class PaymobAdapter implements IPaymentProvider {
       .digest('hex')
       .toLowerCase();
 
-    if (!receivedHmac || computedHmac !== receivedHmac) {
+    if (!receivedHmac || !signaturesMatch(computedHmac, receivedHmac)) {
+      // ── What is deliberately NOT logged here ────────────────────────────────
+      // This replaced an unconditional INFO log that fired on EVERY webhook and
+      // dumped the full field breakdown — including `source_data.pan`, the
+      // cardholder `owner`, the whole concatenated preimage, and the received
+      // signature — into the persistent log file. It was left-over debug
+      // instrumentation on the payment path.
+      //
+      // Retained: the transaction reference and which fields were empty, which
+      // is what actually diagnoses a mismatch.
+      // Dropped: every field VALUE, the preimage, and both signatures. A
+      // signature is not a credential, but logging one invites replaying it
+      // out of the log, and none of it is needed to find the fault.
+      logger.warn('PaymobAdapter: HMAC signature mismatch — event rejected', {
+        transId: String(obj.id ?? '(none)'),
+        hmacPresent: Boolean(receivedHmac),
+        fieldCount: hmacFields.length,
+        missingFields,
+      });
       throw new Error('Paymob webhook: HMAC signature mismatch');
     }
 
@@ -387,7 +491,9 @@ export class PaymobAdapter implements IPaymentProvider {
         await Payment.create({
           orderId: new Types.ObjectId(orderId),
           customerId: order.customerId,
-          stripePaymentIntentId: `paymob_${transId}`, // reuse field — provider-agnostic ID
+          stripePaymentIntentId: `paymob_${transId}`, // legacy prefixed form, kept for back-compat
+          provider: 'paymob',
+          providerPaymentId: transId,
           amount: Number(obj.amount_cents ?? 0),
           currency: String(obj.currency ?? 'egp').toLowerCase(),
           status: 'succeeded',
@@ -406,6 +512,10 @@ export class PaymobAdapter implements IPaymentProvider {
       }
 
       order.status = 'processing';
+      // Payment is its own axis. Setting it here is what makes the order
+      // refundable — without it the refund service sees `unpaid` and refuses to
+      // return money Paymob genuinely collected.
+      order.paymentStatus = 'paid';
       await order.save();
 
       logger.info('PaymobAdapter: payment succeeded — order updated to processing', {
@@ -422,6 +532,8 @@ export class PaymobAdapter implements IPaymentProvider {
           orderId: new Types.ObjectId(orderId),
           customerId: order.customerId,
           stripePaymentIntentId: `paymob_${transId}`,
+          provider: 'paymob',
+          providerPaymentId: transId,
           amount: Number(obj.amount_cents ?? 0),
           currency: String(obj.currency ?? 'egp').toLowerCase(),
           status: 'failed',
