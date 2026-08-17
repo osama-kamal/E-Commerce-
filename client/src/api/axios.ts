@@ -1,8 +1,27 @@
 import axios, { AxiosInstance } from 'axios';
 import toast from 'react-hot-toast';
-import { store } from '../store';
 import { getHostTenant } from './activeTenant';
-import { logout, setTokens } from '../store/authSlice';
+
+/**
+ * The Redux store and auth actions, resolved lazily.
+ *
+ * Importing them at module load created a cycle — store → authSlice → api/auth →
+ * api/axios → store — which every slice that imports an api module fed into, and
+ * which surfaced as "Cannot access 'authReducer' before initialization" whenever
+ * Vite hot-reloaded anything in the chain. This layer must not depend on the
+ * store at load time. The request interceptor reads the token straight from
+ * localStorage (kept in lockstep with Redux by every auth reducer), and the only
+ * place that must dispatch — the 401 handler — pulls the store in at call time,
+ * long after every module has initialised. The dynamic import is cached, so the
+ * hot path pays nothing after the first refresh.
+ */
+async function getAuth() {
+  const [{ store }, slice] = await Promise.all([
+    import('../store'),
+    import('../store/authSlice'),
+  ]);
+  return { store, setTokens: slice.setTokens, logout: slice.logout };
+}
 
 const api = axios.create({
   baseURL: '/api/v1',
@@ -13,10 +32,11 @@ const api = axios.create({
 });
 
 // ── Request interceptor ───────────────────────────────────────────────────────
-// Attach access token + store context to every request.
-// Falls back to localStorage in case Redux store hasn't hydrated yet (page refresh).
+// Attach access token + store context to every request. The token is read from
+// localStorage rather than Redux so this layer stays free of a store import (see
+// getAuth above); every auth reducer keeps localStorage in lockstep with state.
 api.interceptors.request.use((config) => {
-  const token = store.getState().auth.accessToken ?? localStorage.getItem('accessToken');
+  const token = localStorage.getItem('accessToken');
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }
@@ -140,14 +160,16 @@ export function attachAuthRefresh(instance: AxiosInstance) {
 
           const { accessToken } = data.data;
           // Backend rotates the refresh cookie server-side — we only handle the
-          // new access token. setTokens persists it to localStorage too, so
-          // sfApi's request interceptor (which reads localStorage) picks it up.
+          // new access token. setTokens persists it to localStorage too, so both
+          // request interceptors (which read localStorage) pick it up.
+          const { store, setTokens } = await getAuth();
           store.dispatch(setTokens({ accessToken }));
           processQueue(null, accessToken);
           original.headers.Authorization = `Bearer ${accessToken}`;
           return instance(original);
         } catch (err) {
           processQueue(err, null);
+          const { store, logout } = await getAuth();
           store.dispatch(logout());
           return Promise.reject(err);
         } finally {
