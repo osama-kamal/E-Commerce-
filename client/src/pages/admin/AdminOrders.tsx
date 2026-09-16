@@ -2,11 +2,52 @@ import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ordersApi } from '../../api/orders';
 import { TableRowsSkeleton } from '../../components/Skeleton';
-import { Order, OrderStatus } from '../../types';
+import { Order, OrderStatus, PaymentStatus } from '../../types';
 import Modal from '../../components/Modal';
+import RefundModal from '../../components/RefundModal';
+import { formatCurrency } from '../../utils/format';
 import toast from 'react-hot-toast';
 
 const STATUSES: OrderStatus[] = ['pending', 'processing', 'shipped', 'delivered', 'cancelled'];
+
+const PAYMENT_STATUS_STYLES: Record<PaymentStatus, { label: string; className: string }> = {
+  unpaid:             { label: 'Unpaid',    className: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400' },
+  paid:               { label: 'Paid',      className: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' },
+  partially_refunded: { label: 'Part. refunded', className: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400' },
+  refunded:           { label: 'Refunded',  className: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400' },
+};
+
+/**
+ * Payment state, shown alongside — never merged into — fulfilment status.
+ * Orders written before refunds existed have no value until the backfill runs.
+ * When the order is paid, the gateway (Stripe/Paymob) is shown alongside.
+ */
+function PaymentStatusBadge({ status, provider }: { status?: PaymentStatus; provider?: string }) {
+  if (!status) return <span className="text-xs text-gray-400">—</span>;
+  const style = PAYMENT_STATUS_STYLES[status];
+  const isPaid = status === 'paid' || status === 'partially_refunded' || status === 'refunded';
+  return (
+    <span className={`inline-flex items-center gap-1 text-xs px-2 py-1 rounded-full font-medium ${style.className}`}>
+      {style.label}
+      {isPaid && provider && (
+        <span className="ml-1 text-[10px] px-1 py-0.5 rounded bg-white/60 dark:bg-black/20 font-semibold uppercase">
+          {provider === 'paymob' ? 'Paymob' : 'Stripe'}
+        </span>
+      )}
+    </span>
+  );
+}
+
+/**
+ * Whether there is still money on this order to return.
+ *
+ * Deliberately independent of fulfilment: a delivered order is the most common
+ * thing to refund, and a cancelled one may still have been charged.
+ */
+function canRefund(order: Order): boolean {
+  if (order.paymentStatus !== 'paid' && order.paymentStatus !== 'partially_refunded') return false;
+  return (order.refundedTotal ?? 0) < order.totalAmount;
+}
 const STATUS_COLORS: Record<string, string> = {
   pending: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300',
   processing: 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300',
@@ -15,11 +56,25 @@ const STATUS_COLORS: Record<string, string> = {
   cancelled: 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300',
 };
 
-function PaymentBadge({ method }: { method?: string }) {
+function PaymentBadge({ method, provider }: { method?: string; provider?: string }) {
   if (method === 'cod') {
     return (
       <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-medium bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300">
         💵 COD
+      </span>
+    );
+  }
+  if (provider === 'paymob') {
+    return (
+      <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-medium bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300">
+        🇪🇬 Paymob
+      </span>
+    );
+  }
+  if (provider === 'stripe') {
+    return (
+      <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-medium bg-indigo-100 text-indigo-800 dark:bg-indigo-900/30 dark:text-indigo-300">
+        💳 Stripe
       </span>
     );
   }
@@ -66,7 +121,7 @@ function OrderDetailsModal({ order, onClose }: { order: Order; onClose: () => vo
             </div>
             <div>
               <p className="text-gray-500 dark:text-gray-400">Payment Method</p>
-              <PaymentBadge method={order.paymentMethod} />
+              <PaymentBadge method={order.paymentMethod} provider={(order as any).paymentProvider} />
             </div>
             {order.couponCode && (
               <div>
@@ -120,6 +175,7 @@ export default function AdminOrders() {
   const [filterStatus, setFilterStatus] = useState('');
   const [updatingId, setUpdatingId] = useState('');
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
+  const [refundOrder, setRefundOrder] = useState<Order | null>(null);
 
   // Bulk selection
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -268,7 +324,7 @@ export default function AdminOrders() {
                 <th className="px-4 py-3 w-10">
                   <input type="checkbox" checked={allSelected} onChange={toggleAll} className="rounded" />
                 </th>
-                {['Order ID', 'Date', 'Items', 'Total', 'Payment', 'Status', 'Update Status', 'Details'].map(h => (
+                {['Order ID', 'Date', 'Items', 'Total', 'Payment', 'Paid', 'Status', 'Update Status', 'Details'].map(h => (
                   <th key={h} className="text-left px-4 py-3 text-gray-500 dark:text-gray-400 font-medium">{h}</th>
                 ))}
               </tr>
@@ -287,9 +343,19 @@ export default function AdminOrders() {
                   <td className="px-4 py-3 font-mono text-xs text-gray-600 dark:text-gray-400">#{order._id.slice(-8).toUpperCase()}</td>
                   <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{new Date(order.createdAt).toLocaleDateString()}</td>
                   <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{order.items.length} item{order.items.length !== 1 ? 's' : ''}</td>
-                  <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">${order.totalAmount.toFixed(2)}</td>
+                  <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">
+                    {formatCurrency(order.totalAmount, order.currency)}
+                    {(order.refundedTotal ?? 0) > 0 && (
+                      <span className="block text-xs font-normal text-amber-700 dark:text-amber-400">
+                        −{formatCurrency(order.refundedTotal ?? 0, order.currency)} refunded
+                      </span>
+                    )}
+                  </td>
                   <td className="px-4 py-3">
-                    <PaymentBadge method={order.paymentMethod} />
+                    <PaymentBadge method={order.paymentMethod} provider={(order as any).paymentProvider} />
+                  </td>
+                  <td className="px-4 py-3">
+                    <PaymentStatusBadge status={order.paymentStatus} provider={(order as any).paymentProvider} />
                   </td>
                   <td className="px-4 py-3">
                     <span className={`text-xs px-2 py-1 rounded-full capitalize ${STATUS_COLORS[order.status]}`}>
@@ -307,12 +373,25 @@ export default function AdminOrders() {
                     </select>
                   </td>
                   <td className="px-4 py-3">
-                    <button
-                      onClick={() => setSelectedOrder(order)}
-                      className="text-primary-600 hover:underline text-xs font-medium"
-                    >
-                      👁️ View
-                    </button>
+                    <div className="flex items-center gap-3">
+                      <button
+                        onClick={() => setSelectedOrder(order)}
+                        className="text-primary-600 hover:underline text-xs font-medium"
+                      >
+                        👁️ View
+                      </button>
+                      {/* Offered whenever money remains on the order, regardless
+                          of fulfilment — the whole point of the separate payment
+                          axis is that a delivered order is still refundable. */}
+                      {canRefund(order) && (
+                        <button
+                          onClick={() => setRefundOrder(order)}
+                          className="text-xs font-medium text-amber-700 hover:underline dark:text-amber-400"
+                        >
+                          ↩ Refund
+                        </button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -329,6 +408,14 @@ export default function AdminOrders() {
       </div>
 
       <AnimatePresence>
+        {refundOrder && (
+          <RefundModal
+            order={refundOrder}
+            onClose={() => setRefundOrder(null)}
+            onRefunded={fetchOrders}
+          />
+        )}
+
         {selectedOrder && (
           <OrderDetailsModal order={selectedOrder} onClose={() => setSelectedOrder(null)} />
         )}

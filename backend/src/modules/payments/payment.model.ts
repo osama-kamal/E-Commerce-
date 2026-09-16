@@ -1,11 +1,27 @@
 import mongoose, { Document, Schema, Types } from 'mongoose';
 
 export type PaymentStatus = 'pending' | 'succeeded' | 'failed';
+export type PaymentProviderName = 'stripe' | 'paymob';
 
 export interface IPayment extends Document {
   orderId: Types.ObjectId;
   customerId: Types.ObjectId;
   stripePaymentIntentId: string;  // pi_xxx — Stripe reference only, never card data
+  /**
+   * Which gateway took this payment.
+   *
+   * The collection was Stripe-shaped despite the provider abstraction, and the
+   * Paymob adapter worked around it by writing `paymob_<transId>` into
+   * `stripePaymentIntentId`. That encoding is fine for storage but useless for
+   * REFUNDS, which have to know which gateway to call and need the raw
+   * reference to call it with. Both are now explicit.
+   *
+   * Optional on rows written before this field existed — `resolveProviderRef`
+   * in the refund service recovers them from the prefixed legacy value.
+   */
+  provider?: PaymentProviderName;
+  /** The gateway's own reference, unprefixed: `pi_xxx`, or a Paymob transaction id. */
+  providerPaymentId?: string;
   amount: number;                 // in smallest currency unit (cents)
   currency: string;
   status: PaymentStatus;
@@ -24,6 +40,8 @@ const paymentSchema = new Schema<IPayment>(
     // Idempotency is enforced by the unique `stripeEventId` below, which is the
     // correct key: one row per Stripe event, not per intent.
     stripePaymentIntentId: { type: String, required: true, index: true },
+    provider: { type: String, enum: ['stripe', 'paymob'], default: 'stripe' },
+    providerPaymentId: { type: String, index: true },
     amount: { type: Number, required: true, min: 0 },
     currency: { type: String, required: true, default: 'usd' },
     status: {

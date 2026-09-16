@@ -82,3 +82,18 @@ export const emailLimiter = makeLimiter(
   5,
   'Too many requests from this address. Please try again later.'
 );
+
+/**
+ * Payment intent creation (Stripe & Paymob).
+ *
+ * Authenticated but expensive: each call hits Stripe/Paymob HTTPS and creates
+ * a PaymentIntent or 3-step Paymob token. Without a budget an authenticated
+ * user could flood the gateway, burn logs, and drive cost. 20/15min is
+ * generous for normal checkout (a shopper hits it once) but stops scripts.
+ * Normal sales — even test — are unaffected.
+ */
+export const paymentLimiter = makeLimiter(
+  15 * 60 * 1000,
+  20,
+  'Too many payment attempts. Please wait a few minutes before trying again.'
+);

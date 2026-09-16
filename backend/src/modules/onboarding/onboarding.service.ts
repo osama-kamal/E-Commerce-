@@ -7,6 +7,7 @@ import { issueRefreshToken } from '../auth/auth.service';
 import { createError } from '../../middleware/errorHandler';
 import { logger } from '../../utils/logger';
 import { emailService } from '../../services/email.service';
+import { trialEndFrom } from '../stores/subscription-access';
 
 const BCRYPT_ROUNDS = 12;
 
@@ -126,6 +127,10 @@ export async function onboardStore(input: OnboardingInput): Promise<OnboardingRe
     ownerId: userObjId,
     subscriptionPlan: 'free' as const,
     subscriptionStatus: 'trialing' as const,
+    // Stamped at creation so the trial deadline is server-owned. It was
+    // previously derived in the browser as `createdAt + 7 days`, which meant a
+    // trial could be extended indefinitely by editing localStorage.
+    trialEndsAt: trialEndFrom(new Date()),
     isActive: true,
   };
 

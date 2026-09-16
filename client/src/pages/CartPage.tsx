@@ -5,6 +5,7 @@ import { Package, ShoppingCart } from 'lucide-react';
 import { validateCouponThunk, removeCoupon } from '../store/couponSlice';
 import { useAppDispatch, useAppSelector } from '../hooks/useAppDispatch';
 import { useCart, useUpdateCartItem, useRemoveCartItem, useClearCart } from '../hooks/useCart';
+import { formatCurrency } from '../utils/format';
 import { useState } from 'react';
 import toast from 'react-hot-toast';
 
@@ -20,6 +21,7 @@ export default function CartPage() {
 
   // ── Coupon state (still in Redux) ──────────────────────────────────────────
   const { code: couponCode, discount, label: couponLabel } = useAppSelector(s => s.coupon);
+  const currency = useAppSelector(s => s.currentStore.current?.currency) ?? 'USD';
   const [couponInput, setCouponInput] = useState('');
   const [couponError, setCouponError] = useState('');
 
@@ -194,23 +196,29 @@ export default function CartPage() {
           <div className="space-y-2 text-sm text-gray-600 dark:text-gray-400">
             <div className="flex justify-between">
               <span>Subtotal</span>
-              <span>${subtotal.toFixed(2)}</span>
+              <span>{formatCurrency(subtotal, currency)}</span>
             </div>
             {discount > 0 && (
               <div className="flex justify-between text-green-600 dark:text-green-400">
                 <span>Discount ({couponLabel})</span>
-                <span>−${discount.toFixed(2)}</span>
+                <span>−{formatCurrency(discount, currency)}</span>
               </div>
             )}
-            <div className="flex justify-between text-gray-600 dark:text-gray-400">
-              <span>Shipping</span>
-              <span className="text-green-600">Free</span>
+            {/* This line used to read "Free" unconditionally, which was
+                harmless when no shipping existed and is a false promise now
+                that it does. The cart cannot know the cost: it depends on a
+                delivery address the shopper has not entered yet. */}
+            <div className="flex justify-between">
+              <span>Shipping &amp; tax</span>
+              <span className="text-gray-500 dark:text-gray-400">Calculated at checkout</span>
             </div>
           </div>
 
           <div className="border-t dark:border-gray-700 pt-3 flex justify-between font-bold text-gray-900 dark:text-white">
-            <span>Total</span>
-            <span>${finalTotal.toFixed(2)}</span>
+            {/* "Subtotal", not "Total" — naming it Total while shipping and tax
+                are still unknown is the classic hidden-cost dark pattern. */}
+            <span>Subtotal</span>
+            <span>{formatCurrency(finalTotal, currency)}</span>
           </div>
 
           <button onClick={() => navigate('/checkout')} className="btn-primary w-full py-3">

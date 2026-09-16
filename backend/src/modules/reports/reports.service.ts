@@ -1,6 +1,7 @@
 import { Types } from 'mongoose';
 import { Product } from '../products/product.model';
 import { Order } from '../orders/order.model';
+import { NET_REVENUE_EXPR, REVENUE_RECOGNITION_CLAUSES, revenueMatch } from '../../utils/revenue';
 
 export interface InventoryReportParams {
   storeId: string;
@@ -165,9 +166,13 @@ export async function getSalesReport(params: SalesReportParams): Promise<SalesRe
 
   const sales = await Order.aggregate([...pipeline, { $skip: (page - 1) * limit }, { $limit: limit }]);
 
+  // The LIST above shows every order in the range, including unpaid ones — that
+  // is what an order report is for. The SUMMARY must not: revenue counts only
+  // money actually taken, or the report's own total disagrees with the
+  // dashboard beside it.
   const [summaryResult] = await Order.aggregate([
-    { $match: matchStage },
-    { $group: { _id: null, totalRevenue: { $sum: '$totalAmount' }, totalOrders: { $sum: 1 } } },
+    { $match: revenueMatch(matchStage) },
+    { $group: { _id: null, totalRevenue: { $sum: NET_REVENUE_EXPR }, totalOrders: { $sum: 1 } } },
   ]);
 
   return {
@@ -228,10 +233,40 @@ export async function getProductPerformance(params: ProductPerformanceParams): P
   const { storeId, startDate, endDate, type, limit } = params;
   const storeObjId = new Types.ObjectId(storeId);
 
+  // Line revenue prorated by the order's discount — the same treatment
+  // `admin.getTopProducts` applies. Summing list prices meant a coupon never
+  // reduced a product's reported revenue, so the per-product figures could add
+  // up to more than the store actually took.
   const salesData = await Order.aggregate([
-    { $match: { storeId: storeObjId, createdAt: { $gte: startDate, $lte: endDate }, status: { $in: ['processing', 'shipped', 'delivered'] } } },
+    { $match: revenueMatch({ storeId: storeObjId, createdAt: { $gte: startDate, $lte: endDate } }) },
+    {
+      $addFields: {
+        __share: {
+          $cond: [
+            { $gt: [{ $ifNull: ['$subtotal', 0] }, 0] },
+            {
+              $divide: [
+                { $subtract: [{ $ifNull: ['$subtotal', 0] }, { $ifNull: ['$discountAmount', 0] }] },
+                '$subtotal',
+              ],
+            },
+            1,
+          ],
+        },
+      },
+    },
     { $unwind: '$items' },
-    { $group: { _id: '$items.productId', unitsSold: { $sum: '$items.quantity' }, totalRevenue: { $sum: { $multiply: ['$items.quantity', '$items.price'] } } } },
+    {
+      $group: {
+        _id: '$items.productId',
+        unitsSold: { $sum: '$items.quantity' },
+        totalRevenue: {
+          $sum: {
+            $multiply: [{ $multiply: ['$items.quantity', '$items.price'] }, '$__share'],
+          },
+        },
+      },
+    },
   ]);
 
   const salesMap = new Map(salesData.map(i => [i._id.toString(), { unitsSold: i.unitsSold, totalRevenue: i.totalRevenue }]));

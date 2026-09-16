@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { logger } from '../utils/logger';
 import { NODE_ENV } from '../config/index';
+import { captureError } from '../config/sentry';
 
 export interface AppError extends Error {
   statusCode?: number;
@@ -67,6 +68,27 @@ export function errorHandler(
     message: errMsg,
     stack: err.stack,
   });
+
+  // ── Report to Sentry ────────────────────────────────────────────────────────
+  // 5xx ONLY. Every 400/401/403/404/409/422 that flows through here is the API
+  // working correctly — a bad password, a validation failure, a missing record.
+  // Reporting those would bury the one event that means something under
+  // thousands that do not, and Sentry quotas are per-event.
+  //
+  // `req.route?.path` is the route TEMPLATE ("/admin/:id/refunds"), not the
+  // concrete URL, so no identifier leaks through the tag. It is undefined for
+  // requests that never matched a route; the path is then omitted rather than
+  // substituted with `req.url`, which would carry the query string.
+  if (statusCode >= 500) {
+    captureError(err, {
+      userId: req.user?.userId?.toString(),
+      storeId: req.store?._id?.toString(),
+      method: req.method,
+      route: req.route?.path,
+      statusCode,
+      errorCode: code,
+    });
+  }
 
   const responseBody: {
     success: false;

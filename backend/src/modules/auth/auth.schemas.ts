@@ -17,6 +17,21 @@ export const loginSchema = z.object({
   }),
 });
 
+/**
+ * Same shape as `loginSchema`, declared separately rather than aliased.
+ *
+ * These are two different authentication decisions against two different
+ * account populations, and they will diverge — a second factor belongs on the
+ * platform path long before it belongs on a shopper's. Sharing one schema
+ * invites sharing one handler, which is how the cross-tenant escalation arose.
+ */
+export const platformLoginSchema = z.object({
+  body: z.object({
+    email: z.string().email('Must be a valid email address'),
+    password: z.string().min(1, 'Password is required'),
+  }),
+});
+
 export const refreshSchema = z.object({
   body: z.object({
     // refreshToken is optional in the body — it is now sent as an httpOnly cookie.

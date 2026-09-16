@@ -3,6 +3,28 @@ import { Product } from '../products/product.model';
 import { Order } from '../orders/order.model';
 import { OPENAI_API_KEY, OPENAI_MODEL } from '../../config';
 import { logger } from '../../utils/logger';
+import { createError } from '../../middleware/errorHandler';
+import { formatMoney } from '../checkout/currency';
+import { buildStoreContext, renderStoreFacts, StoreChatContext } from './store-context';
+
+/**
+ * Storefront shopping assistant.
+ *
+ * ── storeId is required, everywhere ───────────────────────────────────────────
+ * It was optional on every function here, and the queries degraded to
+ * store-less when it was absent: `const storeFilter = storeId ? {storeId} : {}`.
+ * The route guarantees a tenant, so nothing leaked in practice — but that is the
+ * same shape that left the recommendations module querying every store on the
+ * platform, and it only held because of a guarantee made somewhere else. It is
+ * now a required first parameter, so the compiler enforces at each call site
+ * what the router happened to provide.
+ *
+ * ── The assistant only states what the merchant configured ────────────────────
+ * See store-context.ts. The short version: the system prompt used to assert free
+ * shipping over $50, a 30-day return policy and Stripe payments as universal
+ * facts, on a platform where all three are per-store. Prices were rendered with
+ * a hardcoded "$" regardless of the store's currency.
+ */
 
 // ── Tool definitions sent to OpenAI ──────────────────────────────────────────
 
@@ -58,28 +80,33 @@ const tools = [
 
 // ── Tool executor ─────────────────────────────────────────────────────────────
 
+/**
+ * `storeId` is required and first. Both tools were already scoped correctly, but
+ * they guarded it at runtime and returned an error string when it was missing —
+ * a failure mode that only exists because the parameter was optional.
+ */
 async function executeTool(
+  storeId: string,
+  currency: string,
   name: string,
   args: Record<string, unknown>,
-  userId?: string,
-  storeId?: string
+  userId?: string
 ): Promise<string> {
+  const storeObjId = new Types.ObjectId(storeId);
+
   if (name === 'get_order_status') {
     if (!userId) {
       return JSON.stringify({ error: 'User is not logged in. Cannot fetch orders.' });
     }
-    if (!storeId) {
-      return JSON.stringify({ error: 'Store context unavailable. Cannot fetch orders.' });
-    }
+
     const limit = Math.min(Number(args.limit) || 3, 5);
-    // Scope to both customerId AND storeId — prevents cross-tenant data leakage
     const orders = await Order.find({
       customerId: new Types.ObjectId(userId),
-      storeId: new Types.ObjectId(storeId),
+      storeId: storeObjId,
     })
       .sort({ createdAt: -1 })
       .limit(limit)
-      .select('_id status totalAmount items createdAt')
+      .select('_id status totalAmount currency items createdAt')
       .lean();
 
     if (orders.length === 0) {
@@ -90,7 +117,10 @@ async function executeTool(
       orders.map((o) => ({
         orderId: o._id.toString(),
         status: o.status,
-        total: `$${o.totalAmount.toFixed(2)}`,
+        // The ORDER's own currency, not the store's current one — an order
+        // snapshots the currency it was placed in, and a store that later
+        // switched would otherwise have its history restated in the new one.
+        total: formatMoney(o.totalAmount, o.currency ?? currency),
         itemCount: o.items.length,
         date: new Date(o.createdAt).toLocaleDateString(),
       }))
@@ -98,13 +128,9 @@ async function executeTool(
   }
 
   if (name === 'search_products') {
-    if (!storeId) {
-      return JSON.stringify({ error: 'Store context unavailable. Cannot search products.' });
-    }
     const limit = Math.min(Number(args.limit) || 4, 6);
-    // Always scope to the resolved store — prevents cross-tenant product leakage
     const mongoQuery: Record<string, unknown> = {
-      storeId: new Types.ObjectId(storeId),
+      storeId: storeObjId,
       stock: { $gt: 0 },
       isDeleted: false,
     };
@@ -136,11 +162,11 @@ async function executeTool(
     return JSON.stringify(
       products.map((p) => ({
         name: p.name,
-        price: `$${p.price.toFixed(2)}`,
+        price: formatMoney(p.price, currency),
         discount: p.discount > 0 ? `${p.discount}% OFF` : null,
         effectivePrice:
           p.discount > 0
-            ? `$${(p.price * (1 - p.discount / 100)).toFixed(2)}`
+            ? formatMoney(Math.round(p.price * (1 - p.discount / 100) * 100) / 100, currency)
             : null,
         rating: `${p.averageRating.toFixed(1)} ⭐ (${p.reviewCount} reviews)`,
         inStock: p.stock > 0,
@@ -177,45 +203,59 @@ interface OpenAIResponse {
 
 export const chatbotService = {
   /**
-   * Entry point — routes to AI or rule-based depending on key availability
+   * Entry point — routes to the model or the rule-based fallback.
+   *
+   * Both paths take the store context, so the fallback answers with the same
+   * facts as the model rather than a second, differently-wrong set of them.
    */
-  async chat(message: string, userId?: string, storeId?: string): Promise<string> {
-    const lowerMessage = message.toLowerCase().trim();
-
-    if (OPENAI_API_KEY && (OPENAI_API_KEY.startsWith('sk-') || OPENAI_API_KEY.startsWith('sk-proj-'))) {
-      return await this.chatWithOpenAI(message, userId, storeId);
+  async chat(storeId: string, message: string, userId?: string): Promise<string> {
+    if (!storeId || !Types.ObjectId.isValid(storeId)) {
+      throw createError('Store context is required', 400, 'BAD_REQUEST');
     }
 
-    logger.warn('[Chatbot] No valid OpenAI key — using rule-based fallback', { keyPresent: !!OPENAI_API_KEY });
-    return await this.ruleBasedChat(lowerMessage, userId, storeId);
+    const ctx = await buildStoreContext(storeId);
+
+    if (OPENAI_API_KEY && (OPENAI_API_KEY.startsWith('sk-') || OPENAI_API_KEY.startsWith('sk-proj-'))) {
+      return this.chatWithOpenAI(storeId, ctx, message, userId);
+    }
+
+    logger.warn('[Chatbot] No valid OpenAI key — using rule-based fallback', {
+      keyPresent: !!OPENAI_API_KEY,
+    });
+    return this.ruleBasedChat(storeId, ctx, message.toLowerCase().trim(), userId);
   },
 
   /**
-   * OpenAI chat with function calling (Tools API)
-   * Supports up to one round of tool calls before returning the final answer.
+   * OpenAI chat with function calling (Tools API).
+   * Supports one round of tool calls before returning the final answer.
    */
-  async chatWithOpenAI(message: string, userId?: string, storeId?: string): Promise<string> {
+  async chatWithOpenAI(
+    storeId: string,
+    ctx: StoreChatContext,
+    message: string,
+    userId?: string
+  ): Promise<string> {
     try {
-      const productFilter: Record<string, unknown> = { isDeleted: false };
-      if (storeId) productFilter.storeId = new Types.ObjectId(storeId);
+      const systemPrompt = `You are a helpful and friendly shopping assistant for "${ctx.storeName}", an online store.
 
-      const productsCount = await Product.countDocuments(productFilter);
-      const categories = await Product.distinct('category', productFilter);
+Verified facts about THIS store — these are the only store facts you may state:
+${renderStoreFacts(ctx)}
 
-      const systemPrompt = `You are a helpful and friendly AI shopping assistant for an e-commerce store.
+Rules about facts:
+- NEVER invent or assume a returns policy, refund window, warranty, delivery
+  time, or payment method. None of those are listed above, which means this
+  store has not published them.
+- If asked about any of those, say you do not have that detail and point the
+  customer to the store's contact details above (or ask them to check the
+  store's policy pages if no contact is listed).
+- Quote every price exactly as the tools return it. Prices are already formatted
+  in ${ctx.currency} — never convert them, never add a currency symbol yourself.
+${userId ? '- The customer IS logged in — you CAN call get_order_status.' : '- The customer is NOT logged in — do NOT call get_order_status; ask them to sign in.'}
 
-Store Information:
-- ${productsCount} products across ${categories.length} categories
-- Free shipping on orders over $50
-- 30-day return policy
-- Secure payments via Stripe
-${userId ? '- The customer IS logged in — you CAN call get_order_status.' : '- The customer is NOT logged in — do NOT call get_order_status.'}
-
-Guidelines:
+Style:
 - Use emojis to make responses engaging and warm
 - Keep responses concise (under 200 words)
 - When asked about products, offers, or recommendations → call search_products
-- When asked about orders, delivery, or tracking → call get_order_status (only if logged in)
 - Support both English and Arabic naturally`;
 
       const messages: OpenAIMessage[] = [
@@ -223,20 +263,14 @@ Guidelines:
         { role: 'user', content: message },
       ];
 
-      // ── First call — model decides whether to invoke a tool ────────────────
       const firstResponse = await this.callOpenAI(messages);
       const firstChoice = firstResponse.choices[0];
 
-      // No tool calls — return the direct text answer
       if (firstChoice.finish_reason !== 'tool_calls' || !firstChoice.message.tool_calls?.length) {
         return firstChoice.message.content ?? '😔 I couldn\'t generate a response. Please try again.';
       }
 
-      // ── Execute all requested tools ────────────────────────────────────────
-      const toolCallMessages: OpenAIMessage[] = [
-        ...messages,
-        firstChoice.message, // assistant message with tool_calls
-      ];
+      const toolCallMessages: OpenAIMessage[] = [...messages, firstChoice.message];
 
       for (const toolCall of firstChoice.message.tool_calls) {
         let toolArgs: Record<string, unknown> = {};
@@ -246,8 +280,14 @@ Guidelines:
           toolArgs = {};
         }
 
-        logger.info('[Chatbot] Calling tool', { tool: toolCall.function.name, args: toolArgs });
-        const toolResult = await executeTool(toolCall.function.name, toolArgs, userId, storeId);
+        logger.info('[Chatbot] Calling tool', { tool: toolCall.function.name, storeId });
+        const toolResult = await executeTool(
+          storeId,
+          ctx.currency,
+          toolCall.function.name,
+          toolArgs,
+          userId
+        );
 
         toolCallMessages.push({
           role: 'tool',
@@ -256,19 +296,16 @@ Guidelines:
         });
       }
 
-      // ── Second call — model synthesises tool results into a final answer ───
       const finalResponse = await this.callOpenAI(toolCallMessages, false);
       return finalResponse.choices[0].message.content ?? '😔 I couldn\'t generate a response. Please try again.';
 
     } catch (error) {
       logger.error('[Chatbot] OpenAI API error — falling back to rule-based', { error });
-      return await this.ruleBasedChat(message.toLowerCase(), userId, storeId);
+      return this.ruleBasedChat(storeId, ctx, message.toLowerCase(), userId);
     }
   },
 
-  /**
-   * Low-level OpenAI API call
-   */
+  /** Low-level OpenAI API call. */
   async callOpenAI(messages: OpenAIMessage[], includeTools = true): Promise<OpenAIResponse> {
     const body: Record<string, unknown> = {
       model: OPENAI_MODEL,
@@ -301,17 +338,39 @@ Guidelines:
   },
 
   /**
-   * Rule-based fallback — works with no API key
+   * Rule-based fallback — works with no API key.
+   *
+   * Grounded in the same context as the model path. It previously recited the
+   * same four invented facts in fixed prose ("Free shipping on orders over $50",
+   * "30-day return window", "Secure payment via Stripe"), which made the
+   * no-API-key path the MOST confidently wrong one.
    */
-  async ruleBasedChat(message: string, userId?: string, storeId?: string): Promise<string> {
-    const storeFilter = storeId ? { storeId: new Types.ObjectId(storeId) } : {};
+  async ruleBasedChat(
+    storeId: string,
+    ctx: StoreChatContext,
+    message: string,
+    userId?: string
+  ): Promise<string> {
+    const storeObjId = new Types.ObjectId(storeId);
+
+    /** Where to send anything this store has not published. */
+    const referToStore = (): string => {
+      if (ctx.contactEmail && ctx.contactPhone) {
+        return `Please contact ${ctx.storeName} at ${ctx.contactEmail} or ${ctx.contactPhone}.`;
+      }
+      if (ctx.contactEmail) return `Please contact ${ctx.storeName} at ${ctx.contactEmail}.`;
+      if (ctx.contactPhone) return `Please contact ${ctx.storeName} at ${ctx.contactPhone}.`;
+      return `Please check ${ctx.storeName}'s policy pages or get in touch with the store directly.`;
+    };
 
     if (this.matchesAny(message, ['hello', 'hi', 'hey', 'مرحبا', 'السلام عليكم'])) {
-      return '👋 Hello! Welcome to our store! How can I help you today?\n\nI can help you with:\n• Finding products\n• Tracking orders\n• Product recommendations\n• Store policies\n\nJust ask me anything!';
+      return `👋 Hello! Welcome to ${ctx.storeName}! How can I help you today?\n\nI can help you with:\n• Finding products\n• Tracking orders\n• Product recommendations\n\nJust ask me anything!`;
     }
 
     if (this.matchesAny(message, ['product', 'find', 'search', 'looking for', 'منتج', 'ابحث'])) {
-      const products = await Product.find({ ...storeFilter, stock: { $gt: 0 }, isDeleted: false })
+      const products = await Product.find({
+        storeId: storeObjId, stock: { $gt: 0 }, isDeleted: false,
+      })
         .sort({ averageRating: -1 })
         .limit(3)
         .select('name price averageRating reviewCount')
@@ -320,7 +379,7 @@ Guidelines:
       if (products.length > 0) {
         let response = '🔍 Here are some popular products:\n\n';
         products.forEach((p, i) => {
-          response += `${i + 1}. **${p.name}** - $${p.price.toFixed(2)}\n`;
+          response += `${i + 1}. **${p.name}** - ${formatMoney(p.price, ctx.currency)}\n`;
           response += `   ⭐ ${p.averageRating.toFixed(1)} (${p.reviewCount} reviews)\n\n`;
         });
         response += 'Would you like to know more about any of these?';
@@ -333,23 +392,24 @@ Guidelines:
         return '📦 To track your order, please log in to your account first.\n\nOnce logged in, you can:\n• View all your orders\n• Track delivery status\n• See order history';
       }
 
-      const orderFilter: Record<string, unknown> = { customerId: new Types.ObjectId(userId) };
-      if (storeId) orderFilter.storeId = new Types.ObjectId(storeId);
-
-      const recentOrder = await Order.findOne(orderFilter)
+      const recentOrder = await Order.findOne({
+        storeId: storeObjId,
+        customerId: new Types.ObjectId(userId),
+      })
         .sort({ createdAt: -1 })
-        .select('_id status totalAmount createdAt')
+        .select('_id status totalAmount currency createdAt')
         .lean();
 
       if (recentOrder) {
-        return `📦 Your most recent order:\n\n**Order ID:** ${recentOrder._id}\n**Status:** ${recentOrder.status}\n**Total:** $${recentOrder.totalAmount.toFixed(2)}\n**Date:** ${new Date(recentOrder.createdAt).toLocaleDateString()}\n\nYou can view full details in your Orders page.`;
-      } else {
-        return "📦 You don't have any orders yet. Browse our products and place your first order!";
+        return `📦 Your most recent order:\n\n**Order ID:** ${recentOrder._id}\n**Status:** ${recentOrder.status}\n**Total:** ${formatMoney(recentOrder.totalAmount, recentOrder.currency ?? ctx.currency)}\n**Date:** ${new Date(recentOrder.createdAt).toLocaleDateString()}\n\nYou can view full details in your Orders page.`;
       }
+      return "📦 You don't have any orders yet. Browse our products and place your first order!";
     }
 
     if (this.matchesAny(message, ['recommend', 'suggest', 'best', 'popular', 'trending', 'offer', 'offers', 'deal', 'deals', 'discount', 'sale', 'اقتراح', 'افضل', 'عروض', 'خصم'])) {
-      const trending = await Product.find({ ...storeFilter, stock: { $gt: 0 }, isDeleted: false, averageRating: { $gte: 4 } })
+      const trending = await Product.find({
+        storeId: storeObjId, stock: { $gt: 0 }, isDeleted: false, averageRating: { $gte: 4 },
+      })
         .sort({ reviewCount: -1, averageRating: -1 })
         .limit(3)
         .select('name price discount averageRating')
@@ -359,7 +419,7 @@ Guidelines:
         let response = '⭐ Here are our top trending products:\n\n';
         trending.forEach((p, i) => {
           response += `${i + 1}. **${p.name}**\n`;
-          response += `   💰 $${p.price.toFixed(2)}`;
+          response += `   💰 ${formatMoney(p.price, ctx.currency)}`;
           if (p.discount > 0) response += ` (${p.discount}% OFF!)`;
           response += `\n   ⭐ ${p.averageRating.toFixed(1)} stars\n\n`;
         });
@@ -367,24 +427,40 @@ Guidelines:
       }
     }
 
-    if (this.matchesAny(message, ['price', 'cost', 'how much', 'سعر', 'كام'])) {
-      return '💰 Our products range from affordable to premium options.\n\nYou can:\n• Filter by price range\n• Sort by price (low to high)\n• Check for discounts and offers\n\nWhat type of product are you looking for?';
-    }
-
+    // ── Shipping: stated ONLY from what the merchant configured ───────────────
     if (this.matchesAny(message, ['ship', 'shipping', 'شحن'])) {
-      return '🚚 **Shipping Information:**\n\n• Free shipping on orders over $50\n• Standard delivery: 3-5 business days\n• Express delivery: 1-2 business days\n• Track your order anytime\n\nShipping costs are calculated at checkout based on your location.';
+      if (!ctx.shipping.configured) {
+        return `🚚 I don't have delivery details for ${ctx.storeName}. ${referToStore()}`;
+      }
+      let response = '🚚 **Delivery:**\n\n';
+      if (ctx.shipping.countries.length > 0) {
+        response += `• Delivers to: ${ctx.shipping.countries.slice(0, 15).join(', ')}\n`;
+      }
+      if (ctx.shipping.cheapestRateLabel) {
+        response += `• From ${ctx.shipping.cheapestRateLabel}\n`;
+      }
+      if (ctx.shipping.freeOverLabel) {
+        response += `• Free delivery on orders over ${ctx.shipping.freeOverLabel}\n`;
+      }
+      response += '\nExact delivery cost is calculated at checkout for your address.';
+      return response;
     }
 
+    // ── Returns: no data exists, so no claim is made ──────────────────────────
     if (this.matchesAny(message, ['return', 'refund', 'exchange', 'استرجاع', 'استبدال'])) {
-      return '🔄 **Return Policy:**\n\n• 30-day return window\n• Items must be unused and in original packaging\n• Free returns on defective items\n• Refund processed within 5-7 business days\n\nNeed to return something? Contact our support team!';
+      return `🔄 I don't have ${ctx.storeName}'s returns policy on hand. ${referToStore()}`;
     }
 
     if (this.matchesAny(message, ['payment', 'pay', 'credit card', 'دفع', 'بطاقة'])) {
-      return '💳 **Payment Methods:**\n\nWe accept:\n• Credit/Debit Cards (Visa, Mastercard)\n• Secure payment via Stripe\n• All transactions are encrypted\n\nYour payment information is safe with us!';
+      return `💳 Checkout is secure, and you'll see the payment options available for your order at checkout. Prices are charged in ${ctx.currency}.\n\nFor anything specific, ${referToStore().charAt(0).toLowerCase()}${referToStore().slice(1)}`;
+    }
+
+    if (this.matchesAny(message, ['price', 'cost', 'how much', 'سعر', 'كام'])) {
+      return `💰 Prices at ${ctx.storeName} are shown in ${ctx.currency}${ctx.taxNames.length > 0 && ctx.pricesIncludeTax ? ' and include tax' : ''}.\n\nYou can:\n• Filter by price range\n• Sort by price (low to high)\n• Check for discounts and offers\n\nWhat type of product are you looking for?`;
     }
 
     if (this.matchesAny(message, ['help', 'support', 'contact', 'مساعدة', 'دعم'])) {
-      return '🆘 **How can I help you?**\n\nI can assist with:\n• 🔍 Finding products\n• 📦 Tracking orders\n• 💰 Pricing information\n• 🚚 Shipping details\n• 🔄 Returns & refunds\n• 💳 Payment methods\n\nJust ask me anything!';
+      return `🆘 **How can I help you?**\n\nI can assist with:\n• 🔍 Finding products\n• 📦 Tracking orders\n• 💰 Pricing information\n\n${referToStore()}`;
     }
 
     if (this.matchesAny(message, ['thank', 'thanks', 'شكرا', 'متشكر'])) {
@@ -392,13 +468,42 @@ Guidelines:
     }
 
     if (this.matchesAny(message, ['bye', 'goodbye', 'see you', 'مع السلامة'])) {
-      return '👋 Goodbye! Thanks for visiting our store. Come back soon!\n\nHappy shopping! 🛍️';
+      return `👋 Goodbye! Thanks for visiting ${ctx.storeName}. Come back soon!\n\nHappy shopping! 🛍️`;
     }
 
-    return "🤔 I'm not sure I understand. Let me help you!\n\nYou can ask me about:\n• Products and recommendations\n• Order tracking\n• Shipping and delivery\n• Returns and refunds\n• Payment methods\n\nWhat would you like to know?";
+    return "🤔 I'm not sure I understand. Let me help you!\n\nYou can ask me about:\n• Products and recommendations\n• Order tracking\n• Pricing\n\nWhat would you like to know?";
   },
 
+  /**
+   * Whole-word keyword matching.
+   *
+   * This was `message.includes(keyword)`, which matches inside other words. The
+   * greeting list contains "hi", so "how much is s-HI-pping?" was answered with
+   * "👋 Hello! Welcome to …" — and the greeting rule is evaluated first, so it
+   * swallowed the shipping, returns and payment questions before their own
+   * branches could run. "hi" also hits *this*, *which*, *white*, *history*;
+   * "hey" hits *they*.
+   *
+   * Boundaries are expressed as "not a letter or digit" via Unicode property
+   * escapes rather than `\b`. `\b` is defined on `[A-Za-z0-9_]`, so for the
+   * Arabic keywords here a space-to-Arabic transition is non-word to non-word
+   * and no boundary exists — `\bمرحبا\b` never matches. `\p{L}` and `\p{N}` with
+   * the `u` flag treat both scripts alike.
+   */
   matchesAny(message: string, keywords: string[]): boolean {
-    return keywords.some((keyword) => message.includes(keyword.toLowerCase()));
+    return keywords.some((keyword) => {
+      const escaped = keyword.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      // Leading boundary, optional plural suffix, trailing boundary.
+      //
+      //   leading  — stops "hi" matching inside s-HI-pping / t-HI-s / w-HI-ch
+      //   (e?s)?   — lets "product" match "products" and "search" match
+      //              "searches", which strict whole-word matching would miss
+      //   trailing — stops "hi" matching HI-story, which a leading-only
+      //              boundary would allow and which would hijack "order history"
+      return new RegExp(
+        `(^|[^\\p{L}\\p{N}])${escaped}(e?s)?($|[^\\p{L}\\p{N}])`,
+        'u'
+      ).test(message);
+    });
   },
 };

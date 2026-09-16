@@ -1,5 +1,6 @@
 import api from './axios';
 import axios from 'axios';
+import { getHostTenant } from './activeTenant';
 import { Store, StoreSettings, StoreTheme } from '../types';
 
 export interface UpdateSettingsPayload extends Partial<StoreSettings> {
@@ -10,6 +11,20 @@ export interface UpdateSettingsPayload extends Partial<StoreSettings> {
    * document root (not into `settings`) and rejects unknown values with a 400.
    */
   theme?: StoreTheme;
+  /**
+   * Whether catalogue prices already contain tax. Also a document-root field
+   * server-side, not part of `settings`.
+   *
+   * Changing this reinterprets every price in the catalogue, so it is sent on
+   * its own rather than bundled into a general settings save.
+   */
+  pricesIncludeTax?: boolean;
+  /**
+   * ISO 4217 currency the store prices and charges in (e.g. USD, EGP).
+   * Also a document-root field. Must be in SUPPORTED_CURRENCIES or the
+   * server returns 400.
+   */
+  currency?: string;
 }
 
 export const storesApi = {
@@ -28,7 +43,12 @@ export const storesApi = {
     const formData = new FormData();
     formData.append('image', file);
 
-    const storeIdHeader = localStorage.getItem('currentStoreId') || import.meta.env.VITE_STORE_ID || '';
+    // The store being edited is already in the URL; this header only supplies
+    // tenant context for resolveStore. Host tenant first, then the admin's
+    // selection — no build-time fallback, which used to point every upload at
+    // one hardcoded store.
+    const storeIdHeader =
+      getHostTenant()?.storeId || localStorage.getItem('currentStoreId') || storeId;
     const token = localStorage.getItem('accessToken') || '';
 
     const res = await axios.post<{ data: { imageUrl: string } }>(

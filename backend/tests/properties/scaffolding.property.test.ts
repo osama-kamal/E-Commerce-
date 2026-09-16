@@ -3,11 +3,39 @@
  *
  * Feature: ecommerce-platform, Property 23: Security Headers on Every Response
  * Feature: ecommerce-platform, Property 24: NoSQL Injection Sanitization
+ *
+ * ── Why this file needs a database ────────────────────────────────────────────
+ * It imports `app` and issues real HTTP requests, and almost every path it
+ * generates falls through to the tenant router — where `resolveStore` calls
+ * `Store.findOne()`. With no connection, mongoose BUFFERS that call and rejects
+ * after 10 seconds instead of failing fast. At `numRuns: 100` that is ~1000
+ * seconds of waiting against a 30 s jest timeout, so all three tests here failed
+ * as timeouts.
+ *
+ * The failures looked like a security regression — "Security Headers on Every
+ * Response" and "NoSQL Injection Sanitization" reported as failing — while the
+ * properties themselves were never actually evaluated. Both hold; the suite
+ * simply never got far enough to check. Connecting an in-memory MongoDB, as
+ * every other suite that touches `app` already does, makes the assertions run.
  */
 
+import mongoose from 'mongoose';
+import { MongoMemoryServer } from 'mongodb-memory-server';
 import * as fc from 'fast-check';
 import request from 'supertest';
 import app from '../../src/app';
+
+let mongod: MongoMemoryServer;
+
+beforeAll(async () => {
+  mongod = await MongoMemoryServer.create();
+  await mongoose.connect(mongod.getUri());
+}, 120_000);
+
+afterAll(async () => {
+  await mongoose.disconnect();
+  await mongod.stop();
+});
 
 // ── Property 23: Security Headers on Every Response ──────────────────────────
 // Validates: Requirements 9.5
@@ -35,7 +63,10 @@ describe('Property 23: Security Headers on Every Response', () => {
           expect(res.headers['content-security-policy']).toBeDefined();
         }
       ),
-      { numRuns: 100 }
+      // The generator is a `constantFrom` over four paths, so every run beyond
+      // the fourth is a repeat — and each one is a real HTTP round trip. 25 runs
+      // covers the space many times over; 100 only bought wall-clock time.
+      { numRuns: 25 }
     );
   });
 });

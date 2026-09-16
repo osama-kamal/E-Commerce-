@@ -3,6 +3,7 @@ import { Order } from '../orders/order.model';
 import { Product } from '../products/product.model';
 import { Category } from '../categories/category.model';
 import { cacheService, CACHE_KEYS, CACHE_TTL } from '../../services/cache.service';
+import { NET_REVENUE_EXPR, REVENUE_RECOGNITION_CLAUSES } from '../../utils/revenue';
 import {
   getPreviousPeriodRange,
   calculatePercentageChange,
@@ -140,7 +141,7 @@ export async function getSalesTrends(params: SalesTrendsParams): Promise<SalesTr
   const matchStage: any = {
     storeId: storeObjId,
     createdAt: { $gte: startDate, $lte: endDate },
-    status: { $in: ['processing', 'shipped', 'delivered'] },
+    $or: REVENUE_RECOGNITION_CLAUSES,
   };
 
   if (categoryId) {
@@ -155,7 +156,7 @@ export async function getSalesTrends(params: SalesTrendsParams): Promise<SalesTr
 
   const trends = await Order.aggregate([
     { $match: matchStage },
-    { $group: { _id: groupByExpression, revenue: { $sum: '$totalAmount' }, orderCount: { $sum: 1 } } },
+    { $group: { _id: groupByExpression, revenue: { $sum: NET_REVENUE_EXPR }, orderCount: { $sum: 1 } } },
     { $sort: { _id: 1 as const } },
     { $project: { date: '$_id', revenue: { $round: ['$revenue', 2] }, orderCount: 1, _id: 0 } },
   ]);
@@ -163,7 +164,7 @@ export async function getSalesTrends(params: SalesTrendsParams): Promise<SalesTr
   const prev = getPreviousPeriodRange(startDate, endDate);
   const prevResult = await Order.aggregate([
     { $match: { ...matchStage, createdAt: { $gte: prev.startDate, $lte: prev.endDate } } },
-    { $group: { _id: null, revenue: { $sum: '$totalAmount' }, orderCount: { $sum: 1 } } },
+    { $group: { _id: null, revenue: { $sum: NET_REVENUE_EXPR }, orderCount: { $sum: 1 } } },
   ]);
 
   const currentRevenue = trends.reduce((s, t) => s + t.revenue, 0);
@@ -197,7 +198,7 @@ export async function getCategoryPerformance(params: DateRangeParams): Promise<C
   if (cached) return cached;
 
   const categories = await Order.aggregate([
-    { $match: { storeId: storeObjId, createdAt: { $gte: startDate, $lte: endDate }, status: { $in: ['processing', 'shipped', 'delivered'] } } },
+    { $match: { storeId: storeObjId, createdAt: { $gte: startDate, $lte: endDate }, $or: REVENUE_RECOGNITION_CLAUSES } },
     { $unwind: '$items' },
     { $lookup: { from: 'products', localField: 'items.productId', foreignField: '_id', as: 'product' } },
     { $unwind: '$product' },
@@ -248,7 +249,7 @@ export async function getCustomerMetrics(params: DateRangeParams): Promise<Custo
   });
 
   const repeatResult = await Order.aggregate([
-    { $match: { storeId: storeObjId, createdAt: { $gte: startDate, $lte: endDate }, status: { $in: ['processing', 'shipped', 'delivered'] } } },
+    { $match: { storeId: storeObjId, createdAt: { $gte: startDate, $lte: endDate }, $or: REVENUE_RECOGNITION_CLAUSES } },
     { $group: { _id: '$customerId', orderCount: { $sum: 1 } } },
     { $group: { _id: null, totalCustomers: { $sum: 1 }, repeatCustomers: { $sum: { $cond: [{ $gt: ['$orderCount', 1] }, 1, 0] } } } },
   ]);
@@ -258,13 +259,13 @@ export async function getCustomerMetrics(params: DateRangeParams): Promise<Custo
 
   const ninetyDaysAgo = new Date(Date.now() - 90 * 86400000);
   const churnResult = await Order.aggregate([
-    { $match: { storeId: storeObjId, createdAt: { $lt: ninetyDaysAgo }, status: { $in: ['processing', 'shipped', 'delivered'] } } },
+    { $match: { storeId: storeObjId, createdAt: { $lt: ninetyDaysAgo }, $or: REVENUE_RECOGNITION_CLAUSES } },
     { $group: { _id: '$customerId', lastOrderDate: { $max: '$createdAt' } } },
     { $match: { lastOrderDate: { $lt: ninetyDaysAgo } } },
     { $count: 'churnedCustomers' },
   ]);
   const totalEverResult = await Order.aggregate([
-    { $match: { storeId: storeObjId, status: { $in: ['processing', 'shipped', 'delivered'] } } },
+    { $match: { storeId: storeObjId, $or: REVENUE_RECOGNITION_CLAUSES } },
     { $group: { _id: '$customerId' } },
     { $count: 'total' },
   ]);
@@ -312,24 +313,24 @@ export async function getAOVMetrics(params: DateRangeParams): Promise<AOVMetrics
   const cached = cacheService.get<AOVMetricsResult>(cacheKey);
   if (cached) return cached;
 
-  const baseMatch = { storeId: storeObjId, status: { $in: ['processing', 'shipped', 'delivered'] } };
+  const baseMatch = { storeId: storeObjId, $or: REVENUE_RECOGNITION_CLAUSES };
 
   const [curResult] = await Order.aggregate([
     { $match: { ...baseMatch, createdAt: { $gte: startDate, $lte: endDate } } },
-    { $group: { _id: null, totalRevenue: { $sum: '$totalAmount' }, orderCount: { $sum: 1 } } },
+    { $group: { _id: null, totalRevenue: { $sum: NET_REVENUE_EXPR }, orderCount: { $sum: 1 } } },
   ]);
   const currentAOV = curResult?.orderCount > 0 ? Math.round((curResult.totalRevenue / curResult.orderCount) * 100) / 100 : 0;
 
   const prev = getPreviousPeriodRange(startDate, endDate);
   const [prevResult] = await Order.aggregate([
     { $match: { ...baseMatch, createdAt: { $gte: prev.startDate, $lte: prev.endDate } } },
-    { $group: { _id: null, totalRevenue: { $sum: '$totalAmount' }, orderCount: { $sum: 1 } } },
+    { $group: { _id: null, totalRevenue: { $sum: NET_REVENUE_EXPR }, orderCount: { $sum: 1 } } },
   ]);
   const previousAOV = prevResult?.orderCount > 0 ? Math.round((prevResult.totalRevenue / prevResult.orderCount) * 100) / 100 : 0;
 
   const trend = await Order.aggregate([
     { $match: { ...baseMatch, createdAt: { $gte: startDate, $lte: endDate } } },
-    { $group: { _id: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } }, totalRevenue: { $sum: '$totalAmount' }, orderCount: { $sum: 1 } } },
+    { $group: { _id: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } }, totalRevenue: { $sum: NET_REVENUE_EXPR }, orderCount: { $sum: 1 } } },
     { $sort: { _id: 1 as const } },
     { $project: { date: '$_id', aov: { $cond: [{ $gt: ['$orderCount', 0] }, { $round: [{ $divide: ['$totalRevenue', '$orderCount'] }, 2] }, 0] }, _id: 0 } },
   ]);
@@ -362,7 +363,7 @@ export async function getConversionMetrics(params: DateRangeParams): Promise<Con
   const currentOrders = await Order.countDocuments({
     storeId: storeObjId,
     createdAt: { $gte: startDate, $lte: endDate },
-    status: { $in: ['processing', 'shipped', 'delivered'] },
+    $or: REVENUE_RECOGNITION_CLAUSES,
   });
   const totalUsers = await User.countDocuments({ storeId: storeObjId, createdAt: { $lte: endDate } });
   const currentConversionRate = totalUsers > 0 ? Math.round((currentOrders / totalUsers) * 10000) / 100 : 0;
@@ -371,13 +372,13 @@ export async function getConversionMetrics(params: DateRangeParams): Promise<Con
   const prevOrders = await Order.countDocuments({
     storeId: storeObjId,
     createdAt: { $gte: prev.startDate, $lte: prev.endDate },
-    status: { $in: ['processing', 'shipped', 'delivered'] },
+    $or: REVENUE_RECOGNITION_CLAUSES,
   });
   const prevUsers = await User.countDocuments({ storeId: storeObjId, createdAt: { $lte: prev.endDate } });
   const previousConversionRate = prevUsers > 0 ? Math.round((prevOrders / prevUsers) * 10000) / 100 : 0;
 
   const ordersByDay = await Order.aggregate([
-    { $match: { storeId: storeObjId, createdAt: { $gte: startDate, $lte: endDate }, status: { $in: ['processing', 'shipped', 'delivered'] } } },
+    { $match: { storeId: storeObjId, createdAt: { $gte: startDate, $lte: endDate }, $or: REVENUE_RECOGNITION_CLAUSES } },
     { $group: { _id: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } }, orderCount: { $sum: 1 } } },
     { $sort: { _id: 1 as const } },
   ]);
@@ -413,15 +414,15 @@ export async function getTodayMetrics(storeId: string): Promise<TodayMetricsResu
   const yesterdayStart = new Date(todayStart); yesterdayStart.setDate(yesterdayStart.getDate() - 1);
   const yesterdayEnd = new Date(todayEnd); yesterdayEnd.setDate(yesterdayEnd.getDate() - 1);
 
-  const baseMatch = { storeId: storeObjId, status: { $in: ['processing', 'shipped', 'delivered'] } };
+  const baseMatch = { storeId: storeObjId, $or: REVENUE_RECOGNITION_CLAUSES };
 
   const [todayResult] = await Order.aggregate([
     { $match: { ...baseMatch, createdAt: { $gte: todayStart, $lte: todayEnd } } },
-    { $group: { _id: null, revenue: { $sum: '$totalAmount' }, orderCount: { $sum: 1 } } },
+    { $group: { _id: null, revenue: { $sum: NET_REVENUE_EXPR }, orderCount: { $sum: 1 } } },
   ]);
   const [yesterdayResult] = await Order.aggregate([
     { $match: { ...baseMatch, createdAt: { $gte: yesterdayStart, $lte: yesterdayEnd } } },
-    { $group: { _id: null, revenue: { $sum: '$totalAmount' }, orderCount: { $sum: 1 } } },
+    { $group: { _id: null, revenue: { $sum: NET_REVENUE_EXPR }, orderCount: { $sum: 1 } } },
   ]);
 
   const activeUsers = await User.countDocuments({
@@ -517,8 +518,8 @@ export async function getRevenueGoal(storeId: string, period: 'daily' | 'weekly'
   }
 
   const [revenueResult] = await Order.aggregate([
-    { $match: { storeId: storeObjId, createdAt: { $gte: startDate, $lte: endDate }, status: { $in: ['processing', 'shipped', 'delivered'] } } },
-    { $group: { _id: null, revenue: { $sum: '$totalAmount' } } },
+    { $match: { storeId: storeObjId, createdAt: { $gte: startDate, $lte: endDate }, $or: REVENUE_RECOGNITION_CLAUSES } },
+    { $group: { _id: null, revenue: { $sum: NET_REVENUE_EXPR } } },
   ]);
   const currentRevenue = revenueResult?.revenue || 0;
 

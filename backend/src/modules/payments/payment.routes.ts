@@ -3,6 +3,7 @@ import express from 'express';
 import mongoSanitize from 'express-mongo-sanitize';
 import { authenticateJWT, authorizeRole } from '../../middleware/authenticate';
 import { validate } from '../../middleware/validate';
+import { paymentLimiter } from '../../middleware/rateLimiter';
 import { createIntentSchema } from './payment.schemas';
 import { createPaymentIntent, initiatePaymobPayment, paymobWebhook, stripeWebhook } from './payment.controller';
 
@@ -35,6 +36,7 @@ router.post(
   '/intent',
   ...jsonBody,
   authenticateJWT,
+  paymentLimiter,
   authorizeRole('customer', 'admin'),
   validate(createIntentSchema),
   createPaymentIntent
@@ -45,6 +47,7 @@ router.post(
   '/paymob/initiate',
   ...jsonBody,
   authenticateJWT,
+  paymentLimiter,
   authorizeRole('customer', 'admin'),
   validate(createIntentSchema), // reuses same { orderId } body schema
   initiatePaymobPayment

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useAppDispatch, useAppSelector } from '../../hooks/useAppDispatch';
 import { fetchCurrentStore, setCurrentStore } from '../../store/storeSlice';
 import { storesApi } from '../../api/stores';
@@ -97,6 +98,8 @@ export default function AdminSettings() {
   const [uploadingLogo, setUploadingLogo] = useState(false);
   /** Which theme is mid-write, so the picker can show a spinner and block clicks. */
   const [savingTheme, setSavingTheme] = useState<StoreTheme | null>(null);
+  const [savingTaxMode, setSavingTaxMode] = useState(false);
+  const [savingCurrency, setSavingCurrency] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Load store data
@@ -183,6 +186,74 @@ export default function AdminSettings() {
     }
   };
 
+  /**
+   * Tax pricing mode.
+   *
+   * Sent on its own — like the theme picker above and for a stronger reason:
+   * this reinterprets every price in the catalogue, so it must never ride along
+   * with an unrelated in-progress edit. Confirmed first because the merchant
+   * cannot see the consequence from this screen; the same £100 product becomes
+   * either £100 + tax or £100 including tax.
+   */
+  const handleTogglePricesIncludeTax = async (next: boolean) => {
+    if (!currentStore || savingTaxMode) return;
+
+    const message = next
+      ? 'Treat all catalogue prices as ALREADY INCLUDING tax?\n\nCustomers will pay the listed price and the invoice will break out the tax component.'
+      : 'Treat all catalogue prices as EXCLUDING tax?\n\nTax will be added at checkout, so customers pay more than the listed price.';
+    if (!window.confirm(message)) return;
+
+    setSavingTaxMode(true);
+    const previous = currentStore.pricesIncludeTax ?? false;
+    dispatch(setCurrentStore({ ...currentStore, pricesIncludeTax: next } as Store));
+
+    try {
+      const res = await storesApi.updateSettings(currentStore._id, { pricesIncludeTax: next });
+      dispatch(setCurrentStore(res.data.data));
+      toast.success(next ? 'Prices now include tax' : 'Prices now exclude tax');
+    } catch {
+      dispatch(setCurrentStore({ ...currentStore, pricesIncludeTax: previous } as Store));
+    } finally {
+      setSavingTaxMode(false);
+    }
+  };
+
+  /**
+   * Store currency.
+   *
+   * Changing this reinterprets every catalogue price: $100 becomes E£100.
+   * Existing orders snapshot their currency, so they are unaffected.
+   * Sent on its own like theme/tax — must not ride along with an unrelated edit.
+   */
+  const handleSelectCurrency = async (next: string) => {
+    if (!currentStore || savingCurrency) return;
+    const code = next.trim().toUpperCase();
+    if (code === (currentStore.currency ?? 'USD').toUpperCase()) return;
+
+    const message =
+      `Change store currency to ${code}?\n\n` +
+      `All catalogue prices will be interpreted as ${code}. ` +
+      `Existing orders keep their original currency.\n` +
+      (code === 'EGP'
+        ? 'Paymob will become available at checkout.'
+        : 'Paymob (EGP only) will be hidden at checkout; Stripe will be used.');
+    if (!window.confirm(message)) return;
+
+    setSavingCurrency(true);
+    const previous = currentStore.currency ?? 'USD';
+    dispatch(setCurrentStore({ ...currentStore, currency: code } as Store));
+
+    try {
+      const res = await storesApi.updateSettings(currentStore._id, { currency: code });
+      dispatch(setCurrentStore(res.data.data));
+      toast.success(`Currency changed to ${code}`);
+    } catch {
+      dispatch(setCurrentStore({ ...currentStore, currency: previous } as Store));
+    } finally {
+      setSavingCurrency(false);
+    }
+  };
+
   const handleSave = async () => {
     if (!currentStore) return;
     setSaving(true);
@@ -236,6 +307,76 @@ export default function AdminSettings() {
             savingTheme={savingTheme}
             disabled={!currentStore}
           />
+        </Section>
+
+        {/* ── Tax pricing ──────────────────────────────────────────────────
+            Not part of the batched "Save" below: this reinterprets the whole
+            catalogue, so it writes on toggle, behind a confirm. */}
+        <Section
+          title="Tax"
+          description="How your listed prices relate to tax. This changes what customers are charged, so choose it before you start selling."
+        >
+          <div className="space-y-3">
+            <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-gray-200 p-4 transition-colors hover:border-gray-300 dark:border-gray-700 dark:hover:border-gray-600">
+              <input
+                type="checkbox"
+                checked={currentStore?.pricesIncludeTax ?? false}
+                disabled={!currentStore || savingTaxMode}
+                onChange={e => handleTogglePricesIncludeTax(e.target.checked)}
+                className="mt-0.5 h-4 w-4 rounded border-gray-300"
+              />
+              <span className="text-sm">
+                <span className="block font-medium text-gray-900 dark:text-white">
+                  My prices already include tax
+                </span>
+                <span className="mt-0.5 block text-gray-500 dark:text-gray-400">
+                  {currentStore?.pricesIncludeTax
+                    ? 'A £100 product is charged at £100, and the invoice shows the tax contained in it. Standard in the UK, EU and MENA.'
+                    : 'A £100 product is charged at £100 plus tax, so the customer pays more than the listed price. Standard in the US.'}
+                </span>
+              </span>
+            </label>
+
+            <p className="text-xs text-gray-400">
+              Rates themselves are configured under{' '}
+              <Link to="/admin/tax" className="font-medium text-primary-600 hover:underline dark:text-primary-400">
+                Tax
+              </Link>
+              . With no rates set up, no tax is charged.
+            </p>
+          </div>
+        </Section>
+
+        {/* ── Currency ─────────────────────────────────────────────────────
+            Also a ROOT field like theme/tax — writes on change behind a confirm,
+            not bundled with the batched Save. Existing orders snapshot their
+            currency, so only future charges are affected. */}
+        <Section
+          title="Currency"
+          description="The currency your store prices and charges in. Applies to every product and to checkout. Existing orders keep their original currency."
+        >
+          <div className="space-y-3">
+            <Field label="Store Currency" htmlFor="settings-currency" hint={currentStore?.currency === 'EGP' ? 'Paymob is available at checkout (EGP only)' : 'Switch to EGP to enable Paymob'}>
+              <select
+                id="settings-currency"
+                className="input"
+                value={(currentStore?.currency ?? 'USD').toUpperCase()}
+                disabled={!currentStore || savingCurrency}
+                onChange={e => handleSelectCurrency(e.target.value)}
+                aria-describedby="settings-currency-hint"
+              >
+                <option value="USD">$ — USD — US Dollar</option>
+                <option value="EGP">E£ — EGP — Egyptian Pound</option>
+                <option value="EUR">€ — EUR — Euro</option>
+                <option value="GBP">£ — GBP — British Pound</option>
+                <option value="SAR">﷼ — SAR — Saudi Riyal</option>
+                <option value="AED">AED — AED — UAE Dirham</option>
+                <option value="QAR">QAR — QAR — Qatari Riyal</option>
+                <option value="KWD">KWD — KWD — Kuwaiti Dinar</option>
+              </select>
+            </Field>
+            {savingCurrency && <p className="text-xs text-gray-400">Saving currency…</p>}
+          </div>
         </Section>
 
         {/* ── General ─────────────────────────────────────────────────────── */}

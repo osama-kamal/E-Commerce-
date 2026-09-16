@@ -114,6 +114,44 @@ export async function adminUpdateStore(req: Request, res: Response, next: NextFu
 
 // ── Public: get store by slug ─────────────────────────────────────────────────
 
+/**
+ * Resolves a browser hostname to a store, for the SPA's boot-time site-mode
+ * decision.
+ *
+ * Answers with 200 and `{ store: null }` for a platform host rather than 404.
+ * A platform host is the EXPECTED case on the root domain, not a failure — and
+ * a 404 here would fire the client's global error toast on every cold load of
+ * the marketing page.
+ *
+ * The payload is deliberately the public store shape (the same one
+ * `/stores/by-slug/:slug` already returns), because this is what renders a
+ * public storefront. No billing or ownership fields are added.
+ */
+export async function resolveHost(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const host = (req.query.host as string | undefined) ?? '';
+    if (!host) {
+      return next(createError('host query parameter is required', 400, 'BAD_REQUEST'));
+    }
+
+    const store = await storeService.resolveStoreByHost(host);
+
+    if (!store) {
+      sendSuccess(res, { store: null });
+      return;
+    }
+
+    sendSuccess(res, {
+      store: {
+        ...(store as unknown as Record<string, unknown>),
+        theme: resolveTheme((store as unknown as Record<string, unknown>).theme),
+        subscription: storeService.getStoreSubscriptionView(store),
+        planCapabilities: storeService.getPlanCapabilities(store.subscriptionPlan),
+      },
+    });
+  } catch (err) { next(err); }
+}
+
 export async function getStoreBySlug(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     const store = await storeService.getStoreBySlug(req.params.slug);
@@ -181,6 +219,12 @@ export async function getCurrentStore(req: Request, res: Response, next: NextFun
     // planCapabilities is derived server-side so the client never has to mirror
     // the plan table (which would drift). It gates UI such as whether platform
     // branding is shown on the storefront.
+    // Entitlement is resolved server-side and handed to the client whole. The
+    // client previously recomputed trial state itself from `createdAt`, so the
+    // browser's idea of who was entitled to what could drift from the server's
+    // — and only the browser's copy was ever enforced.
+    const subscription = storeService.getStoreSubscriptionView(req.store);
+
     sendSuccess(res, {
       ...(req.store as unknown as Record<string, unknown>),
       // Normalised rather than passed through raw: stores created before the
@@ -188,7 +232,10 @@ export async function getCurrentStore(req: Request, res: Response, next: NextFun
       // the schema default. Without this the storefront would receive
       // `theme: undefined` for every pre-existing store.
       theme: resolveTheme((req.store as unknown as Record<string, unknown>).theme),
-      planCapabilities: storeService.getPlanCapabilities(req.store.subscriptionPlan),
+      subscription,
+      // Derived from the EFFECTIVE plan, so a lapsed store stops advertising
+      // paid capabilities (e.g. hiding platform branding) that it no longer has.
+      planCapabilities: subscription.planCapabilities,
     });
   } catch (err) { next(err); }
 }

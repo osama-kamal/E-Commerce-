@@ -1,11 +1,13 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useParams, useSearchParams, Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
   Banknote, CheckCircle2, ClipboardList, CreditCard, type LucideIcon, Package,
   Settings, Truck, XCircle,
 } from 'lucide-react';
-import { ordersApi } from '../api/orders';
+import { createOrdersApi } from '../api/orders';
+import { useTenant } from '../hooks/useTenant';
+import { formatCurrency } from '../utils/format';
 import { Order, OrderStatus } from '../types';
 
 // ── Tracking timeline config ──────────────────────────────────────────────────
@@ -141,16 +143,26 @@ export default function OrderDetailPage() {
   const [loading, setLoading] = useState(true);
   const [cancelling, setCancelling] = useState(false);
 
+  // Read from the ORDER, not the active store: currency is snapshotted at
+  // purchase so a store that later switches currency cannot retroactively
+  // reinterpret historical invoices.
+  const currency = order?.currency ?? 'USD';
+
+  // This page is routed both on the main site and under /s/:slug, so the
+  // lookup must run against whichever tenant owns the order being viewed.
+  const tenant = useTenant();
+  const orders = useMemo(() => createOrdersApi(tenant.api), [tenant.api]);
+
   useEffect(() => {
     if (!id) return;
-    ordersApi.getById(id).then(res => setOrder(res.data.data)).finally(() => setLoading(false));
+    orders.getById(id).then(res => setOrder(res.data.data)).finally(() => setLoading(false));
   }, [id]);
 
   const handleCancel = async () => {
     if (!id) return;
     setCancelling(true);
     try {
-      const res = await ordersApi.cancel(id);
+      const res = await orders.cancel(id);
       setOrder(res.data.data);
     } finally {
       setCancelling(false);
@@ -234,21 +246,62 @@ export default function OrderDetailPage() {
                 </div>
               </div>
               <span className="font-medium text-gray-900 dark:text-white">
-                ${(item.price * item.quantity).toFixed(2)}
+                {formatCurrency(item.price * item.quantity, currency)}
               </span>
             </div>
           ))}
 
-          {order.discountAmount && order.discountAmount > 0 && (
-            <div className="flex justify-between text-sm text-green-600 dark:text-green-400 pt-1">
-              <span>Coupon {order.couponCode ? `(${order.couponCode})` : 'discount'}</span>
-              <span>−${order.discountAmount.toFixed(2)}</span>
+          {/* Full money breakdown. Every figure is stored on the order, so an
+              invoice reprinted years later shows what was actually charged even
+              if the merchant has since changed rates. Legacy orders predate
+              these fields — `?? 0` keeps them rendering as they always did. */}
+          <div className="border-t dark:border-gray-700 pt-3 space-y-1 text-sm text-gray-600 dark:text-gray-400">
+            <div className="flex justify-between">
+              <span>Subtotal</span>
+              <span>{formatCurrency(order.subtotal ?? order.totalAmount, currency)}</span>
             </div>
-          )}
 
-          <div className="border-t dark:border-gray-700 pt-3 flex justify-between font-bold text-gray-900 dark:text-white">
-            <span>Total</span>
-            <span>${order.totalAmount.toFixed(2)}</span>
+            {order.discountAmount != null && order.discountAmount > 0 && (
+              <div className="flex justify-between text-green-600 dark:text-green-400">
+                <span>Coupon {order.couponCode ? `(${order.couponCode})` : 'discount'}</span>
+                <span>−{formatCurrency(order.discountAmount, currency)}</span>
+              </div>
+            )}
+
+            {order.shippingTotal != null && (
+              <div className="flex justify-between">
+                <span>
+                  Shipping{order.shippingMethod ? ` · ${order.shippingMethod.name}` : ''}
+                </span>
+                <span>
+                  {order.shippingTotal === 0 ? 'Free' : formatCurrency(order.shippingTotal, currency)}
+                </span>
+              </div>
+            )}
+
+            {/* Added lines only. An inclusive amount is already inside the
+                total and is annotated below instead — listing it here would
+                imply it was added on top. */}
+            {(order.taxLines ?? [])
+              .filter(line => !line.inclusive)
+              .map(line => (
+                <div key={line.name} className="flex justify-between">
+                  <span>{line.name} ({line.rate}%)</span>
+                  <span>{formatCurrency(line.amount, currency)}</span>
+                </div>
+              ))}
+
+            <div className="flex justify-between border-t pt-2 font-bold text-gray-900 dark:border-gray-700 dark:text-white">
+              <span>Total</span>
+              <span>{formatCurrency(order.totalAmount, currency)}</span>
+            </div>
+
+            {(order.taxLines ?? []).some(l => l.inclusive) && order.taxTotal != null && (
+              <p className="text-xs text-gray-400">
+                Includes {formatCurrency(order.taxTotal, currency)}{' '}
+                {(order.taxLines ?? []).map(l => l.name).join(' + ')}
+              </p>
+            )}
           </div>
         </div>
       </div>

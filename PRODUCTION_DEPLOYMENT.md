@@ -88,10 +88,18 @@ OPENAI_API_KEY=                              # From platform.openai.com → API 
 Set in **Vercel → Project → Settings → Environment Variables**, scope to **Production**:
 
 ```bash
-VITE_STORE_ID=                               # MongoDB ObjectId of the default store shown on the homepage
-VITE_PLATFORM_STORE_ID=                      # Same as PLATFORM_STORE_ID — determines admin sidebar mode
 VITE_STRIPE_PUBLISHABLE_KEY=                 # pk_live_... (safe to expose — this is the public key only)
 ```
+
+> **No store variable.** `VITE_STORE_ID` bound the frontend to one store at
+> build time, so the platform's own domain served a single hardcoded tenant. The
+> tenant is now resolved at runtime from the hostname, and one deployment serves
+> the platform plus every storefront.
+>
+> Subdomain and custom-domain storefronts additionally need wildcard DNS and a
+> matching certificate, which are **not** configured by deploying this repo —
+> see [DOMAINS.md](DOMAINS.md). Until they exist, the root domain serves the
+> platform and storefronts are reachable at `/s/<slug>`.
 
 ---
 
@@ -283,30 +291,47 @@ Every secret from the development environment must be regenerated. These values 
 
 ## 7. Monitoring & Logging
 
-### 7.1 Application Error Tracking — Sentry (Recommended)
+### 7.1 Application Error Tracking — Sentry (backend: WIRED UP)
 
-Sentry captures unhandled exceptions in real time and groups them by root cause.
+**The backend integration is already built.** Do not re-install or re-initialize
+it — the setup below is configuration only.
 
-**Backend setup:**
+Set in Railway → Variables:
 
 ```bash
-cd backend
-npm install @sentry/node @sentry/profiling-node
+SENTRY_DSN=https://<key>@o<org>.ingest.sentry.io/<project>   # sentry.io → Project → Settings → SDK Setup
+SENTRY_RELEASE=${{RAILWAY_GIT_COMMIT_SHA}}                   # groups issues by deploy
+SENTRY_TRACES_SAMPLE_RATE=0                                  # 0 = errors only; raise to sample performance
 ```
 
-Initialize at the top of `src/server.ts`, before any other imports:
+`SENTRY_DSN` is the only one that matters. Leave it unset and the SDK is never
+initialized and every Sentry call is a no-op — which is how development, tests
+and CI stay unaffected, and also how you would accidentally deploy with no crash
+reporting. The server logs a loud warning on boot if `NODE_ENV=production` and
+the DSN is missing.
 
-```typescript
-import * as Sentry from '@sentry/node';
+**How it behaves** (`backend/src/config/sentry.ts`):
 
-Sentry.init({
-  dsn: process.env.SENTRY_DSN,
-  environment: process.env.NODE_ENV,
-  tracesSampleRate: 0.2,  // capture 20% of transactions for performance monitoring
-});
-```
+- **5xx only.** Every 400/401/403/404/409/422 is the API working correctly; a
+  public storefront generates those constantly and reporting them would bury the
+  events that matter — and Sentry bills per event.
+- **PII is stripped before anything leaves the process.** Request bodies and
+  query strings are dropped wholesale, `Authorization` / `Cookie` /
+  `stripe-signature` / `x-paymob-hmac` headers are removed, and the Sentry user
+  object is reduced to a pseudonymous `id`. This API's requests carry shipping
+  addresses and bearer tokens; sending them to a third party would undo the
+  redaction done in the checkout logger for the same data.
+- **Tenant context is attached** — `storeId`, `errorCode`, `statusCode` and the
+  route *template* (never the concrete URL) — so an issue can be traced to a
+  merchant without identifying a person.
+- Unhandled rejections and uncaught exceptions are reported, and the SDK is
+  flushed during graceful shutdown so a crash report is not lost with the container.
 
-Add `SENTRY_DSN` (from sentry.io → Project → Settings → SDK Setup) to Railway variables.
+Pinned by `sentry-scrubbing.test.ts` (13 tests) and `sentry-error-gating.test.ts`
+(15 tests).
+
+**Verify after deploying:** trigger a 500 and confirm it appears in Sentry with
+the `storeId` tag and **no** request body.
 
 **Frontend setup:**
 

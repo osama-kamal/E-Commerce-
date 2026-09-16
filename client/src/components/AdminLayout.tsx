@@ -31,6 +31,8 @@ const STORE_NAV_LINKS = [
   { to: '/admin/users', label: '👥 Users' },
   { to: '/admin/newsletter', label: '📧 Newsletter' },
   { to: '/admin/coupons', label: '🏷️ Coupons' },
+  { to: '/admin/shipping', label: '🚚 Shipping' },
+  { to: '/admin/tax', label: '🧾 Tax' },
   { to: '/admin/pricing', label: '💎 Plans & Pricing' },
   { to: '/admin/settings', label: '⚙️ Settings' },
 ];
@@ -46,6 +48,11 @@ const IMPERSONATED_STORE_NAV_LINKS = [
   { to: '/admin/users', label: '👥 Users' },
   { to: '/admin/newsletter', label: '📧 Newsletter' },
   { to: '/admin/coupons', label: '🏷️ Coupons' },
+  // Shipping and tax are operational store config, not platform billing, so an
+  // impersonating platform admin gets them too — they are exactly what support
+  // is usually called about.
+  { to: '/admin/shipping', label: '🚚 Shipping' },
+  { to: '/admin/tax', label: '🧾 Tax' },
 ];
 
 // ── Platform admin detection ──────────────────────────────────────────────────
@@ -440,7 +447,12 @@ export default function AdminLayout() {
     navigate('/login');
   };
 
-  const { isExpired } = useTrialStatus();
+  // `isRestricted`, not "trial expired": trial end is now a downgrade to the
+  // free tier, not a lockout, so it must not wall the dashboard. Only a store
+  // the SERVER reports as restricted (suspended after failed payment) gets the
+  // wall — and the server enforces that independently, so this is presentation
+  // rather than the control itself.
+  const { isRestricted } = useTrialStatus();
   const location = useLocation();
 
   // Allow pricing page even when trial is expired so users can upgrade
@@ -622,9 +634,9 @@ export default function AdminLayout() {
         {/* Footer — always pinned to bottom */}
         <div className="p-3 border-t border-gray-700/60 space-y-1 shrink-0">
           {/* Hide "View Store" for platform admin — they don't operate a storefront */}
-          {!isPlatformAdmin && (
+          {!isPlatformAdmin && currentStore?.slug && (
             <a
-              href="/"
+              href={`/s/${currentStore.slug}`}
               target="_blank"
               rel="noopener noreferrer"
               className="flex items-center justify-between w-full px-3 py-2 rounded-lg text-sm text-emerald-400 hover:bg-emerald-600 hover:text-white transition-colors group"
@@ -674,7 +686,7 @@ export default function AdminLayout() {
         {/* Trial banner only shown to store admins, not platform admin */}
         {!isPlatformAdmin && <TrialBanner />}
 
-        {!isPlatformAdmin && isExpired && !isPricingPage ? (
+        {!isPlatformAdmin && isRestricted && !isPricingPage ? (
           <TrialExpiredWall />
         ) : (
           <div className="flex-1 overflow-y-auto">

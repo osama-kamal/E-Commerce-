@@ -30,6 +30,7 @@ import app from '../../src/app';
 import { Store } from '../../src/modules/stores/store.model';
 import { User } from '../../src/modules/auth/user.model';
 import { signAccessToken } from '../../src/utils/jwt';
+import { config } from '../../src/config/index';
 
 jest.mock('../../src/services/email.service', () => ({
   emailService: {
@@ -182,5 +183,134 @@ describe('callers that must stay rejected', () => {
 
     const unchanged = await Store.findById(otherStore._id).lean();
     expect(unchanged!.theme).toBe('default');
+  });
+});
+
+// ── Custom domain is not self-serve ──────────────────────────────────────────
+//
+// `resolveStoreByHost` matches `customDomain` BEFORE it considers subdomains,
+// and the field carried no format check, no ownership proof and no denylist. A
+// merchant on any plan including custom domains could therefore point it at the
+// platform's own hostname and have every visitor to the platform homepage
+// served their storefront instead — one paid subscription, whole platform.
+//
+// `store` is on the `pro` plan here, so these fail on AUTHORISATION, not on the
+// plan gate. Both HTTP routes that touch the field are covered.
+
+describe('custom domain lockdown', () => {
+  const putStore = (token: string, body: Record<string, unknown>, id = store._id!.toString()) =>
+    request(app)
+      .put(`/api/v1/stores/${id}`)
+      .set('Authorization', `Bearer ${token}`)
+      .send(body);
+
+  it('refuses a customDomain from the store owner', async () => {
+    const res = await putStore(ownerToken, { customDomain: 'evil.example.com' });
+
+    expect(res.status).toBe(422);
+
+    const unchanged = await Store.findById(store._id).lean();
+    expect(unchanged!.customDomain).toBeUndefined();
+  });
+
+  it('refuses the platform hostname specifically — the takeover case', async () => {
+    const platformHost = new URL(config.FRONTEND_URL).hostname;
+    const res = await putStore(ownerToken, { customDomain: platformHost });
+
+    expect(res.status).toBe(422);
+
+    const unchanged = await Store.findById(store._id).lean();
+    expect(unchanged!.customDomain).toBeUndefined();
+  });
+
+  it('does not let a rejected body smuggle through the permitted fields', async () => {
+    // The whole request must fail, not just the offending key — otherwise a
+    // caller learns to pair a forbidden field with a legitimate one.
+    const res = await putStore(ownerToken, { name: 'Renamed Store', customDomain: 'evil.example.com' });
+
+    expect(res.status).toBe(422);
+
+    const unchanged = await Store.findById(store._id).lean();
+    expect(unchanged!.name).toBe('Authz Store');
+    expect(unchanged!.customDomain).toBeUndefined();
+  });
+
+  it('still accepts an ordinary rename on that route', async () => {
+    const res = await putStore(ownerToken, { name: 'Renamed Store' });
+
+    expect(res.status).toBe(200);
+
+    const updated = await Store.findById(store._id).lean();
+    expect(updated!.name).toBe('Renamed Store');
+  });
+
+  it('ignores customDomain sent to the settings endpoint', async () => {
+    // That route has no `validate()` schema; it is safe because the service
+    // builds an explicit allowlist. Pinned so it stays that way.
+    const res = await patch(ownerToken, { theme: 'luxury', customDomain: 'evil.example.com' });
+
+    expect(res.status).toBe(200);
+
+    const updated = await Store.findById(store._id).lean();
+    expect(updated!.customDomain).toBeUndefined();
+    expect(updated!.theme).toBe('luxury');
+  });
+
+  it('lets a super-admin connect a domain through the admin route', async () => {
+    const res = await request(app)
+      .patch(`/api/v1/stores/${store._id!.toString()}/admin`)
+      .set('Authorization', `Bearer ${superAdminToken}`)
+      .send({ customDomain: 'Shop.Acme.COM' });
+
+    expect(res.status).toBe(200);
+
+    const updated = await Store.findById(store._id).lean();
+    expect(updated!.customDomain).toBe('shop.acme.com');
+  });
+
+  it('refuses a platform hostname even from a super-admin', async () => {
+    // Deliberately a SUBDOMAIN of the platform host rather than the apex.
+    //
+    // Under test config FRONTEND_URL is http://localhost:5173, and bare
+    // `localhost` has no dot, so the schema's hostname regex rejects it (422)
+    // before `assertAssignableCustomDomain` is ever reached. Both layers refuse
+    // it, but only a dotted host reaches the guard — which is the layer this
+    // test exists to pin, and the one that matters in production where the
+    // platform host is a real dotted domain.
+    const platformHost = new URL(config.FRONTEND_URL).hostname;
+    const res = await request(app)
+      .patch(`/api/v1/stores/${store._id!.toString()}/admin`)
+      .set('Authorization', `Bearer ${superAdminToken}`)
+      .send({ customDomain: `api.${platformHost}` });
+
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe('RESERVED_DOMAIN');
+  });
+
+  it('refuses the bare platform apex from a super-admin, by whichever layer catches it', async () => {
+    const platformHost = new URL(config.FRONTEND_URL).hostname;
+    const res = await request(app)
+      .patch(`/api/v1/stores/${store._id!.toString()}/admin`)
+      .set('Authorization', `Bearer ${superAdminToken}`)
+      .send({ customDomain: platformHost });
+
+    expect([400, 422]).toContain(res.status);
+
+    const unchanged = await Store.findById(store._id).lean();
+    expect(unchanged!.customDomain).toBeUndefined();
+  });
+
+  it('refuses a malformed domain from a super-admin', async () => {
+    for (const bad of ['https://shop.acme.com', 'shop.acme.com/path', 'shop.acme.com:8080', 'nodot']) {
+      const res = await request(app)
+        .patch(`/api/v1/stores/${store._id!.toString()}/admin`)
+        .set('Authorization', `Bearer ${superAdminToken}`)
+        .send({ customDomain: bad });
+
+      expect(res.status).toBe(422);
+    }
+
+    const unchanged = await Store.findById(store._id).lean();
+    expect(unchanged!.customDomain).toBeUndefined();
   });
 });

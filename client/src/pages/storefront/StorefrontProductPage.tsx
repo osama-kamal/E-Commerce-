@@ -11,12 +11,14 @@
 
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
+import { AlertTriangle } from 'lucide-react';
 import { useStorefront } from '../../contexts/StorefrontContext';
 import { useAppDispatch, useAppSelector } from '../../hooks/useAppDispatch';
+import { recordRecentlyViewed } from '../../hooks/useRecentlyViewed';
+import { useAddToCart } from '../../hooks/useCart';
 import { Product, Review } from '../../types';
 import StarRating from '../../components/StarRating';
 import { ProductDetailSkeleton } from '../../components/Skeleton';
-import toast from 'react-hot-toast';
 
 export default function StorefrontProductPage() {
   const { id } = useParams<{ id: string }>();
@@ -31,6 +33,7 @@ export default function StorefrontProductPage() {
   const [avgRating, setAvgRating] = useState(0);
   const [selectedImage, setSelectedImage] = useState(0);
   const [qty, setQty] = useState(1);
+  const [selectedSize, setSelectedSize] = useState<string | null>(null);
   const [addingToCart, setAddingToCart] = useState(false);
 
   // Fetch product
@@ -38,10 +41,15 @@ export default function StorefrontProductPage() {
     if (!id) return;
     setLoading(true);
     sfApi.get<{ data: Product }>(`/products/${id}`)
-      .then(res => setProduct(res.data.data))
+      .then(res => {
+        setProduct(res.data.data);
+        // Recorded only on a successful fetch, so a 404 (or another tenant's id)
+        // never enters this store's history.
+        recordRecentlyViewed(slug, res.data.data);
+      })
       .catch(() => setProduct(null))
       .finally(() => setLoading(false));
-  }, [sfApi, id]);
+  }, [sfApi, id, slug]);
 
   // Fetch reviews
   useEffect(() => {
@@ -54,18 +62,45 @@ export default function StorefrontProductPage() {
       .catch(() => {});
   }, [sfApi, id]);
 
+  /**
+   * Adds through the shared cart mutation rather than posting directly.
+   *
+   * The raw `sfApi.post('/cart/items', …)` this replaces did reach the server,
+   * but it wrote to nothing on the client: not the React Query cache the cart
+   * page reads, and not the Redux slice the navbar counter reads. So the item
+   * was genuinely in the cart while the badge stayed at its old number and the
+   * cart page could serve a stale list for the rest of its 2-minute staleTime.
+   * `useAddToCart` is the same call plus the optimistic update and both cache
+   * writes — it is what ProductCard in the catalogue grid already used, which is
+   * why adding from the grid behaved differently from adding here.
+   *
+   * It also owns the success toast, so this no longer raises its own.
+   */
+  const addToCart = useAddToCart();
+
+  // A product with declared sizes cannot be added without one — the server
+  // rejects a sizeless add (cart.service assertValidSize), so the page must
+  // collect the size the same way the catalogue's ProductCard does. Mirrors
+  // its `needsSize` gate exactly.
+  const hasSizes = !!product?.sizes?.length;
+  const needsSize = hasSizes && !selectedSize;
+
   const handleAddToCart = async () => {
     if (!isAuthenticated) {
       navigate(`/login?redirect=/s/${slug}/products/${id}`);
       return;
     }
-    if (!product) return;
+    if (!product || needsSize) return;
     setAddingToCart(true);
     try {
-      await sfApi.post('/cart/items', { productId: product._id, quantity: qty });
-      toast.success(`${product.name} added to cart!`);
+      await addToCart.mutateAsync({
+        productId: product._id,
+        quantity: qty,
+        selectedSize: selectedSize ?? undefined,
+        productName: product.name,
+      });
     } catch {
-      // toast fired by interceptor
+      // Rolled back by the mutation; the toast is fired by the interceptor.
     } finally {
       setAddingToCart(false);
     }
@@ -150,6 +185,38 @@ export default function StorefrontProductPage() {
             )}
           </div>
 
+          {/* Size selector — only when the product declares sizes and is in
+              stock. Without a choice here the add is rejected server-side, so
+              this is a gate, not decoration. Toggles like ProductCard's: a
+              second click on the chosen size clears it. */}
+          {hasSizes && product.stock > 0 && (
+            <div className="mb-4">
+              <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Size</label>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {product.sizes.map(size => (
+                  <button
+                    key={size}
+                    onClick={() => setSelectedSize(s => (s === size ? null : size))}
+                    aria-pressed={selectedSize === size}
+                    className={`min-w-[42px] rounded-lg px-3 py-2 text-sm font-semibold transition-all ${
+                      selectedSize === size
+                        ? 'bg-gray-900 text-white dark:bg-white dark:text-gray-900'
+                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700'
+                    }`}
+                  >
+                    {size}
+                  </button>
+                ))}
+              </div>
+              {needsSize && (
+                <p className="mt-2 flex items-center gap-1.5 text-xs font-medium text-amber-600 dark:text-amber-400">
+                  <AlertTriangle className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                  Select a size to continue
+                </p>
+              )}
+            </div>
+          )}
+
           {product.stock > 0 && (
             <div className="flex items-center gap-3 mb-4">
               <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Qty</label>
@@ -166,10 +233,10 @@ export default function StorefrontProductPage() {
 
           <button
             onClick={handleAddToCart}
-            disabled={product.stock === 0 || addingToCart}
+            disabled={product.stock === 0 || addingToCart || needsSize}
             className="btn-primary w-full"
           >
-            {addingToCart ? 'Adding…' : product.stock === 0 ? 'Out of Stock' : 'Add to Cart'}
+            {addingToCart ? 'Adding…' : product.stock === 0 ? 'Out of Stock' : needsSize ? 'Select a size' : 'Add to Cart'}
           </button>
         </div>
       </div>

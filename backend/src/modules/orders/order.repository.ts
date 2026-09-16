@@ -19,17 +19,25 @@ export async function findOrderByIdempotencyKey(
   return Order.findOne({ storeId, customerId, idempotencyKey }).lean();
 }
 
+/**
+ * Fallback duplicate-submit guard.
+ *
+ * Matches on `subtotal` rather than `totalAmount`: the grand total now moves
+ * with the chosen delivery method and destination tax, so two submissions of
+ * the same basket can legitimately differ there. The subtotal identifies the
+ * basket itself.
+ */
 export async function findRecentPendingOrder(
   storeId: Types.ObjectId,
   customerId: Types.ObjectId,
-  totalAmount: number,
+  subtotal: number,
   since: Date
 ) {
   return Order.findOne({
     storeId,
     customerId,
     status: 'pending',
-    totalAmount,
+    subtotal,
     createdAt: { $gte: since },
   }).select('_id').lean();
 }
@@ -218,7 +226,11 @@ export async function transitionOrderStatus(
 export async function markOrderProcessingIfPending(orderId: string): Promise<boolean> {
   const res = await Order.updateOne(
     { _id: orderId, status: 'pending' },
-    { $set: { status: 'processing' } }
+    // Both axes move together here, and only here: this is the moment the money
+    // actually arrived. Without setting `paymentStatus` the order would advance
+    // through fulfilment while still reading `unpaid`, and the refund service
+    // would refuse to return money that had genuinely been taken.
+    { $set: { status: 'processing', paymentStatus: 'paid' } }
   );
   return res.modifiedCount === 1;
 }

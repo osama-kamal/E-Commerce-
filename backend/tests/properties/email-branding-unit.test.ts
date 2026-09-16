@@ -10,16 +10,26 @@ import { escapeHtml } from '../../src/utils/escapeHtml';
 
 // ── Mocks ─────────────────────────────────────────────────────────────────────
 
-const mockSendMail = jest.fn<() => Promise<{ messageId: string }>>().mockResolvedValue({ messageId: 'test-id' });
-const mockVerify = jest.fn<() => Promise<boolean>>().mockResolvedValue(true);
+// Capture the payload handed to Resend.
+//
+// This previously spied on **nodemailer's** `sendMail`. EmailService migrated to
+// the **Resend** SDK and nodemailer is no longer a dependency at all, so the spy
+// was never called and the two subject-line tests below could not pass no matter
+// what the code did — a permanently-red suite reporting a bug that had already
+// been fixed.
+const mockSend = jest
+  .fn<() => Promise<{ data: { id: string }; error: null }>>()
+  .mockResolvedValue({ data: { id: 'test-id' }, error: null });
 
-// NOTE: there is deliberately no `jest.mock('nodemailer', ...)` here.
-// EmailService migrated to the Resend SDK and no longer imports nodemailer at
-// all, so the mock was inert — and the dependency has since been removed from
-// package.json (it carried a high-severity advisory while being entirely
-// unused). mockSendMail/mockVerify are retained because the subject-line tests
-// below still reference them; those tests were already failing for this same
-// reason (they assert on a transport the service no longer uses).
+jest.mock('resend', () => ({
+  Resend: jest.fn().mockImplementation(() => ({
+    emails: { send: (...args: unknown[]) => mockSend(...(args as [])) },
+  })),
+}));
+
+// Read in the EmailService constructor; without it the service stays disabled
+// and returns before ever reaching the transport.
+process.env.RESEND_API_KEY = 'test-resend-key';
 
 // Store mock — controlled per test
 const mockFindById = jest.fn();
@@ -249,7 +259,7 @@ describe('baseHtml — dynamic branding rendering', () => {
 
 describe('sendWelcomeEmail subject line', () => {
   beforeEach(() => {
-    mockSendMail.mockClear();
+    mockSend.mockClear();
     mockFindById.mockReset();
   });
 
@@ -263,8 +273,8 @@ describe('sendWelcomeEmail subject line', () => {
 
     await emailService.sendWelcomeEmail('507f1f77bcf86cd799439011', 'user@test.com');
 
-    expect(mockSendMail).toHaveBeenCalled();
-    const call = mockSendMail.mock.calls[0] as unknown as [{ subject: string }];
+    expect(mockSend).toHaveBeenCalled();
+    const call = mockSend.mock.calls[0] as unknown as [{ subject: string }];
     expect(call[0].subject).toBe('Welcome to Shop Co!');
   });
 
@@ -275,8 +285,8 @@ describe('sendWelcomeEmail subject line', () => {
 
     await emailService.sendWelcomeEmail('507f1f77bcf86cd799439011', 'user@test.com');
 
-    expect(mockSendMail).toHaveBeenCalled();
-    const call = mockSendMail.mock.calls[0] as unknown as [{ subject: string }];
+    expect(mockSend).toHaveBeenCalled();
+    const call = mockSend.mock.calls[0] as unknown as [{ subject: string }];
     expect(call[0].subject).toBe('Welcome to Ecommerce Store!');
   });
 });

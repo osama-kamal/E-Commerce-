@@ -26,7 +26,14 @@ const productSchema = new Schema<IProduct>(
     discount: { type: Number, default: 0, min: 0, max: 100 }, // Discount percentage
     stock: { type: Number, required: true, min: 0, default: 0 },
     categoryId: { type: Schema.Types.ObjectId, ref: 'Category', required: true, index: true },
-    images: { type: [String], default: [] },
+    images: {
+      type: [String],
+      default: [],
+      validate: {
+        validator: (v: string[]) => v.length <= 10,
+        message: 'Maximum 10 images per product',
+      },
+    },
     sizes: { type: [String], default: [] },
     isDeleted: { type: Boolean, default: false, index: true },
     averageRating: { type: Number, default: 0, min: 0, max: 5 },

@@ -4,8 +4,17 @@ import { fetchCurrentStore } from '../store/storeSlice';
 import { motion } from 'framer-motion';
 
 /**
- * Full-screen paywall shown when the 7-day trial has expired and the store
- * is not on a paid plan. Replaces the entire admin content area.
+ * Full-screen paywall shown when the SERVER reports the store as restricted —
+ * i.e. `subscriptionStatus: 'suspended'`, reached only after a payment failed
+ * and the 7-day dunning grace period ran out.
+ *
+ * This used to fire on trial expiry, which is no longer a lockout: Free is a
+ * permanent $0 tier, so a lapsed trial simply downgrades and TrialBanner
+ * handles the upsell. Reserving the wall for genuine non-payment is what makes
+ * it meaningful rather than routine.
+ *
+ * Presentation only. The real control is `enforceSubscription` on the server —
+ * this component just explains why the API is returning 402.
  */
 export default function TrialExpiredWall() {
   const navigate = useNavigate();
@@ -37,14 +46,17 @@ export default function TrialExpiredWall() {
 
         {/* Heading */}
         <h1 className="text-3xl font-bold text-white mb-3">
-          Your free trial has ended
+          Your store is paused
         </h1>
         <p className="text-gray-400 text-base mb-2">
-          <span className="text-white font-semibold">{currentStore?.name ?? 'Your store'}</span> had
-          7 days of full access. To continue using the dashboard, choose a plan.
+          We couldn&rsquo;t process payment for{' '}
+          <span className="text-white font-semibold">{currentStore?.name ?? 'your store'}</span>, so
+          it&rsquo;s no longer accepting orders or changes. Updating your billing restores it
+          immediately.
         </p>
         <p className="text-gray-500 text-sm mb-8">
-          Your data is safe — products, orders, and settings are preserved.
+          Your data is safe — products, orders, and settings are all preserved, and your storefront
+          is still visible to customers.
         </p>
 
         {/* Plan highlights */}
@@ -74,7 +86,7 @@ export default function TrialExpiredWall() {
             🚀 Choose a Plan
           </button>
           <a
-            href="mailto:support@shophub.com?subject=Trial Extension Request"
+            href="mailto:support@shophub.com?subject=Reactivate my store"
             className="px-8 py-3.5 rounded-xl border border-white/10 text-gray-400 hover:text-white hover:border-white/20 font-medium text-base transition-all"
           >
             Contact Support
