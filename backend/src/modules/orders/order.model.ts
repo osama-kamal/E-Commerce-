@@ -105,6 +105,8 @@ export interface IOrder extends Document {
    */
   refundedTaxTotal: number;
   paymentMethod: PaymentMethod;
+  /** Which online gateway was chosen (stripe/paymob). Undefined for COD or legacy online orders. */
+  paymentProvider?: 'stripe' | 'paymob';
   paymentIntentId?: string;
   couponCode?: string;
   idempotencyKey?: string;
@@ -228,6 +230,12 @@ const orderSchema = new Schema<IOrder>(
       type: String,
       enum: ['online', 'cod'],
       default: 'online',
+      index: true,
+    },
+    paymentProvider: {
+      type: String,
+      enum: ['stripe', 'paymob'],
+      required: false,
       index: true,
     },
     discountAmount: { type: Number, default: 0, min: 0 },

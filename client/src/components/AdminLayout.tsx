@@ -634,9 +634,9 @@ export default function AdminLayout() {
         {/* Footer — always pinned to bottom */}
         <div className="p-3 border-t border-gray-700/60 space-y-1 shrink-0">
           {/* Hide "View Store" for platform admin — they don't operate a storefront */}
-          {!isPlatformAdmin && (
+          {!isPlatformAdmin && currentStore?.slug && (
             <a
-              href="/"
+              href={`/s/${currentStore.slug}`}
               target="_blank"
               rel="noopener noreferrer"
               className="flex items-center justify-between w-full px-3 py-2 rounded-lg text-sm text-emerald-400 hover:bg-emerald-600 hover:text-white transition-colors group"

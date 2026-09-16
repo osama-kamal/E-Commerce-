@@ -537,12 +537,7 @@ export default function StorefrontHomePage() {
           to `lg`, while the widgets rail is merchandising and only appears at
           `2xl`, where there is genuinely width to spare. Below that the centre
           column widens instead of the page carrying two half-empty sidebars. */}
-      {/* `items-start` is load-bearing.
-          Flex stretches children by default, so each rail's BOX grew to the
-          height of the tallest column — the 2,439px grid — leaving ~1,980px of
-          stretched, empty aside beside the lower rows. Aligning to the start
-          lets each rail be exactly as tall as its content. */}
-      <div className="flex items-start gap-6 xl:gap-8">
+      <div className="flex gap-6 xl:gap-8">
         {/* ── Filter rail ──────────────────────────────────────────────────────
             One panel, grouped and hairline-divided, instead of three stacked
             cards. Wider (256px) so category names stop wrapping. */}
@@ -555,7 +550,8 @@ export default function StorefrontHomePage() {
                 laptop screen; below that height no scrollbar appears at all.
                 The negative margin lets card shadows bleed into the column gap
                 instead of being clipped by the scroll container. */}
-            <div className="sticky top-24 max-h-[calc(100vh-7rem)] overflow-y-auto -mx-2 px-2 [scrollbar-width:thin]">
+            <div className="sticky top-24 -mx-2 px-2">
+              <div className="overflow-y-auto max-h-[calc(100vh-7rem)] [scrollbar-width:thin]">
               <div className="flex items-center justify-between mb-1">
                 <h2 className="text-sm font-semibold tracking-tight text-gray-900 dark:text-white">Filters</h2>
                 {hasActiveFilters && (
@@ -676,12 +672,13 @@ export default function StorefrontHomePage() {
                   {onSale ? 'Showing offers' : 'On sale'}
                 </button>
               </FilterGroup>
+              </div>
             </div>
           </aside>
         )}
 
         {/* ── Results ──────────────────────────────────────────────────────── */}
-        <div className="flex-1 min-w-0">
+        <div data-products-section className="flex-1 min-w-0">
           {!loading && total > 0 && (
             <div className="flex items-center justify-between gap-4 pb-5 mb-6 border-b border-gray-200 dark:border-gray-800">
               <p className="text-sm text-gray-500 dark:text-gray-400">
@@ -772,16 +769,16 @@ export default function StorefrontHomePage() {
             Sticky, so it stays useful while the shopper scrolls a long grid.
             `2xl` and up only — see the note on the flex row above. */}
         <aside className="w-72 shrink-0 hidden 2xl:block">
-          {/* Same height cap as the filter rail — this one now carries up to six
-              cards, which comfortably exceeds a laptop viewport. */}
-          <div className="sticky top-24 max-h-[calc(100vh-7rem)] overflow-y-auto -mx-2 px-2 [scrollbar-width:thin]">
-            <StorefrontWidgets
-              sfApi={sfApi}
-              slug={slug}
-              storeName={store.name}
-              currency={store.currency ?? 'USD'}
-              settings={store.settings}
-            />
+          <div className="sticky top-24 -mx-2 px-2">
+            <div className="overflow-y-auto max-h-[calc(100vh-7rem)] [scrollbar-width:thin]">
+              <StorefrontWidgets
+                sfApi={sfApi}
+                slug={slug}
+                storeName={store.name}
+                currency={store.currency ?? 'USD'}
+                settings={store.settings}
+              />
+            </div>
           </div>
         </aside>
       </div>

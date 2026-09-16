@@ -313,6 +313,7 @@ export default function App() {
                 merchant the shopper is actually buying from. */}
             <Route path="checkout" element={<Suspense fallback={<PageLoader />}><CheckoutPage /></Suspense>} />
             <Route path="orders/:id" element={<Suspense fallback={<PageLoader />}><OrderDetailPage /></Suspense>} />
+            <Route path="compare" element={<Suspense fallback={<PageLoader />}><ComparePage /></Suspense>} />
           </Route>
 
           {/* Admin protected.

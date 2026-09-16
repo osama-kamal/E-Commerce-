@@ -5,6 +5,7 @@ import { escapeHtml } from '../../utils/escapeHtml';
 import { config } from '../../config/index';
 import { getPlanLimits } from '../../config/planLimits';
 import { trialEndFrom, resolveSubscriptionAccess } from './subscription-access';
+import { isSupportedCurrency } from '../checkout/currency';
 
 export interface CreateStoreInput {
   name: string;
@@ -407,6 +408,7 @@ export interface StoreSettingsInput {
   name?: string;
   theme?: StoreTheme;
   pricesIncludeTax?: boolean;
+  currency?: string;
   logoUrl?: string;
   contactEmail?: string;
   contactPhone?: string;
@@ -455,6 +457,21 @@ export async function updateStoreSettings(storeId: string, input: StoreSettingsI
       throw createError('pricesIncludeTax must be a boolean', 400, 'BAD_REQUEST');
     }
     update.pricesIncludeTax = input.pricesIncludeTax;
+  }
+
+  // Currency is also a ROOT field (store.currency, not settings.currency).
+  // Changing it reinterprets every price: a $100 product becomes E£100.
+  // Existing orders snapshot their currency, so they are unaffected.
+  if (input.currency !== undefined) {
+    const code = input.currency.trim().toUpperCase();
+    if (!isSupportedCurrency(code)) {
+      throw createError(
+        `"${code}" is not a supported currency. See SUPPORTED_CURRENCIES in modules/checkout/currency.ts.`,
+        400,
+        'BAD_REQUEST'
+      );
+    }
+    update.currency = code;
   }
 
   const settingsFields = ['logoUrl', 'contactEmail', 'contactPhone', 'facebook', 'instagram', 'twitter', 'tiktok', 'youtube'] as const;

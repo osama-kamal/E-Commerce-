@@ -24,6 +24,7 @@ export const placeOrderSchema = z.object({
   body: z.object({
     shippingAddress: shippingAddressSchema,
     paymentMethod: z.enum(['online', 'cod']).default('online'),
+    paymentProvider: z.enum(['stripe', 'paymob']).optional(),
     couponCode: z.string().trim().min(1).max(64).optional(),
     // Only the rate ID is accepted. The price is re-derived server-side from
     // the rate record, so a tampered request cannot set its own postage.

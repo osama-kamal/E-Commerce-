@@ -54,7 +54,24 @@ const app = express();
 app.set('trust proxy', 1);
 
 // ── Security headers ──────────────────────────────────────────────────────────
-app.use(helmet());
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'", 'https://js.stripe.com', 'https://*.paymob.com', 'https://accept.paymob.com'],
+        styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
+        fontSrc: ["'self'", 'https://fonts.gstatic.com', 'data:'],
+        imgSrc: ["'self'", 'data:', 'https://res.cloudinary.com', 'https://*.stripe.com', 'https:'],
+        connectSrc: ["'self'", 'https://api.stripe.com', 'https://accept.paymob.com', 'https://*.paymob.com', 'https://res.cloudinary.com'],
+        frameSrc: ["'self'", 'https://js.stripe.com', 'https://accept.paymob.com', 'https://*.paymob.com'],
+        objectSrc: ["'none'"],
+        upgradeInsecureRequests: [],
+      },
+    },
+    crossOriginEmbedderPolicy: false,
+  })
+);
 
 // ── CORS ──────────────────────────────────────────────────────────────────────
 app.use(

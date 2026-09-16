@@ -2,7 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import * as authService from './auth.service';
 import { sendSuccess } from '../../utils/response';
 import { createError } from '../../middleware/errorHandler';
-import { NODE_ENV } from '../../config';
+import { NODE_ENV, config } from '../../config';
 
 // ── Cookie config ──────────────────────────────────────────────────────────────
 // The refresh token lives exclusively in an httpOnly cookie — it is never
@@ -16,9 +16,9 @@ function setRefreshCookie(res: Response, token: string): void {
   res.cookie(REFRESH_COOKIE_NAME, token, {
     httpOnly: true,          // not accessible via document.cookie
     secure: isProd,          // HTTPS only in prod
-    // 'none' required for cross-site requests (Vercel frontend → Railway backend).
-    // 'lax' is safe enough for local dev (same-site).
-    sameSite: isProd ? 'none' : 'lax',
+    // 'none' required for cross-site Vercel → Railway. 'strict' in dev is safe
+    // because localhost:5173 → localhost:5000 is same-site (registrable domain).
+    sameSite: isProd ? 'none' : 'strict',
     maxAge: REFRESH_COOKIE_MAX_AGE,
     path: '/api/v1/auth',    // limit scope to auth endpoints only
   });
@@ -29,7 +29,7 @@ function clearRefreshCookie(res: Response): void {
   res.clearCookie(REFRESH_COOKIE_NAME, {
     httpOnly: true,
     secure: isProd,
-    sameSite: isProd ? 'none' : 'lax',
+    sameSite: isProd ? 'none' : 'strict',
     path: '/api/v1/auth',
   });
 }
@@ -121,6 +121,28 @@ export async function refreshHandler(
   next: NextFunction
 ): Promise<void> {
   try {
+    // ── CSRF guard for cookie-sent refresh ─────────────────────────────────
+    // `SameSite=None` in prod means the cookie is sent cross-site, so a forged
+    // form POST from evil.com would also carry it. Require a same-origin signal:
+    // either Origin header matches CORS allow-list, or Referer starts with it.
+    // A fetch/XHR from our frontend always sends Origin; a form POST without
+    // Origin is rejected. This is the same check browsers enforce for CORS but
+    // applied even when the cookie is auto-sent.
+    const allowedOrigins = config.CORS_ORIGINS;
+    const origin = req.headers.origin as string | undefined;
+    const referer = req.headers.referer as string | undefined;
+    const isAllowedOrigin = origin
+      ? allowedOrigins.includes(origin)
+      : referer
+        ? allowedOrigins.some(o => referer.startsWith(o))
+        : false;
+    // In dev, X-Store-ID may be missing but Origin is still required for cookie refresh.
+    // Allow requests with no Origin only if they also have no cookie (body fallback).
+    const hasCookie = Boolean(req.cookies?.[REFRESH_COOKIE_NAME]);
+    if (hasCookie && !isAllowedOrigin) {
+      return next(createError('CSRF validation failed', 403, 'FORBIDDEN'));
+    }
+
     // Read refresh token from httpOnly cookie (preferred) or body (legacy fallback
     // for clients that haven't migrated yet — remove body fallback after full rollout)
     const cookieToken = req.cookies?.[REFRESH_COOKIE_NAME] as string | undefined;

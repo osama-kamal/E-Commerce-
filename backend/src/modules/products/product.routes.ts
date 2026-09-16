@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { authenticateJWT, authorizeRole } from '../../middleware/authenticate';
 import { validate } from '../../middleware/validate';
-import { uploadImage } from '../../middleware/upload';
+import { uploadImage, verifyImageMagic } from '../../middleware/upload';
 import {
   createProductSchema,
   updateProductSchema,
@@ -81,6 +81,7 @@ router.post(
   authenticateJWT,
   authorizeRole('admin'),
   uploadImage,
+  verifyImageMagic,
   uploadProductImage
 );
 

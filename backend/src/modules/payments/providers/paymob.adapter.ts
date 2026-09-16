@@ -450,6 +450,41 @@ export class PaymobAdapter implements IPaymentProvider {
       throw new Error('Paymob webhook: HMAC signature mismatch');
     }
 
+    // ── Replay protection ───────────────────────────────────────────────────
+    // Paymob webhooks carry no nonce or anti-replay token, so an intercepted
+    // callback could be resent indefinitely. Reject events whose `created_at`
+    // is far from now — Stripe does the same with a 5-minute tolerance inside
+    // `constructEvent`. Paymob stamps `created_at` as an ISO string (e.g.
+    // "2024-01-01T12:00:00.000000") or epoch ms depending on the API version,
+    // so we try both.
+    const createdAtRaw = obj.created_at as string | number | undefined;
+    if (createdAtRaw != null) {
+      let eventTime: number = NaN;
+      if (typeof createdAtRaw === 'number') {
+        eventTime = createdAtRaw > 1e12 ? createdAtRaw : createdAtRaw * 1000;
+      } else if (typeof createdAtRaw === 'string') {
+        // Handle both "2024-01-01T12:00:00.123456Z" and without Z.
+        const parsed = Date.parse(createdAtRaw);
+        eventTime = Number.isFinite(parsed) ? parsed : NaN;
+        // Fallback: try as epoch string
+        if (!Number.isFinite(eventTime)) {
+          const asNum = Number(createdAtRaw);
+          if (Number.isFinite(asNum)) eventTime = asNum > 1e12 ? asNum : asNum * 1000;
+        }
+      }
+      if (Number.isFinite(eventTime)) {
+        const ageMs = Math.abs(Date.now() - eventTime);
+        if (ageMs > 5 * 60 * 1000) {
+          logger.warn('PaymobAdapter: stale event rejected (replay protection)', {
+            transId: String(obj.id ?? '(none)'),
+            created_at: String(createdAtRaw),
+            ageMs,
+          });
+          throw new Error('Paymob webhook: stale event (replay protection)');
+        }
+      }
+    }
+
     return this.normaliseEvent(payload, obj);
   }
 

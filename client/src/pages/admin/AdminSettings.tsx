@@ -99,6 +99,7 @@ export default function AdminSettings() {
   /** Which theme is mid-write, so the picker can show a spinner and block clicks. */
   const [savingTheme, setSavingTheme] = useState<StoreTheme | null>(null);
   const [savingTaxMode, setSavingTaxMode] = useState(false);
+  const [savingCurrency, setSavingCurrency] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Load store data
@@ -217,6 +218,42 @@ export default function AdminSettings() {
     }
   };
 
+  /**
+   * Store currency.
+   *
+   * Changing this reinterprets every catalogue price: $100 becomes E£100.
+   * Existing orders snapshot their currency, so they are unaffected.
+   * Sent on its own like theme/tax — must not ride along with an unrelated edit.
+   */
+  const handleSelectCurrency = async (next: string) => {
+    if (!currentStore || savingCurrency) return;
+    const code = next.trim().toUpperCase();
+    if (code === (currentStore.currency ?? 'USD').toUpperCase()) return;
+
+    const message =
+      `Change store currency to ${code}?\n\n` +
+      `All catalogue prices will be interpreted as ${code}. ` +
+      `Existing orders keep their original currency.\n` +
+      (code === 'EGP'
+        ? 'Paymob will become available at checkout.'
+        : 'Paymob (EGP only) will be hidden at checkout; Stripe will be used.');
+    if (!window.confirm(message)) return;
+
+    setSavingCurrency(true);
+    const previous = currentStore.currency ?? 'USD';
+    dispatch(setCurrentStore({ ...currentStore, currency: code } as Store));
+
+    try {
+      const res = await storesApi.updateSettings(currentStore._id, { currency: code });
+      dispatch(setCurrentStore(res.data.data));
+      toast.success(`Currency changed to ${code}`);
+    } catch {
+      dispatch(setCurrentStore({ ...currentStore, currency: previous } as Store));
+    } finally {
+      setSavingCurrency(false);
+    }
+  };
+
   const handleSave = async () => {
     if (!currentStore) return;
     setSaving(true);
@@ -307,6 +344,38 @@ export default function AdminSettings() {
               </Link>
               . With no rates set up, no tax is charged.
             </p>
+          </div>
+        </Section>
+
+        {/* ── Currency ─────────────────────────────────────────────────────
+            Also a ROOT field like theme/tax — writes on change behind a confirm,
+            not bundled with the batched Save. Existing orders snapshot their
+            currency, so only future charges are affected. */}
+        <Section
+          title="Currency"
+          description="The currency your store prices and charges in. Applies to every product and to checkout. Existing orders keep their original currency."
+        >
+          <div className="space-y-3">
+            <Field label="Store Currency" htmlFor="settings-currency" hint={currentStore?.currency === 'EGP' ? 'Paymob is available at checkout (EGP only)' : 'Switch to EGP to enable Paymob'}>
+              <select
+                id="settings-currency"
+                className="input"
+                value={(currentStore?.currency ?? 'USD').toUpperCase()}
+                disabled={!currentStore || savingCurrency}
+                onChange={e => handleSelectCurrency(e.target.value)}
+                aria-describedby="settings-currency-hint"
+              >
+                <option value="USD">$ — USD — US Dollar</option>
+                <option value="EGP">E£ — EGP — Egyptian Pound</option>
+                <option value="EUR">€ — EUR — Euro</option>
+                <option value="GBP">£ — GBP — British Pound</option>
+                <option value="SAR">﷼ — SAR — Saudi Riyal</option>
+                <option value="AED">AED — AED — UAE Dirham</option>
+                <option value="QAR">QAR — QAR — Qatari Riyal</option>
+                <option value="KWD">KWD — KWD — Kuwaiti Dinar</option>
+              </select>
+            </Field>
+            {savingCurrency && <p className="text-xs text-gray-400">Saving currency…</p>}
           </div>
         </Section>
 

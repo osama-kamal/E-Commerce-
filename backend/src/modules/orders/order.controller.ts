@@ -43,7 +43,7 @@ function getStoreId(req: Request): string {
 function redactCheckoutBody(body: unknown): Record<string, unknown> {
   if (!body || typeof body !== 'object') return { bodyPresent: false };
 
-  const { shippingAddress, paymentMethod, couponCode, idempotencyKey, shippingRateId } =
+  const { shippingAddress, paymentMethod, paymentProvider, couponCode, idempotencyKey, shippingRateId } =
     body as Record<string, unknown>;
 
   const address = (shippingAddress ?? {}) as Record<string, unknown>;
@@ -52,6 +52,7 @@ function redactCheckoutBody(body: unknown): Record<string, unknown> {
 
   return {
     paymentMethod,
+    paymentProvider,
     couponCode,
     shippingRateId,
     hasIdempotencyKey: Boolean(idempotencyKey),
@@ -70,9 +71,9 @@ export async function placeOrder(req: Request, res: Response, next: NextFunction
     const customerId = req.user!.userId.toString();
     // `discountAmount` is intentionally NOT read from the body — the discount is
     // resolved server-side from `couponCode` inside placeOrder.
-    const { shippingAddress, paymentMethod = 'online', couponCode, idempotencyKey, shippingRateId } = req.body;
+    const { shippingAddress, paymentMethod = 'online', paymentProvider, couponCode, idempotencyKey, shippingRateId } = req.body;
     const order = await orderService.placeOrder(
-      getStoreId(req), customerId, shippingAddress, paymentMethod, couponCode, idempotencyKey, shippingRateId
+      getStoreId(req), customerId, shippingAddress, paymentMethod, couponCode, idempotencyKey, shippingRateId, paymentProvider
     );
     sendSuccess(res, order, 201);
   } catch (err) {

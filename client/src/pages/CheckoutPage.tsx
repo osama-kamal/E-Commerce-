@@ -128,6 +128,12 @@ function PaymobIframeModal({
             ×
           </button>
         </div>
+        <div className="px-5 py-2.5 bg-gray-50 dark:bg-gray-800/60 border-b border-gray-200 dark:border-gray-700 flex items-start gap-2">
+          <Lock className="h-3.5 w-3.5 mt-0.5 shrink-0 text-gray-400" aria-hidden="true" />
+          <p className="text-xs text-gray-600 dark:text-gray-400 leading-relaxed">
+            <span className="font-semibold">Test:</span> 5123 4567 8901 2346 <span className="text-gray-400">·</span> Any name <span className="text-gray-400">·</span> Any future <span className="text-gray-400">·</span> Any CVV
+          </p>
+        </div>
         <iframe
           ref={iframeRef}
           src={iframeUrl}
@@ -327,6 +333,8 @@ function CheckoutForm() {
   // Amounts must be rendered in the store's currency. The UI previously printed
   // a literal "$" regardless, so an EGP store quoted dollars and billed pounds.
   const currency = tenant.currency;
+  // Paymob only settles in EGP — hide the option for stores using any other currency.
+  const paymobAvailable = currency.toUpperCase() === 'EGP';
 
   // API clients bound to THIS tenant's axios instance. Placing an order,
   // quoting delivery and taking payment all previously went through the global
@@ -342,9 +350,10 @@ function CheckoutForm() {
   const [shippingData, setShippingData] = useState<ShippingAddress | null>(null);
   const [paymentMethod, setPaymentMethod] = useState<'online' | 'cod'>('online');
   // Default away from Stripe when it cannot be used, so the customer is not
-  // dropped onto a dead gateway.
+  // dropped onto a dead gateway. Also default away from Paymob when the store
+  // currency is not EGP — Paymob cannot process foreign currencies.
   const [onlineProvider, setOnlineProvider] = useState<OnlineProvider>(
-    STRIPE_UNAVAILABLE ? 'paymob' : 'stripe'
+    STRIPE_UNAVAILABLE && paymobAvailable ? 'paymob' : 'stripe'
   );
   const [payLoading, setPayLoading] = useState(false);
   const [orderLoading, setOrderLoading] = useState(false);
@@ -455,7 +464,8 @@ function CheckoutForm() {
         idempotencyKey,
         // Only the ID travels. The server re-derives the postage from the rate
         // record, so this cannot be used to discount delivery.
-        shippingRateId ?? undefined
+        shippingRateId ?? undefined,
+        paymentMethod === 'online' ? onlineProvider : undefined
       );
       const order = orderRes.data.data;
       const oid = order._id;
@@ -660,7 +670,7 @@ function CheckoutForm() {
                   {paymentMethod === 'online' && (
                     <div className="mt-3">
                       <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-2 uppercase tracking-wide">Payment Gateway</p>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <div className={`grid gap-2 ${paymobAvailable ? 'grid-cols-1 sm:grid-cols-2' : 'grid-cols-1'}`}>
                         <label className={`flex items-center gap-2 p-2.5 rounded-lg border transition-colors text-sm ${
                           STRIPE_UNAVAILABLE ? 'border-gray-200 dark:border-gray-700 text-gray-400 opacity-60 cursor-not-allowed'
                           : onlineProvider === 'stripe' ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400 cursor-pointer'
@@ -677,12 +687,13 @@ function CheckoutForm() {
                           <div>
                             <p className="font-semibold leading-none">Stripe</p>
                             <p className="text-xs text-gray-400 mt-0.5">
-                              {STRIPE_UNAVAILABLE ? 'Currently unavailable' : 'Global · USD'}
+                              {STRIPE_UNAVAILABLE ? 'Currently unavailable' : currency === 'EGP' ? 'Global · USD / EGP' : `Global · ${currency}`}
                             </p>
                           </div>
                           {onlineProvider === 'stripe' && !STRIPE_UNAVAILABLE && <span className="ml-auto text-blue-500 text-xs">✓</span>}
                         </label>
 
+                        {paymobAvailable && (
                         <label className={`flex items-center gap-2 p-2.5 rounded-lg border cursor-pointer transition-colors text-sm ${
                           onlineProvider === 'paymob' ? 'border-amber-500 bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400' : 'border-gray-200 dark:border-gray-700 text-gray-600 hover:border-gray-300'
                         }`}>
@@ -694,6 +705,7 @@ function CheckoutForm() {
                           </div>
                           {onlineProvider === 'paymob' && <span className="ml-auto text-amber-500 text-xs">✓</span>}
                         </label>
+                        )}
                       </div>
                     </div>
                   )}
@@ -774,6 +786,14 @@ function CheckoutForm() {
                     <p className="text-sm font-medium text-amber-800 dark:text-amber-400">🇪🇬 Paymob secure checkout</p>
                     <p className="text-xs text-amber-700 dark:text-amber-500">
                       You'll complete your payment in the Paymob window. Your card details are handled securely by Paymob.
+                    </p>
+                  </div>
+                  <div className="bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-3 flex items-start gap-2">
+                    <Lock className="h-3.5 w-3.5 mt-0.5 shrink-0 text-gray-400" aria-hidden="true" />
+                    <p className="text-xs text-gray-600 dark:text-gray-400 leading-relaxed">
+                      <span className="font-semibold">Test card:</span> 5123 4567 8901 2346 <span className="text-gray-400">·</span> Any name <span className="text-gray-400">·</span> Any future expiry <span className="text-gray-400">·</span> Any CVV
+                      <br />
+                      <span className="text-gray-500">Also works:</span> 4242 4242 4242 4242 <span className="text-gray-400">·</span> 4980 0000 0000 0000
                     </p>
                   </div>
                   <div className="flex justify-between text-sm text-gray-600 dark:text-gray-400">

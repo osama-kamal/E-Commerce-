@@ -214,6 +214,13 @@ export async function addProductImage(id: string, storeId: string, imageUrl: str
   if (!Types.ObjectId.isValid(id)) {
     throw createError('Invalid product ID', 400, 'BAD_REQUEST');
   }
+  // Enforce 10-image cap before hitting DB — the schema validator is the last line, this is the user-facing error.
+  const existing = await productRepo.findProductById(id, new Types.ObjectId(storeId));
+  if (!existing) throw createError('Product not found', 404, 'NOT_FOUND');
+  const currentCount = (existing as unknown as { images?: string[] }).images?.length ?? 0;
+  if (currentCount >= 10) {
+    throw createError('Maximum 10 images per product reached. Delete an image before adding a new one.', 400, 'BAD_REQUEST');
+  }
   const product = await productRepo.pushProductImage(id, new Types.ObjectId(storeId), imageUrl);
   if (!product) throw createError('Product not found', 404, 'NOT_FOUND');
   return product as unknown as ProductDoc;

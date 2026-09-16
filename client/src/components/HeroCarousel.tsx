@@ -356,7 +356,15 @@ export default function HeroCarousel({
 
             <div className="animate-rise-in mt-8 flex flex-wrap items-center gap-3" style={{ animationDelay: '220ms' }}>
               {active.href ? (
-                <Link to={active.href} className={ctaClasses}>
+                <Link
+                  to={active.href}
+                  className={ctaClasses}
+                  onClick={() => {
+                    setTimeout(() => {
+                      document.querySelector('[data-products-section]')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    }, 100);
+                  }}
+                >
                   {active.cta}
                   <ArrowRight className="w-4 h-4" aria-hidden="true" />
                 </Link>

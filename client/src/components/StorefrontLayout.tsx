@@ -19,6 +19,7 @@ import { AlertTriangle, Mail, Moon, Phone, ShoppingCart, Store as StoreIcon, Sun
 import { Store } from '../types';
 import { StorefrontProvider } from '../contexts/StorefrontContext';
 import { ThemeProvider } from '../theme/ThemeProvider';
+import ComparisonBar from './ComparisonBar';
 import { useDarkMode } from '../hooks/useDarkMode';
 import { useAppSelector } from '../hooks/useAppDispatch';
 import { useCart } from '../hooks/useCart';
@@ -444,6 +445,7 @@ export default function StorefrontLayout() {
           </main>
           <StorefrontFooter store={store} slug={slug!} />
         </div>
+        <ComparisonBar />
       </ThemeProvider>
     </StorefrontProvider>
   );

@@ -172,6 +172,8 @@ export interface Order {
   /** Running total refunded, in the order's currency. */
   refundedTotal?: number;
   paymentMethod: PaymentMethod;
+  /** Online gateway used (stripe/paymob). Undefined for COD or legacy orders. */
+  paymentProvider?: 'stripe' | 'paymob';
   paymentIntentId?: string;
   shippingAddress: ShippingAddress;
   createdAt: string;

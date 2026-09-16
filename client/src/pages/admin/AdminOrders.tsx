@@ -20,13 +20,20 @@ const PAYMENT_STATUS_STYLES: Record<PaymentStatus, { label: string; className: s
 /**
  * Payment state, shown alongside — never merged into — fulfilment status.
  * Orders written before refunds existed have no value until the backfill runs.
+ * When the order is paid, the gateway (Stripe/Paymob) is shown alongside.
  */
-function PaymentStatusBadge({ status }: { status?: PaymentStatus }) {
+function PaymentStatusBadge({ status, provider }: { status?: PaymentStatus; provider?: string }) {
   if (!status) return <span className="text-xs text-gray-400">—</span>;
   const style = PAYMENT_STATUS_STYLES[status];
+  const isPaid = status === 'paid' || status === 'partially_refunded' || status === 'refunded';
   return (
-    <span className={`text-xs px-2 py-1 rounded-full font-medium ${style.className}`}>
+    <span className={`inline-flex items-center gap-1 text-xs px-2 py-1 rounded-full font-medium ${style.className}`}>
       {style.label}
+      {isPaid && provider && (
+        <span className="ml-1 text-[10px] px-1 py-0.5 rounded bg-white/60 dark:bg-black/20 font-semibold uppercase">
+          {provider === 'paymob' ? 'Paymob' : 'Stripe'}
+        </span>
+      )}
     </span>
   );
 }
@@ -49,11 +56,25 @@ const STATUS_COLORS: Record<string, string> = {
   cancelled: 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300',
 };
 
-function PaymentBadge({ method }: { method?: string }) {
+function PaymentBadge({ method, provider }: { method?: string; provider?: string }) {
   if (method === 'cod') {
     return (
       <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-medium bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300">
         💵 COD
+      </span>
+    );
+  }
+  if (provider === 'paymob') {
+    return (
+      <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-medium bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300">
+        🇪🇬 Paymob
+      </span>
+    );
+  }
+  if (provider === 'stripe') {
+    return (
+      <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-medium bg-indigo-100 text-indigo-800 dark:bg-indigo-900/30 dark:text-indigo-300">
+        💳 Stripe
       </span>
     );
   }
@@ -100,7 +121,7 @@ function OrderDetailsModal({ order, onClose }: { order: Order; onClose: () => vo
             </div>
             <div>
               <p className="text-gray-500 dark:text-gray-400">Payment Method</p>
-              <PaymentBadge method={order.paymentMethod} />
+              <PaymentBadge method={order.paymentMethod} provider={(order as any).paymentProvider} />
             </div>
             {order.couponCode && (
               <div>
@@ -331,10 +352,10 @@ export default function AdminOrders() {
                     )}
                   </td>
                   <td className="px-4 py-3">
-                    <PaymentBadge method={order.paymentMethod} />
+                    <PaymentBadge method={order.paymentMethod} provider={(order as any).paymentProvider} />
                   </td>
                   <td className="px-4 py-3">
-                    <PaymentStatusBadge status={order.paymentStatus} />
+                    <PaymentStatusBadge status={order.paymentStatus} provider={(order as any).paymentProvider} />
                   </td>
                   <td className="px-4 py-3">
                     <span className={`text-xs px-2 py-1 rounded-full capitalize ${STATUS_COLORS[order.status]}`}>

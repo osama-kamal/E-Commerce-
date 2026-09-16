@@ -68,7 +68,8 @@ export async function placeOrder(
   paymentMethod: PaymentMethod = 'online',
   couponCode?: string,
   idempotencyKey?: string,
-  shippingRateId?: string
+  shippingRateId?: string,
+  paymentProvider?: 'stripe' | 'paymob'
 ): Promise<OrderDoc> {
   const storeObjId    = new Types.ObjectId(storeId);
   const customerObjId = new Types.ObjectId(customerId);
@@ -351,6 +352,9 @@ export async function placeOrder(
           couponCode,
           shippingAddress,
           paymentMethod,
+          // Store the chosen gateway so admin can see Stripe vs Paymob in Paid column.
+          // Only for online payments; COD has no gateway.
+          ...(paymentMethod === 'online' && paymentProvider && { paymentProvider }),
           status: 'pending',
           ...(idempotencyKey && { idempotencyKey }),
         } as any,
@@ -410,6 +414,7 @@ export async function placeOrder(
       couponCode,
       shippingAddress,
       paymentMethod,
+      ...(paymentMethod === 'online' && paymentProvider && { paymentProvider }),
       status: 'pending',
       ...(idempotencyKey && { idempotencyKey }),
     } as any);

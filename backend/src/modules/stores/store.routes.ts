@@ -20,7 +20,7 @@ import {
   resolveHost,
 } from './store.controller';
 import { resolveStore } from '../../middleware/resolveStore';
-import { uploadImage } from '../../middleware/upload';
+import { uploadImage, verifyImageMagic } from '../../middleware/upload';
 
 const router = Router();
 
@@ -41,7 +41,7 @@ router.delete('/:id', authenticateJWT, validate(storeIdSchema), deleteMyStore);
 
 // ── Settings (owner or super-admin) ──────────────────────────────────────────
 router.patch('/:id/settings', authenticateJWT, updateStoreSettings);
-router.post('/:id/logo', authenticateJWT, uploadImage, uploadStoreLogo);
+router.post('/:id/logo', authenticateJWT, uploadImage, verifyImageMagic, uploadStoreLogo);
 router.get('/:id/logo', getStoreLogo);  // public — redirects to Cloudinary URL
 router.post('/:id/token', authenticateJWT, getStoreToken);
 

@@ -19,6 +19,12 @@ export interface UpdateSettingsPayload extends Partial<StoreSettings> {
    * its own rather than bundled into a general settings save.
    */
   pricesIncludeTax?: boolean;
+  /**
+   * ISO 4217 currency the store prices and charges in (e.g. USD, EGP).
+   * Also a document-root field. Must be in SUPPORTED_CURRENCIES or the
+   * server returns 400.
+   */
+  currency?: string;
 }
 
 export const storesApi = {

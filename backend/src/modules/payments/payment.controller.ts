@@ -148,10 +148,12 @@ export async function paymobWebhook(
       event = await adapter.verifyWebhookSignature(rawBody, headers);
     } catch (sigErr) {
       const err = sigErr as Error;
-      logger.warn('Paymob webhook: signature verification failed', { message: err.message });
-      // Return 200 to prevent Paymob from flooding retries on a misconfigured secret,
-      // but log the failure clearly. Change to 400 once HMAC secret is confirmed correct.
-      res.status(200).json({ received: true, verified: false });
+      const isReplay = err.message.includes('stale event');
+      // HMAC mismatch → 400 so Paymob knows the secret is wrong (and we can alert).
+      // Replay / stale → 200 to avoid retry flood on an old event that will never age into validity.
+      const status = isReplay ? 200 : 400;
+      logger.warn('Paymob webhook: signature verification failed', { message: err.message, status });
+      res.status(status).json({ received: true, verified: false, error: err.message });
       return;
     }
 

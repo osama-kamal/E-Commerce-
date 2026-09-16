@@ -21,11 +21,13 @@ export function createOrdersApi(api: AxiosInstance = defaultApi) {
     paymentMethod: 'online' | 'cod' = 'online',
     couponCode?: string,
     idempotencyKey?: string,
-    shippingRateId?: string
+    shippingRateId?: string,
+    paymentProvider?: 'stripe' | 'paymob'
   ) =>
     api.post<{ data: Order }>('/orders', {
       shippingAddress,
       paymentMethod,
+      paymentProvider,
       couponCode,
       idempotencyKey,
       shippingRateId,
